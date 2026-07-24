@@ -12,7 +12,14 @@ import type { PresenceState, Zone } from '@meditracker/shared';
  */
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080';
-const token = new URLSearchParams(window.location.search).get('token') ?? '';
+
+/** ?token= 이 있으면 사용, 없으면 개발용 토큰 자동 발급 (Phase 2 로그인 화면에서 대체) */
+async function resolveToken(): Promise<string> {
+  const urlToken = new URLSearchParams(window.location.search).get('token');
+  if (urlToken) return urlToken;
+  const res = await fetch(`${SERVER_URL}/dev-token?type=staff`);
+  return (await res.json()).token;
+}
 
 const TILE = 40;
 const ZONE_W = 150;
@@ -66,7 +73,7 @@ class StaffMapScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0);
 
-    this.connect();
+    this.connect(await resolveToken());
   }
 
   private drawZone(zone: Zone): void {
@@ -80,7 +87,7 @@ class StaffMapScene extends Phaser.Scene {
       .setOrigin(0.5, 0);
   }
 
-  private connect(): void {
+  private connect(token: string): void {
     this.socket = io(`${SERVER_URL}/staff`, { auth: { token } });
 
     this.socket.on('presence:update', (states: PresenceState[]) => {

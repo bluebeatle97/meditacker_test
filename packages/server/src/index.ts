@@ -6,6 +6,7 @@ import { GenericJsonAdapter } from './ingestion/adapters/generic-json.adapter.js
 import { PresenceService } from './presence/presence-service.js';
 import { openDb } from './db/index.js';
 import { createWsServer } from './ws/index.js';
+import { signToken } from './auth/jwt.js';
 
 // ── 조립: Ingestion → Zone Engine → Presence/DB → Permission → WS ──────────
 
@@ -40,6 +41,20 @@ const httpServer = createServer((req, res) => {
       'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify(loadZones()));
+    return;
+  }
+  // ⚠️ 개발 전용 — 토큰 없이 화면 열면 프론트가 자동 호출. 실배포(Phase 2 로그인) 시 제거.
+  if (req.url?.startsWith('/dev-token')) {
+    const url = new URL(req.url, 'http://localhost');
+    const claims =
+      url.searchParams.get('type') === 'patient'
+        ? ({ personId: 'patient-001', type: 'patient' } as const)
+        : ({ personId: 'staff-doc-1', type: 'staff', role: 'doctor', dept: 'derma' } as const);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(JSON.stringify({ token: signToken(claims, SERVER_CONFIG.jwtSecret) }));
     return;
   }
   res.writeHead(404);

@@ -12,7 +12,14 @@ import type { Zone, ZoneAction } from '@meditracker/shared';
  */
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080';
-const token = new URLSearchParams(window.location.search).get('token') ?? '';
+
+/** ?token= 이 있으면 사용, 없으면 개발용 토큰 자동 발급 (Phase 2 로그인 화면에서 대체) */
+async function resolveToken(): Promise<string> {
+  const urlToken = new URLSearchParams(window.location.search).get('token');
+  if (urlToken) return urlToken;
+  const res = await fetch(`${SERVER_URL}/dev-token?type=patient`);
+  return (await res.json()).token;
+}
 
 const TILE = 24; // 환자 화면은 축소 스케일
 const ZONE_W = 92;
@@ -68,7 +75,7 @@ class PatientScene extends Phaser.Scene {
     const label = this.add.text(0, 24, '나', { color: '#ffd166', fontSize: '13px' }).setOrigin(0.5, 0);
     this.me = this.add.container(400, 640, [ring, dot, label]).setVisible(false);
 
-    this.connect();
+    this.connect(await resolveToken());
   }
 
   private drawZone(zone: Zone): void {
@@ -81,7 +88,7 @@ class PatientScene extends Phaser.Scene {
       .setOrigin(0.5, 0);
   }
 
-  private connect(): void {
+  private connect(token: string): void {
     this.socket = io(`${SERVER_URL}/patient`, { auth: { token } });
 
     this.socket.on(
