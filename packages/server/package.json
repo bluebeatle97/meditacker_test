@@ -8,6 +8,8 @@
     "start": "tsx src/index.ts",
     "test": "vitest run",
     "mock:gw": "tsx src/tools/mock-gateway.ts",
+    "dev:broker": "tsx src/tools/dev-broker.ts",
+    "dev:seed": "tsx src/tools/dev-seed.ts",
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.json"
   },
@@ -22,6 +24,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.10.2",
+    "aedes": "^1.1.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
