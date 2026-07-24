@@ -28,8 +28,8 @@ if (adminBtn) {
 }
 
 const TILE = 40;
-const ZONE_W = 150;
-const ZONE_H = 110;
+const ZONE_W = 104; // 도면 기준 30개 구역이 겹치지 않게 축소
+const ZONE_H = 76;
 
 const ZONE_COLORS: Record<string, number> = {
   waiting: 0x2d6a4f,

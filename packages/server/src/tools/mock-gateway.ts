@@ -31,13 +31,15 @@ interface Waypoint {
 }
 
 const ROUTE: Waypoint[] = [
-  { x: 4, y: 3, pause: 15 }, // 접수
-  { x: 10, y: 8, pause: 60 }, // 대기실 (좌측)
-  { x: 12, y: 9, pause: 30 }, // 대기실 안에서 자리 이동 ← 같은 존 내 움직임 확인
-  { x: 18, y: 4, pause: 45 }, // 상담실1
-  { x: 26, y: 10, pause: 45 }, // 시술실1
-  { x: 26, y: 16, pause: 30 }, // 회복실1
-  { x: 10, y: 8, pause: 20 }, // 대기실 복귀
+  // 도면(zones.json/gateways.json) 좌표 기준 환자 동선
+  { x: 16, y: 12, pause: 40 }, // 접수·중앙 대기
+  { x: 16, y: 13, pause: 25 }, // 대기 안에서 자리 이동 ← 같은 존 내 움직임 확인
+  { x: 12, y: 11, pause: 30 }, // 상담실 2
+  { x: 10, y: 9, pause: 25 }, // 상담실 1
+  { x: 10, y: 3, pause: 45 }, // 시술실 2
+  { x: 3, y: 8, pause: 40 }, // 수술실 1
+  { x: 7, y: 9, pause: 35 }, // VIP 회복실
+  { x: 24, y: 13, pause: 20 }, // 대기공간 복귀
 ];
 
 const TAGS = [

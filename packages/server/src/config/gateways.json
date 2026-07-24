@@ -1,10 +1,40 @@
 [
-  { "gatewayId": "GW-A1", "zoneId": "waiting_main", "label": "대기실-천장-A", "tile": { "x": 8, "y": 8 } },
-  { "gatewayId": "GW-A2", "zoneId": "waiting_main", "label": "대기실-천장-B", "tile": { "x": 12, "y": 8 } },
-  { "gatewayId": "GW-B1", "zoneId": "reception", "label": "접수-천장", "tile": { "x": 4, "y": 3 } },
-  { "gatewayId": "GW-C1", "zoneId": "consult_1", "label": "상담실1-천장", "tile": { "x": 18, "y": 4 } },
-  { "gatewayId": "GW-C2", "zoneId": "consult_2", "label": "상담실2-천장", "tile": { "x": 22, "y": 4 } },
-  { "gatewayId": "GW-D1", "zoneId": "surgery_1", "label": "시술실1-천장", "tile": { "x": 26, "y": 10 } },
-  { "gatewayId": "GW-E1", "zoneId": "recovery_1", "label": "회복실1-천장", "tile": { "x": 26, "y": 16 } },
-  { "gatewayId": "GW-F1", "zoneId": "staff_room", "label": "직원공간-천장", "tile": { "x": 2, "y": 16 } }
+  { "gatewayId": "GW-01", "zoneId": "proc_1", "label": "시술실1-천장", "tile": { "x": 7, "y": 3 } },
+  { "gatewayId": "GW-02", "zoneId": "proc_2", "label": "시술실2-천장", "tile": { "x": 10, "y": 3 } },
+  { "gatewayId": "GW-03", "zoneId": "proc_3", "label": "시술실3-천장", "tile": { "x": 13, "y": 3 } },
+  { "gatewayId": "GW-04", "zoneId": "laser", "label": "레이저실-천장", "tile": { "x": 16, "y": 3 } },
+  { "gatewayId": "GW-05", "zoneId": "vip_skin_1", "label": "VIP피부관리1-천장", "tile": { "x": 20, "y": 3 } },
+  { "gatewayId": "GW-06", "zoneId": "vip_skin_2", "label": "VIP피부관리2-천장", "tile": { "x": 24, "y": 3 } },
+
+  { "gatewayId": "GW-07", "zoneId": "nurse_prep", "label": "간호준비실-천장", "tile": { "x": 3, "y": 5 } },
+  { "gatewayId": "GW-08", "zoneId": "surgery_1", "label": "수술실1-천장", "tile": { "x": 3, "y": 8 } },
+  { "gatewayId": "GW-09", "zoneId": "surgery_2", "label": "수술실2-천장", "tile": { "x": 3, "y": 11 } },
+  { "gatewayId": "GW-10", "zoneId": "surgery_vip", "label": "VIP수술실-천장", "tile": { "x": 4, "y": 14 } },
+
+  { "gatewayId": "GW-11", "zoneId": "changing_m", "label": "남자체인징-천장", "tile": { "x": 7, "y": 6 } },
+  { "gatewayId": "GW-12", "zoneId": "toilet_common", "label": "공용화장실-천장", "tile": { "x": 10, "y": 6 } },
+  { "gatewayId": "GW-13", "zoneId": "changing_w", "label": "여자체인징-천장", "tile": { "x": 13, "y": 6 } },
+  { "gatewayId": "GW-14", "zoneId": "vip_recovery", "label": "VIP회복실-천장", "tile": { "x": 7, "y": 9 } },
+  { "gatewayId": "GW-15", "zoneId": "pharmacy", "label": "약재실-천장", "tile": { "x": 5, "y": 12 } },
+
+  { "gatewayId": "GW-16", "zoneId": "equip_store", "label": "장비격납-천장", "tile": { "x": 16, "y": 6 } },
+  { "gatewayId": "GW-17", "zoneId": "photo", "label": "촬영실-천장", "tile": { "x": 19, "y": 6 } },
+  { "gatewayId": "GW-18", "zoneId": "toilet_w", "label": "여자화장실-천장", "tile": { "x": 16, "y": 9 } },
+  { "gatewayId": "GW-19", "zoneId": "skincare", "label": "피부관리실-천장", "tile": { "x": 22, "y": 7 } },
+  { "gatewayId": "GW-20", "zoneId": "skincare_prep", "label": "피부관리준비실-천장", "tile": { "x": 19, "y": 9 } },
+
+  { "gatewayId": "GW-21", "zoneId": "consult_1", "label": "상담실1-천장", "tile": { "x": 10, "y": 9 } },
+  { "gatewayId": "GW-22", "zoneId": "consult_2", "label": "상담실2-천장", "tile": { "x": 12, "y": 11 } },
+  { "gatewayId": "GW-23", "zoneId": "consult_3", "label": "상담실3-천장", "tile": { "x": 24, "y": 9 } },
+  { "gatewayId": "GW-24", "zoneId": "vip_consult", "label": "VIP상담실-천장", "tile": { "x": 22, "y": 12 } },
+
+  { "gatewayId": "GW-25", "zoneId": "reception", "label": "접수-천장-A", "tile": { "x": 15, "y": 12 } },
+  { "gatewayId": "GW-26", "zoneId": "reception", "label": "접수-천장-B", "tile": { "x": 17, "y": 13 } },
+  { "gatewayId": "GW-27", "zoneId": "waiting_2", "label": "대기공간-천장-A", "tile": { "x": 23, "y": 12 } },
+  { "gatewayId": "GW-28", "zoneId": "waiting_2", "label": "대기공간-천장-B", "tile": { "x": 25, "y": 14 } },
+
+  { "gatewayId": "GW-29", "zoneId": "staff_room", "label": "직원실-천장", "tile": { "x": 19, "y": 12 } },
+  { "gatewayId": "GW-30", "zoneId": "pantry", "label": "탕비공간-천장", "tile": { "x": 16, "y": 15 } },
+  { "gatewayId": "GW-31", "zoneId": "staff_zone", "label": "직원휴게실-천장", "tile": { "x": 21, "y": 15 } },
+  { "gatewayId": "GW-32", "zoneId": "director", "label": "대표원장실-천장", "tile": { "x": 19, "y": 15 } }
 ]
