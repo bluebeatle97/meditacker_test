@@ -1,0 +1,129 @@
+// ─── 정적 데이터 (설계서 5.1) ───────────────────────────────────────────────
+
+export type ZoneType =
+  | 'waiting'
+  | 'consult'
+  | 'surgery'
+  | 'laser'
+  | 'recovery'
+  | 'skincare'
+  | 'reception'
+  | 'staff'
+  | 'etc';
+
+export type ZoneCategory = 'patient_area' | 'staff_area' | 'common';
+
+export interface Zone {
+  zoneId: string; // "waiting_main", "consult_1"
+  name: string; // "메인 대기실"
+  type: ZoneType;
+  category: ZoneCategory;
+  tilePosition: { x: number; y: number }; // Phaser 맵 좌표
+  socialEnabled: boolean; // 존 채팅 허용 여부
+}
+
+export interface Gateway {
+  gatewayId: string; // MAC 또는 고유 ID
+  zoneId: string; // 이 게이트웨이가 커버하는 존
+  label: string; // "대기실-천장-A"
+}
+
+export type PersonType = 'patient' | 'staff';
+export type StaffRole = 'doctor' | 'nurse' | 'manager' | 'staff';
+
+export interface TagAssignment {
+  tagId: string; // 비콘 UUID 또는 MAC
+  assignedTo: string; // personId
+  personType: PersonType;
+  assignedAt: number; // 접수 시각 (환자 대기시간 기산점)
+  active: boolean;
+}
+
+export interface Person {
+  personId: string;
+  type: PersonType;
+  displayName: string; // 환자는 익명 별칭 권장 ("환자 A")
+  role?: StaffRole; // 직원 전용
+  dept?: string;
+}
+
+// ─── 런타임 상태 (설계서 5.2) ───────────────────────────────────────────────
+
+export interface PresenceState {
+  tagId: string;
+  currentZone: string | null; // null = 추적구역 벗어남(자리비움)
+  lastSeen: number;
+  enteredAt: number; // 현재 존 진입 시각
+  candidateZone?: string; // 전환 판정 중인 후보존
+  candidateCount?: number; // 후보존 연속 카운트 (채터링 방지)
+}
+
+export interface PresenceLog {
+  id: number;
+  tagId: string;
+  personId: string;
+  zoneId: string;
+  enteredAt: number;
+  exitedAt: number | null;
+  durationSec: number | null;
+}
+
+// ─── Ingestion 표준 이벤트 (설계서 6.1) ─────────────────────────────────────
+
+export interface ScanEvent {
+  gatewayId: string;
+  tagId: string;
+  rssi: number; // dBm (음수, 클수록 가까움: -50 > -90)
+  timestamp: number;
+}
+
+// ─── 존 액션 (설계서 6.4) ───────────────────────────────────────────────────
+
+export type ZoneActionType = 'info' | 'reaction' | 'checkin' | 'faq';
+
+export interface ZoneAction {
+  actionId: string;
+  zoneId: string;
+  label: string;
+  type: ZoneActionType;
+}
+
+// ─── WebSocket 프로토콜 (설계서 7) ──────────────────────────────────────────
+
+/** namespace: /patient — 서버→클라 */
+export interface PatientServerEvents {
+  'presence:self': (p: { zone: string | null; waitingRank: number; estimatedWaitSec: number }) => void;
+  'zone:occupancy': (p: { zoneId: string; anonymousCount: number }) => void;
+  'zone:actions': (actions: ZoneAction[]) => void;
+  'chat:message': (p: { alias: string; text: string; ts: number }) => void;
+  reaction: (p: { alias: string; emoji: string; ts: number }) => void;
+}
+
+/** namespace: /patient — 클라→서버 */
+export interface PatientClientEvents {
+  'chat:send': (p: { text: string }) => void;
+  'reaction:send': (p: { emoji: string }) => void;
+  'action:invoke': (p: { actionId: string }) => void;
+}
+
+/** namespace: /staff — 서버→클라 */
+export interface StaffServerEvents {
+  'presence:update': (states: PresenceState[]) => void; // 권한 필터링된 대상만
+  'presence:remove': (p: { tagId: string }) => void;
+  'waittime:update': (p: { personId: string; zone: string; durationSec: number }) => void;
+}
+
+/** namespace: /staff — 클라→서버 */
+export interface StaffClientEvents {
+  'person:locate': (p: { personId: string }) => void;
+  'filter:set': (p: { zoneId?: string; dept?: string }) => void;
+}
+
+/** JWT payload — role·dept·담당구역 claim (설계서 4) */
+export interface AuthClaims {
+  personId: string;
+  type: PersonType;
+  role?: StaffRole;
+  dept?: string;
+  chargeZones?: string[]; // 간호사 담당구역
+}

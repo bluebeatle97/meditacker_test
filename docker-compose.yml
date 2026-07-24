@@ -1,0 +1,13 @@
+# 온프레미스 폐쇄망 배포 (설계서 1) — Mosquitto MQTT 브로커
+# Windows 사무용 PC: Docker Desktop 또는 mosquitto 네이티브 설치 중 택 1
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: meditracker-mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped

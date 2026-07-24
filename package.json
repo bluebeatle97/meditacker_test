@@ -1,0 +1,16 @@
+{
+  "name": "meditracker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "BLE zone-based indoor RTLS for clinic (patients & staff)",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w @meditracker/server",
+    "dev:staff": "npm run dev -w @meditracker/web-staff",
+    "dev:patient": "npm run dev -w @meditracker/web-patient",
+    "test": "npm run test -w @meditracker/server",
+    "build": "npm run build --workspaces --if-present"
+  }
+}
