@@ -8,6 +8,8 @@ import { PositionEstimator } from './presence/position-estimator.js';
 import { openDb } from './db/index.js';
 import { createWsServer } from './ws/index.js';
 import { signToken } from './auth/jwt.js';
+import { MonitorHub } from './monitor/monitor-hub.js';
+import { monitorPageHtml } from './monitor/monitor-page.js';
 
 // ── 조립: Ingestion → Zone Engine → Presence/DB → Permission → WS ──────────
 
@@ -17,14 +19,26 @@ const gateways = loadGateways();
 const engine = new ZoneEngine(buildGatewayZoneMap(gateways), ZONE_ENGINE_CONFIG);
 
 const presence = new PresenceService(engine, db);
+const estimator = new PositionEstimator(gateways, engine);
+
+// 모니터 허브는 io 생성 후 초기화 (아래) — 참조만 먼저 선언
+let monitor: MonitorHub | undefined;
 
 const ingestion = new MqttIngestion(
   SERVER_CONFIG.mqttUrl,
   SERVER_CONFIG.mqttScanTopic,
   new GenericJsonAdapter(),
-  (scan) => engine.ingest(scan),
+  (scan) => {
+    engine.ingest(scan);
+    monitor?.recordScan(scan); // 관제 피드로 raw 스캔 탭
+  },
 );
 ingestion.start();
+
+// 존 전환을 관제 로그로 탭
+presence.onChange((c) =>
+  monitor?.recordZoneChange({ tagId: c.tagId, fromZone: c.fromZone, toZone: c.toZone, at: c.at }),
+);
 
 // 자리비움 스윕 (ABSENT_TIMEOUT 판정)
 setInterval(() => engine.sweepAbsent(), SERVER_CONFIG.absentSweepIntervalMs);
@@ -42,6 +56,12 @@ const httpServer = createServer((req, res) => {
       'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify(loadZones()));
+    return;
+  }
+  // 실시간 관제 페이지 (하드웨어 디버깅/현장 튜닝) — 서버 자체 서빙, CDN 불필요
+  if (req.url === '/monitor' || req.url?.startsWith('/monitor?')) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(monitorPageHtml());
     return;
   }
   // ⚠️ 개발 전용 — 토큰 없이 화면 열면 프론트가 자동 호출. 실배포(Phase 2 로그인) 시 제거.
@@ -64,15 +84,18 @@ const httpServer = createServer((req, res) => {
 
 const io = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db);
 
+// 관제 허브 (/monitor namespace) — io 준비 후 초기화
+monitor = new MonitorHub(io, engine, estimator, gateways, loadZones());
+
 // 연속 위치 추정 브로드캐스트 (트래킹 시각화 — 0.5초 주기)
 // TODO: 권한 매트릭스 확정 후 visibleTargets 필터 경유로 변경 (지금은 staff 전체)
-const estimator = new PositionEstimator(gateways, engine);
 setInterval(() => {
   const positions = estimator.estimateAll();
   if (positions.length > 0) io.of('/staff').emit('pos:update', positions);
 }, 500);
 
 httpServer.listen(SERVER_CONFIG.httpPort, () => {
-  console.log(`[server] listening on :${SERVER_CONFIG.httpPort} (ws: /patient, /staff)`);
+  console.log(`[server] listening on :${SERVER_CONFIG.httpPort} (ws: /patient, /staff, /monitor)`);
   console.log(`[server] gateways: ${gateways.length}, mqtt: ${SERVER_CONFIG.mqttUrl}`);
+  console.log(`[server] 관제 페이지: http://localhost:${SERVER_CONFIG.httpPort}/monitor`);
 });

@@ -21,6 +21,12 @@ async function resolveToken(): Promise<string> {
   return (await res.json()).token;
 }
 
+// 관리자 모드 버튼 → 서버 관제 페이지. back= 로 이 화면 복귀 경로 전달.
+const adminBtn = document.getElementById('admin-btn') as HTMLAnchorElement | null;
+if (adminBtn) {
+  adminBtn.href = `${SERVER_URL}/monitor?back=${encodeURIComponent(window.location.href)}`;
+}
+
 const TILE = 40;
 const ZONE_W = 150;
 const ZONE_H = 110;
