@@ -5,14 +5,14 @@
     "type": "surgery",
     "category": "patient_area",
     "rect": {
-      "x": 1136,
-      "y": 525,
-      "w": 312,
-      "h": 412
+      "x": 1022,
+      "y": 307,
+      "w": 554,
+      "h": 545
     },
     "tilePosition": {
-      "x": 1292,
-      "y": 731
+      "x": 1299,
+      "y": 579
     },
     "socialEnabled": false
   },
@@ -22,14 +22,14 @@
     "type": "surgery",
     "category": "patient_area",
     "rect": {
-      "x": 1534,
-      "y": 525,
-      "w": 270,
-      "h": 355
+      "x": 1704,
+      "y": 307,
+      "w": 540,
+      "h": 545
     },
     "tilePosition": {
-      "x": 1669,
-      "y": 702
+      "x": 1974,
+      "y": 579
     },
     "socialEnabled": false
   },
@@ -39,14 +39,14 @@
     "type": "surgery",
     "category": "patient_area",
     "rect": {
-      "x": 1846,
-      "y": 525,
-      "w": 312,
-      "h": 355
+      "x": 2400,
+      "y": 307,
+      "w": 540,
+      "h": 545
     },
     "tilePosition": {
-      "x": 2002,
-      "y": 702
+      "x": 2670,
+      "y": 579
     },
     "socialEnabled": false
   },
@@ -56,14 +56,14 @@
     "type": "laser",
     "category": "patient_area",
     "rect": {
-      "x": 2272,
-      "y": 525,
-      "w": 341,
-      "h": 426
+      "x": 3209,
+      "y": 307,
+      "w": 483,
+      "h": 815
     },
     "tilePosition": {
-      "x": 2442,
-      "y": 738
+      "x": 3450,
+      "y": 714
     },
     "socialEnabled": false
   },
@@ -73,14 +73,14 @@
     "type": "skincare",
     "category": "patient_area",
     "rect": {
-      "x": 2783,
-      "y": 540,
+      "x": 3720,
+      "y": 307,
       "w": 568,
-      "h": 483
+      "h": 886
     },
     "tilePosition": {
-      "x": 3067,
-      "y": 781
+      "x": 4004,
+      "y": 750
     },
     "socialEnabled": false
   },
@@ -90,14 +90,14 @@
     "type": "skincare",
     "category": "patient_area",
     "rect": {
-      "x": 3408,
-      "y": 540,
-      "w": 398,
-      "h": 483
+      "x": 4317,
+      "y": 307,
+      "w": 667,
+      "h": 1000
     },
     "tilePosition": {
-      "x": 3607,
-      "y": 781
+      "x": 4650,
+      "y": 807
     },
     "socialEnabled": false
   },
@@ -107,14 +107,14 @@
     "type": "staff",
     "category": "staff_area",
     "rect": {
-      "x": 1065,
-      "y": 795,
-      "w": 327,
-      "h": 426
+      "x": 1022,
+      "y": 1008,
+      "w": 554,
+      "h": 625
     },
     "tilePosition": {
-      "x": 1228,
-      "y": 1008
+      "x": 1299,
+      "y": 1320
     },
     "socialEnabled": false
   },
@@ -124,14 +124,14 @@
     "type": "surgery",
     "category": "patient_area",
     "rect": {
-      "x": 1363,
-      "y": 1250,
-      "w": 398,
-      "h": 454
+      "x": 1022,
+      "y": 1732,
+      "w": 568,
+      "h": 540
     },
     "tilePosition": {
-      "x": 1562,
-      "y": 1477
+      "x": 1306,
+      "y": 2002
     },
     "socialEnabled": false
   },
@@ -141,14 +141,14 @@
     "type": "surgery",
     "category": "patient_area",
     "rect": {
-      "x": 1363,
-      "y": 1704,
-      "w": 398,
-      "h": 483
+      "x": 1022,
+      "y": 2300,
+      "w": 568,
+      "h": 454
     },
     "tilePosition": {
-      "x": 1562,
-      "y": 1945
+      "x": 1306,
+      "y": 2527
     },
     "socialEnabled": false
   },
@@ -158,14 +158,14 @@
     "type": "surgery",
     "category": "patient_area",
     "rect": {
-      "x": 1136,
-      "y": 2783,
-      "w": 454,
-      "h": 369
+      "x": 454,
+      "y": 2755,
+      "w": 1136,
+      "h": 568
     },
     "tilePosition": {
-      "x": 1363,
-      "y": 2967
+      "x": 1022,
+      "y": 3039
     },
     "socialEnabled": false
   },
@@ -175,14 +175,14 @@
     "type": "etc",
     "category": "common",
     "rect": {
-      "x": 1704,
-      "y": 1221,
-      "w": 256,
-      "h": 312
+      "x": 2045,
+      "y": 1917,
+      "w": 426,
+      "h": 582
     },
     "tilePosition": {
-      "x": 1832,
-      "y": 1377
+      "x": 2258,
+      "y": 2208
     },
     "socialEnabled": false
   },
@@ -192,14 +192,14 @@
     "type": "etc",
     "category": "common",
     "rect": {
-      "x": 1988,
-      "y": 1221,
-      "w": 199,
-      "h": 312
+      "x": 2556,
+      "y": 1917,
+      "w": 341,
+      "h": 582
     },
     "tilePosition": {
-      "x": 2087,
-      "y": 1377
+      "x": 2726,
+      "y": 2208
     },
     "socialEnabled": false
   },
@@ -209,14 +209,14 @@
     "type": "etc",
     "category": "common",
     "rect": {
-      "x": 2158,
-      "y": 1221,
-      "w": 256,
-      "h": 312
+      "x": 2982,
+      "y": 1917,
+      "w": 369,
+      "h": 582
     },
     "tilePosition": {
-      "x": 2286,
-      "y": 1377
+      "x": 3166,
+      "y": 2208
     },
     "socialEnabled": false
   },
@@ -226,14 +226,14 @@
     "type": "recovery",
     "category": "patient_area",
     "rect": {
-      "x": 1704,
-      "y": 1534,
-      "w": 256,
-      "h": 341
+      "x": 2244,
+      "y": 2329,
+      "w": 426,
+      "h": 540
     },
     "tilePosition": {
-      "x": 1832,
-      "y": 1704
+      "x": 2457,
+      "y": 2599
     },
     "socialEnabled": false
   },
@@ -243,14 +243,14 @@
     "type": "etc",
     "category": "staff_area",
     "rect": {
-      "x": 1704,
-      "y": 1931,
-      "w": 284,
-      "h": 341
+      "x": 2045,
+      "y": 3493,
+      "w": 454,
+      "h": 483
     },
     "tilePosition": {
-      "x": 1846,
-      "y": 2101
+      "x": 2272,
+      "y": 3734
     },
     "socialEnabled": false
   },
@@ -260,14 +260,14 @@
     "type": "consult",
     "category": "patient_area",
     "rect": {
-      "x": 2442,
-      "y": 1335,
-      "w": 227,
-      "h": 256
+      "x": 2783,
+      "y": 2343,
+      "w": 426,
+      "h": 383
     },
     "tilePosition": {
-      "x": 2555,
-      "y": 1463
+      "x": 2996,
+      "y": 2534
     },
     "socialEnabled": false
   },
@@ -277,14 +277,14 @@
     "type": "consult",
     "category": "patient_area",
     "rect": {
-      "x": 2442,
-      "y": 1590,
-      "w": 227,
-      "h": 284
+      "x": 2783,
+      "y": 2741,
+      "w": 426,
+      "h": 355
     },
     "tilePosition": {
-      "x": 2555,
-      "y": 1732
+      "x": 2996,
+      "y": 2918
     },
     "socialEnabled": false
   },
@@ -294,14 +294,14 @@
     "type": "etc",
     "category": "staff_area",
     "rect": {
-      "x": 2812,
-      "y": 1193,
-      "w": 199,
-      "h": 256
+      "x": 3408,
+      "y": 1590,
+      "w": 341,
+      "h": 341
     },
     "tilePosition": {
-      "x": 2911,
-      "y": 1321
+      "x": 3578,
+      "y": 1760
     },
     "socialEnabled": false
   },
@@ -311,14 +311,14 @@
     "type": "etc",
     "category": "patient_area",
     "rect": {
-      "x": 3010,
-      "y": 1193,
-      "w": 398,
-      "h": 398
+      "x": 3692,
+      "y": 1647,
+      "w": 426,
+      "h": 568
     },
     "tilePosition": {
-      "x": 3209,
-      "y": 1392
+      "x": 3905,
+      "y": 1931
     },
     "socialEnabled": false
   },
@@ -328,14 +328,14 @@
     "type": "etc",
     "category": "common",
     "rect": {
-      "x": 2812,
-      "y": 1590,
-      "w": 227,
-      "h": 341
+      "x": 3351,
+      "y": 1874,
+      "w": 312,
+      "h": 653
     },
     "tilePosition": {
-      "x": 2925,
-      "y": 1760
+      "x": 3507,
+      "y": 2200
     },
     "socialEnabled": false
   },
@@ -345,14 +345,14 @@
     "type": "etc",
     "category": "common",
     "rect": {
-      "x": 3351,
-      "y": 1221,
-      "w": 227,
-      "h": 312
+      "x": 4118,
+      "y": 1647,
+      "w": 398,
+      "h": 596
     },
     "tilePosition": {
-      "x": 3464,
-      "y": 1377
+      "x": 4317,
+      "y": 1945
     },
     "socialEnabled": false
   },
@@ -362,14 +362,14 @@
     "type": "skincare",
     "category": "patient_area",
     "rect": {
-      "x": 3010,
-      "y": 1619,
-      "w": 341,
-      "h": 369
+      "x": 3692,
+      "y": 2272,
+      "w": 909,
+      "h": 440
     },
     "tilePosition": {
-      "x": 3180,
-      "y": 1803
+      "x": 4146,
+      "y": 2492
     },
     "socialEnabled": false
   },
@@ -379,48 +379,14 @@
     "type": "skincare",
     "category": "patient_area",
     "rect": {
-      "x": 3351,
-      "y": 1335,
-      "w": 426,
-      "h": 256
+      "x": 4601,
+      "y": 1931,
+      "w": 398,
+      "h": 781
     },
     "tilePosition": {
-      "x": 3564,
-      "y": 1463
-    },
-    "socialEnabled": false
-  },
-  {
-    "zoneId": "consult_3",
-    "name": "상담실 3",
-    "type": "consult",
-    "category": "patient_area",
-    "rect": {
-      "x": 3351,
-      "y": 1818,
-      "w": 426,
-      "h": 341
-    },
-    "tilePosition": {
-      "x": 3564,
-      "y": 1988
-    },
-    "socialEnabled": false
-  },
-  {
-    "zoneId": "vip_consult",
-    "name": "VIP 상담실",
-    "type": "consult",
-    "category": "patient_area",
-    "rect": {
-      "x": 3294,
-      "y": 2215,
-      "w": 454,
-      "h": 341
-    },
-    "tilePosition": {
-      "x": 3521,
-      "y": 2385
+      "x": 4800,
+      "y": 2321
     },
     "socialEnabled": false
   },
@@ -430,14 +396,14 @@
     "type": "reception",
     "category": "common",
     "rect": {
-      "x": 2840,
-      "y": 1818,
-      "w": 497,
-      "h": 738
+      "x": 3408,
+      "y": 2783,
+      "w": 767,
+      "h": 767
     },
     "tilePosition": {
-      "x": 3088,
-      "y": 2187
+      "x": 3791,
+      "y": 3166
     },
     "socialEnabled": true
   },
@@ -447,14 +413,48 @@
     "type": "staff",
     "category": "staff_area",
     "rect": {
-      "x": 3351,
-      "y": 1960,
-      "w": 256,
-      "h": 312
+      "x": 4232,
+      "y": 2925,
+      "w": 426,
+      "h": 511
     },
     "tilePosition": {
-      "x": 3479,
-      "y": 2116
+      "x": 4445,
+      "y": 3180
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "consult_3",
+    "name": "상담실 3",
+    "type": "consult",
+    "category": "patient_area",
+    "rect": {
+      "x": 4658,
+      "y": 3777,
+      "w": 369,
+      "h": 398
+    },
+    "tilePosition": {
+      "x": 4842,
+      "y": 3976
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "vip_consult",
+    "name": "VIP 상담실",
+    "type": "consult",
+    "category": "patient_area",
+    "rect": {
+      "x": 2726,
+      "y": 2783,
+      "w": 483,
+      "h": 540
+    },
+    "tilePosition": {
+      "x": 2967,
+      "y": 3053
     },
     "socialEnabled": false
   },
@@ -464,14 +464,14 @@
     "type": "waiting",
     "category": "common",
     "rect": {
-      "x": 3351,
-      "y": 2584,
+      "x": 3976,
+      "y": 2442,
       "w": 454,
-      "h": 426
+      "h": 398
     },
     "tilePosition": {
-      "x": 3578,
-      "y": 2797
+      "x": 4203,
+      "y": 2641
     },
     "socialEnabled": true
   },
@@ -481,48 +481,14 @@
     "type": "staff",
     "category": "staff_area",
     "rect": {
-      "x": 2954,
-      "y": 2556,
-      "w": 256,
-      "h": 256
-    },
-    "tilePosition": {
-      "x": 3082,
-      "y": 2684
-    },
-    "socialEnabled": false
-  },
-  {
-    "zoneId": "doctors_office",
-    "name": "의국실",
-    "type": "staff",
-    "category": "staff_area",
-    "rect": {
-      "x": 2357,
-      "y": 2783,
-      "w": 341,
-      "h": 341
-    },
-    "tilePosition": {
-      "x": 2527,
-      "y": 2953
-    },
-    "socialEnabled": false
-  },
-  {
-    "zoneId": "director",
-    "name": "대표원장실",
-    "type": "staff",
-    "category": "staff_area",
-    "rect": {
-      "x": 2357,
-      "y": 3181,
-      "w": 341,
+      "x": 4232,
+      "y": 3550,
+      "w": 426,
       "h": 398
     },
     "tilePosition": {
-      "x": 2527,
-      "y": 3380
+      "x": 4445,
+      "y": 3749
     },
     "socialEnabled": false
   },
@@ -532,14 +498,14 @@
     "type": "staff",
     "category": "staff_area",
     "rect": {
-      "x": 3294,
-      "y": 3067,
-      "w": 454,
-      "h": 568
+      "x": 4430,
+      "y": 2783,
+      "w": 483,
+      "h": 852
     },
     "tilePosition": {
-      "x": 3521,
-      "y": 3351
+      "x": 4671,
+      "y": 3209
     },
     "socialEnabled": false
   },
@@ -549,14 +515,48 @@
     "type": "etc",
     "category": "common",
     "rect": {
-      "x": 2471,
-      "y": 3834,
-      "w": 227,
+      "x": 4118,
+      "y": 3919,
+      "w": 369,
       "h": 256
     },
     "tilePosition": {
-      "x": 2584,
-      "y": 3962
+      "x": 4302,
+      "y": 4047
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "doctors_office",
+    "name": "의국실",
+    "type": "staff",
+    "category": "staff_area",
+    "rect": {
+      "x": 2726,
+      "y": 3323,
+      "w": 369,
+      "h": 454
+    },
+    "tilePosition": {
+      "x": 2910,
+      "y": 3550
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "director",
+    "name": "대표원장실",
+    "type": "staff",
+    "category": "staff_area",
+    "rect": {
+      "x": 2726,
+      "y": 3777,
+      "w": 369,
+      "h": 312
+    },
+    "tilePosition": {
+      "x": 2910,
+      "y": 3933
     },
     "socialEnabled": false
   }

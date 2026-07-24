@@ -4,8 +4,8 @@
     "zoneId": "proc_1",
     "label": "시술실 1-천장",
     "tile": {
-      "x": 1292,
-      "y": 731
+      "x": 1299,
+      "y": 579
     }
   },
   {
@@ -13,8 +13,8 @@
     "zoneId": "proc_2",
     "label": "시술실 2-천장",
     "tile": {
-      "x": 1669,
-      "y": 702
+      "x": 1974,
+      "y": 579
     }
   },
   {
@@ -22,8 +22,8 @@
     "zoneId": "proc_3",
     "label": "시술실 3-천장",
     "tile": {
-      "x": 2002,
-      "y": 702
+      "x": 2670,
+      "y": 579
     }
   },
   {
@@ -31,8 +31,8 @@
     "zoneId": "laser",
     "label": "레이저실-천장",
     "tile": {
-      "x": 2442,
-      "y": 738
+      "x": 3450,
+      "y": 714
     }
   },
   {
@@ -40,8 +40,8 @@
     "zoneId": "vip_skin_1",
     "label": "VIP 피부관리실 1-천장",
     "tile": {
-      "x": 3067,
-      "y": 781
+      "x": 4004,
+      "y": 750
     }
   },
   {
@@ -49,8 +49,8 @@
     "zoneId": "vip_skin_2",
     "label": "VIP 피부관리실 2-천장",
     "tile": {
-      "x": 3607,
-      "y": 781
+      "x": 4650,
+      "y": 807
     }
   },
   {
@@ -58,8 +58,8 @@
     "zoneId": "nurse_prep",
     "label": "간호준비실·소독실-천장",
     "tile": {
-      "x": 1228,
-      "y": 1008
+      "x": 1299,
+      "y": 1320
     }
   },
   {
@@ -67,8 +67,8 @@
     "zoneId": "surgery_1",
     "label": "수술실 1-천장",
     "tile": {
-      "x": 1562,
-      "y": 1477
+      "x": 1306,
+      "y": 2002
     }
   },
   {
@@ -76,8 +76,8 @@
     "zoneId": "surgery_2",
     "label": "수술실 2-천장",
     "tile": {
-      "x": 1562,
-      "y": 1945
+      "x": 1306,
+      "y": 2527
     }
   },
   {
@@ -85,8 +85,8 @@
     "zoneId": "surgery_vip",
     "label": "VIP 수술실-천장",
     "tile": {
-      "x": 1363,
-      "y": 2967
+      "x": 1022,
+      "y": 3039
     }
   },
   {
@@ -94,8 +94,8 @@
     "zoneId": "changing_m",
     "label": "남자 체인징룸-천장",
     "tile": {
-      "x": 1832,
-      "y": 1377
+      "x": 2258,
+      "y": 2208
     }
   },
   {
@@ -103,8 +103,8 @@
     "zoneId": "toilet_common",
     "label": "공용화장실-천장",
     "tile": {
-      "x": 2087,
-      "y": 1377
+      "x": 2726,
+      "y": 2208
     }
   },
   {
@@ -112,8 +112,8 @@
     "zoneId": "changing_w",
     "label": "여자 체인징룸-천장",
     "tile": {
-      "x": 2286,
-      "y": 1377
+      "x": 3166,
+      "y": 2208
     }
   },
   {
@@ -121,8 +121,8 @@
     "zoneId": "vip_recovery",
     "label": "VIP 회복실-천장",
     "tile": {
-      "x": 1832,
-      "y": 1704
+      "x": 2457,
+      "y": 2599
     }
   },
   {
@@ -130,8 +130,8 @@
     "zoneId": "pharmacy",
     "label": "약재실-천장",
     "tile": {
-      "x": 1846,
-      "y": 2101
+      "x": 2272,
+      "y": 3734
     }
   },
   {
@@ -139,8 +139,8 @@
     "zoneId": "consult_1",
     "label": "상담실 1-천장",
     "tile": {
-      "x": 2555,
-      "y": 1463
+      "x": 2996,
+      "y": 2534
     }
   },
   {
@@ -148,8 +148,8 @@
     "zoneId": "consult_2",
     "label": "상담실 2-천장",
     "tile": {
-      "x": 2555,
-      "y": 1732
+      "x": 2996,
+      "y": 2918
     }
   },
   {
@@ -157,8 +157,8 @@
     "zoneId": "equip_store",
     "label": "장비격납-천장",
     "tile": {
-      "x": 2911,
-      "y": 1321
+      "x": 3578,
+      "y": 1760
     }
   },
   {
@@ -166,8 +166,8 @@
     "zoneId": "photo",
     "label": "촬영실-천장",
     "tile": {
-      "x": 3209,
-      "y": 1392
+      "x": 3905,
+      "y": 1931
     }
   },
   {
@@ -175,8 +175,8 @@
     "zoneId": "toilet_w",
     "label": "여자화장실-천장",
     "tile": {
-      "x": 2925,
-      "y": 1760
+      "x": 3507,
+      "y": 2200
     }
   },
   {
@@ -184,8 +184,8 @@
     "zoneId": "changing_w2",
     "label": "여자 체인징룸 2-천장",
     "tile": {
-      "x": 3464,
-      "y": 1377
+      "x": 4317,
+      "y": 1945
     }
   },
   {
@@ -193,8 +193,8 @@
     "zoneId": "skincare_prep",
     "label": "피부관리 준비실·탈의실-천장",
     "tile": {
-      "x": 3180,
-      "y": 1803
+      "x": 4146,
+      "y": 2492
     }
   },
   {
@@ -202,53 +202,53 @@
     "zoneId": "skincare",
     "label": "피부관리실-천장",
     "tile": {
-      "x": 3564,
-      "y": 1463
+      "x": 4800,
+      "y": 2321
     }
   },
   {
     "gatewayId": "GW-24",
-    "zoneId": "consult_3",
-    "label": "상담실 3-천장",
+    "zoneId": "reception",
+    "label": "접수·중앙 대기-천장A",
     "tile": {
-      "x": 3564,
-      "y": 1988
+      "x": 3663,
+      "y": 3038
     }
   },
   {
     "gatewayId": "GW-25",
-    "zoneId": "vip_consult",
-    "label": "VIP 상담실-천장",
+    "zoneId": "reception",
+    "label": "접수·중앙 대기-천장B",
     "tile": {
-      "x": 3521,
-      "y": 2385
+      "x": 3919,
+      "y": 3294
     }
   },
   {
     "gatewayId": "GW-26",
-    "zoneId": "reception",
-    "label": "접수·중앙 대기-천장A",
+    "zoneId": "staff_room",
+    "label": "직원실-천장",
     "tile": {
-      "x": 3005,
-      "y": 2064
+      "x": 4445,
+      "y": 3180
     }
   },
   {
     "gatewayId": "GW-27",
-    "zoneId": "reception",
-    "label": "접수·중앙 대기-천장B",
+    "zoneId": "consult_3",
+    "label": "상담실 3-천장",
     "tile": {
-      "x": 3171,
-      "y": 2310
+      "x": 4842,
+      "y": 3976
     }
   },
   {
     "gatewayId": "GW-28",
-    "zoneId": "staff_room",
-    "label": "직원실-천장",
+    "zoneId": "vip_consult",
+    "label": "VIP 상담실-천장",
     "tile": {
-      "x": 3479,
-      "y": 2116
+      "x": 2967,
+      "y": 3053
     }
   },
   {
@@ -256,8 +256,8 @@
     "zoneId": "waiting_2",
     "label": "대기공간-천장A",
     "tile": {
-      "x": 3502,
-      "y": 2726
+      "x": 4127,
+      "y": 2574
     }
   },
   {
@@ -265,8 +265,8 @@
     "zoneId": "waiting_2",
     "label": "대기공간-천장B",
     "tile": {
-      "x": 3653,
-      "y": 2868
+      "x": 4278,
+      "y": 2707
     }
   },
   {
@@ -274,44 +274,44 @@
     "zoneId": "pantry",
     "label": "탕비공간-천장",
     "tile": {
-      "x": 3082,
-      "y": 2684
+      "x": 4445,
+      "y": 3749
     }
   },
   {
     "gatewayId": "GW-32",
-    "zoneId": "doctors_office",
-    "label": "의국실-천장",
+    "zoneId": "staff_zone",
+    "label": "직원 탈의실·휴게실-천장",
     "tile": {
-      "x": 2527,
-      "y": 2953
+      "x": 4671,
+      "y": 3209
     }
   },
   {
     "gatewayId": "GW-33",
-    "zoneId": "director",
-    "label": "대표원장실-천장",
+    "zoneId": "staff_toilet",
+    "label": "직원 화장실-천장",
     "tile": {
-      "x": 2527,
-      "y": 3380
+      "x": 4302,
+      "y": 4047
     }
   },
   {
     "gatewayId": "GW-34",
-    "zoneId": "staff_zone",
-    "label": "직원 탈의실·휴게실-천장",
+    "zoneId": "doctors_office",
+    "label": "의국실-천장",
     "tile": {
-      "x": 3521,
-      "y": 3351
+      "x": 2910,
+      "y": 3550
     }
   },
   {
     "gatewayId": "GW-35",
-    "zoneId": "staff_toilet",
-    "label": "직원 화장실-천장",
+    "zoneId": "director",
+    "label": "대표원장실-천장",
     "tile": {
-      "x": 2584,
-      "y": 3962
+      "x": 2910,
+      "y": 3933
     }
   }
 ]
