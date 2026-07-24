@@ -9,6 +9,7 @@
     "test": "vitest run",
     "mock:gw": "tsx src/tools/mock-gateway.ts",
     "dev:broker": "tsx src/tools/dev-broker.ts",
+    "sniff": "tsx src/tools/mqtt-sniff.ts",
     "dev:seed": "tsx src/tools/dev-seed.ts",
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.json"
