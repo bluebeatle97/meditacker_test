@@ -151,12 +151,14 @@ class StaffMapScene extends Phaser.Scene {
       };
     }
 
+    // 거리 비례 이동 시간 (0.8초~2.5초) — 순간이동처럼 안 보이게
+    const dist = Phaser.Math.Distance.Between(avatar.x, avatar.y, target.x, target.y);
     this.tweens.add({
       targets: avatar,
       x: target.x,
       y: target.y,
-      duration: 600,
-      ease: 'Cubic.easeInOut',
+      duration: Phaser.Math.Clamp(dist * 2.5, 800, 2500),
+      ease: 'Sine.easeInOut',
     });
   }
 }

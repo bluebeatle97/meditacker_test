@@ -22,39 +22,43 @@ function jitter(): number {
   return Math.round((Math.random() - 0.5) * 4); // ±2dB 노이즈
 }
 
-const CYCLE = 65; // 초 — 시나리오 1바퀴 후 반복
+// 실제 환자 동선에 가까운 체류 시간 (환경변수 MOCK_SPEED 배속 — 예: 4 면 4배 빨리)
+const SPEED = Number(process.env.MOCK_SPEED ?? 1);
+// 게이트웨이 스캔 업로드 주기 (실물 gateway4 주기는 판매자 확인 필요 — 설계서 12장)
+const SCAN_INTERVAL_MS = Number(process.env.SCAN_INTERVAL_MS ?? 500);
+const DWELL = {
+  waiting: 90, // 대기실 90초
+  boundary: 8, // 경계 구간 (히스테리시스 검증)
+  consult: 60, // 상담실 60초
+  surgery: 60, // 시술실 60초
+  recovery: 45, // 회복실 45초
+  absent: 25, // 자리비움 (무신호)
+};
+const CYCLE = Object.values(DWELL).reduce((a, b) => a + b, 0); // 288초 ≈ 4.8분
+
+/** tick 위치에 따라 (게이트웨이 신호 세트) 반환 */
+function signalsAt(tick: number): Array<[string, number]> {
+  let t = tick;
+  if ((t -= DWELL.waiting) < 0) return [['GW-A1', -58], ['GW-C1', -82]];
+  if ((t -= DWELL.boundary) < 0) return [['GW-A1', -70], ['GW-C1', -66]];
+  if ((t -= DWELL.consult) < 0) return [['GW-A1', -85], ['GW-C1', -55]];
+  if ((t -= DWELL.surgery) < 0) return [['GW-C1', -85], ['GW-D1', -54]];
+  if ((t -= DWELL.recovery) < 0) return [['GW-D1', -84], ['GW-E1', -56]];
+  return []; // 자리비움 — 무신호
+}
 
 client.on('connect', () => {
-  console.log(`[mock-gw] connected: ${MQTT_URL} — 시나리오 무한 반복 (Ctrl+C 종료)`);
-  let elapsed = 0;
+  console.log(
+    `[mock-gw] connected: ${MQTT_URL} — 사이클 ${Math.round(CYCLE / SPEED)}초 무한 반복 (Ctrl+C 종료)`,
+  );
+  let elapsed = 0; // 초 (시나리오 시간)
 
   setInterval(() => {
-    elapsed++;
-    const tick = elapsed % CYCLE;
-    for (const mac of TAGS) {
-      if (tick < 15) {
-        // 0~15초: 대기실 체류 (상담실 신호도 약하게 샘)
-        publish('GW-A1', mac, -58);
-        publish('GW-C1', mac, -82);
-      } else if (tick < 20) {
-        // 15~20초: 경계 구간 — 히스테리시스가 채터링을 막아야 함
-        publish('GW-A1', mac, -70);
-        publish('GW-C1', mac, -66);
-      } else if (tick < 30) {
-        // 20~30초: 상담실1 진입 (명확히 셈 → CONFIRM_COUNT 후 전환)
-        publish('GW-A1', mac, -85);
-        publish('GW-C1', mac, -55);
-      } else if (tick < 40) {
-        // 30~40초: 시술실1 이동
-        publish('GW-C1', mac, -85);
-        publish('GW-D1', mac, -54);
-      } else if (tick < 48) {
-        // 40~48초: 회복실1 이동
-        publish('GW-D1', mac, -84);
-        publish('GW-E1', mac, -56);
-      }
-      // 48~65초: 무신호 → ABSENT_TIMEOUT 후 자리비움 → 다시 대기실부터
-    }
-    if (tick === 0) console.log('[mock-gw] 사이클 재시작 — 대기실부터');
-  }, 1000);
+    elapsed += (SCAN_INTERVAL_MS / 1000) * SPEED;
+    TAGS.forEach((mac, i) => {
+      // 태그마다 시차를 줘서 따로 움직이게 (동선 겹침 방지)
+      const tick = (elapsed + i * Math.floor(CYCLE / TAGS.length)) % CYCLE;
+      for (const [gw, rssi] of signalsAt(tick)) publish(gw, mac, rssi);
+    });
+  }, SCAN_INTERVAL_MS);
 });

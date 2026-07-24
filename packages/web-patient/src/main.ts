@@ -99,13 +99,16 @@ class PatientScene extends Phaser.Scene {
           `현재 위치: ${zone?.name ?? '추적 구역 밖'}\n대기 순번: ${p.waitingRank}번 · 예상 대기 ${Math.round(p.estimatedWaitSec / 60)}분`,
         );
         if (zone) {
+          const tx = zone.tilePosition.x * TILE;
+          const ty = zone.tilePosition.y * TILE + MAP_OFFSET_Y + 8;
+          const dist = Phaser.Math.Distance.Between(this.me.x, this.me.y, tx, ty);
           this.me.setVisible(true);
           this.tweens.add({
             targets: this.me,
-            x: zone.tilePosition.x * TILE,
-            y: zone.tilePosition.y * TILE + MAP_OFFSET_Y + 8,
-            duration: 600,
-            ease: 'Cubic.easeInOut',
+            x: tx,
+            y: ty,
+            duration: Phaser.Math.Clamp(dist * 2.5, 800, 2500),
+            ease: 'Sine.easeInOut',
           });
         } else {
           this.me.setVisible(false);
