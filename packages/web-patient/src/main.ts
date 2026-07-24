@@ -21,17 +21,20 @@ async function resolveToken(): Promise<string> {
   return (await res.json()).token;
 }
 
-const TILE = 24; // 환자 화면은 축소 스케일
-const ZONE_W = 92;
-const ZONE_H = 68;
-const MAP_OFFSET_Y = 170;
+const CW = 800;
+const CH = 1280;
+const MAP_TOP = 170; // HUD 아래부터 맵
+const MAP_BOTTOM = 1140; // 액션바 위까지
+const PAD = 20;
 
 const ZONE_COLORS: Record<string, number> = {
   waiting: 0x2d6a4f,
   reception: 0x1d5d8f,
   consult: 0x7b4b94,
   surgery: 0x9d4444,
+  laser: 0xc75b39,
   recovery: 0xb07d3a,
+  skincare: 0x2a8a8a,
   staff: 0x555b6e,
   etc: 0x444444,
 };
@@ -43,9 +46,19 @@ class PatientScene extends Phaser.Scene {
   private occupancyText!: Phaser.GameObjects.Text;
   private actionsBar!: Phaser.GameObjects.Container;
   private me!: Phaser.GameObjects.Container;
+  private worldScale = 1;
+  private minX = 0;
+  private minY = 0;
 
   constructor() {
     super('patient');
+  }
+
+  private sx(x: number): number {
+    return PAD + (x - this.minX) * this.worldScale;
+  }
+  private sy(y: number): number {
+    return MAP_TOP + (y - this.minY) * this.worldScale;
   }
 
   async create(): Promise<void> {
@@ -61,9 +74,20 @@ class PatientScene extends Phaser.Scene {
       lineSpacing: 6,
     });
     this.occupancyText = this.add.text(20, 128, '', { color: '#888888', fontSize: '14px' });
-    this.actionsBar = this.add.container(20, 1180);
+    this.actionsBar = this.add.container(20, MAP_BOTTOM + 20);
 
     const zones: Zone[] = await fetch(`${SERVER_URL}/zones`).then((r) => r.json());
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const z of zones) {
+      minX = Math.min(minX, z.rect.x);
+      minY = Math.min(minY, z.rect.y);
+      maxX = Math.max(maxX, z.rect.x + z.rect.w);
+      maxY = Math.max(maxY, z.rect.y + z.rect.h);
+    }
+    this.minX = minX;
+    this.minY = minY;
+    this.worldScale = Math.min((CW - 2 * PAD) / (maxX - minX), (MAP_BOTTOM - MAP_TOP) / (maxY - minY));
+
     for (const zone of zones) {
       this.zones.set(zone.zoneId, zone);
       this.drawZone(zone);
@@ -79,12 +103,14 @@ class PatientScene extends Phaser.Scene {
   }
 
   private drawZone(zone: Zone): void {
-    const x = zone.tilePosition.x * TILE;
-    const y = zone.tilePosition.y * TILE + MAP_OFFSET_Y;
+    const x = this.sx(zone.rect.x);
+    const y = this.sy(zone.rect.y);
+    const w = zone.rect.w * this.worldScale;
+    const h = zone.rect.h * this.worldScale;
     const color = ZONE_COLORS[zone.type] ?? ZONE_COLORS.etc;
-    this.add.rectangle(x, y, ZONE_W, ZONE_H, color, 0.35).setStrokeStyle(2, color, 1);
+    this.add.rectangle(x, y, w, h, color, 0.35).setOrigin(0, 0).setStrokeStyle(1.5, color, 1);
     this.add
-      .text(x, y - ZONE_H / 2 + 5, zone.name, { color: '#cccccc', fontSize: '11px' })
+      .text(x + w / 2, y + 2, zone.name, { color: '#cccccc', fontSize: '10px', align: 'center' })
       .setOrigin(0.5, 0);
   }
 
@@ -99,8 +125,8 @@ class PatientScene extends Phaser.Scene {
           `현재 위치: ${zone?.name ?? '추적 구역 밖'}\n대기 순번: ${p.waitingRank}번 · 예상 대기 ${Math.round(p.estimatedWaitSec / 60)}분`,
         );
         if (zone) {
-          const tx = zone.tilePosition.x * TILE;
-          const ty = zone.tilePosition.y * TILE + MAP_OFFSET_Y + 8;
+          const tx = this.sx(zone.tilePosition.x);
+          const ty = this.sy(zone.tilePosition.y);
           const dist = Phaser.Math.Distance.Between(this.me.x, this.me.y, tx, ty);
           this.me.setVisible(true);
           this.tweens.killTweensOf(this.me);
@@ -156,8 +182,8 @@ class PatientScene extends Phaser.Scene {
 new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'app',
-  width: 800,
-  height: 1280,
+  width: CW,
+  height: CH,
   backgroundColor: '#16213e',
   scene: [PatientScene],
 });

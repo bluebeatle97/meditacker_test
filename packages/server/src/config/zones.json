@@ -1,38 +1,563 @@
 [
-  { "zoneId": "proc_1", "name": "시술실 1", "type": "surgery", "category": "patient_area", "tilePosition": { "x": 7, "y": 3 }, "socialEnabled": false },
-  { "zoneId": "proc_2", "name": "시술실 2", "type": "surgery", "category": "patient_area", "tilePosition": { "x": 10, "y": 3 }, "socialEnabled": false },
-  { "zoneId": "proc_3", "name": "시술실 3", "type": "surgery", "category": "patient_area", "tilePosition": { "x": 13, "y": 3 }, "socialEnabled": false },
-  { "zoneId": "laser", "name": "레이저실", "type": "laser", "category": "patient_area", "tilePosition": { "x": 16, "y": 3 }, "socialEnabled": false },
-  { "zoneId": "vip_skin_1", "name": "VIP 피부관리실 1", "type": "skincare", "category": "patient_area", "tilePosition": { "x": 20, "y": 3 }, "socialEnabled": false },
-  { "zoneId": "vip_skin_2", "name": "VIP 피부관리실 2", "type": "skincare", "category": "patient_area", "tilePosition": { "x": 24, "y": 3 }, "socialEnabled": false },
-
-  { "zoneId": "nurse_prep", "name": "간호준비실·소독실", "type": "staff", "category": "staff_area", "tilePosition": { "x": 3, "y": 5 }, "socialEnabled": false },
-  { "zoneId": "surgery_1", "name": "수술실 1", "type": "surgery", "category": "patient_area", "tilePosition": { "x": 3, "y": 8 }, "socialEnabled": false },
-  { "zoneId": "surgery_2", "name": "수술실 2", "type": "surgery", "category": "patient_area", "tilePosition": { "x": 3, "y": 11 }, "socialEnabled": false },
-  { "zoneId": "surgery_vip", "name": "VIP 수술실", "type": "surgery", "category": "patient_area", "tilePosition": { "x": 4, "y": 14 }, "socialEnabled": false },
-
-  { "zoneId": "changing_m", "name": "남자 체인징룸", "type": "etc", "category": "common", "tilePosition": { "x": 7, "y": 6 }, "socialEnabled": false },
-  { "zoneId": "toilet_common", "name": "공용화장실", "type": "etc", "category": "common", "tilePosition": { "x": 10, "y": 6 }, "socialEnabled": false },
-  { "zoneId": "changing_w", "name": "여자 체인징룸", "type": "etc", "category": "common", "tilePosition": { "x": 13, "y": 6 }, "socialEnabled": false },
-  { "zoneId": "vip_recovery", "name": "VIP 회복실", "type": "recovery", "category": "patient_area", "tilePosition": { "x": 7, "y": 9 }, "socialEnabled": false },
-  { "zoneId": "pharmacy", "name": "약재실", "type": "etc", "category": "staff_area", "tilePosition": { "x": 5, "y": 12 }, "socialEnabled": false },
-
-  { "zoneId": "equip_store", "name": "장비격납", "type": "etc", "category": "staff_area", "tilePosition": { "x": 16, "y": 6 }, "socialEnabled": false },
-  { "zoneId": "photo", "name": "촬영실", "type": "etc", "category": "patient_area", "tilePosition": { "x": 19, "y": 6 }, "socialEnabled": false },
-  { "zoneId": "toilet_w", "name": "여자화장실", "type": "etc", "category": "common", "tilePosition": { "x": 16, "y": 9 }, "socialEnabled": false },
-  { "zoneId": "skincare", "name": "피부관리실", "type": "skincare", "category": "patient_area", "tilePosition": { "x": 22, "y": 7 }, "socialEnabled": false },
-  { "zoneId": "skincare_prep", "name": "피부관리 준비실·탈의실", "type": "skincare", "category": "patient_area", "tilePosition": { "x": 19, "y": 9 }, "socialEnabled": false },
-
-  { "zoneId": "consult_1", "name": "상담실 1", "type": "consult", "category": "patient_area", "tilePosition": { "x": 10, "y": 9 }, "socialEnabled": false },
-  { "zoneId": "consult_2", "name": "상담실 2", "type": "consult", "category": "patient_area", "tilePosition": { "x": 12, "y": 11 }, "socialEnabled": false },
-  { "zoneId": "consult_3", "name": "상담실 3", "type": "consult", "category": "patient_area", "tilePosition": { "x": 24, "y": 9 }, "socialEnabled": false },
-  { "zoneId": "vip_consult", "name": "VIP 상담실", "type": "consult", "category": "patient_area", "tilePosition": { "x": 22, "y": 12 }, "socialEnabled": false },
-
-  { "zoneId": "reception", "name": "접수·중앙 대기", "type": "reception", "category": "common", "tilePosition": { "x": 16, "y": 12 }, "socialEnabled": true },
-  { "zoneId": "waiting_2", "name": "대기공간", "type": "waiting", "category": "common", "tilePosition": { "x": 24, "y": 13 }, "socialEnabled": true },
-
-  { "zoneId": "staff_room", "name": "직원실", "type": "staff", "category": "staff_area", "tilePosition": { "x": 19, "y": 12 }, "socialEnabled": false },
-  { "zoneId": "pantry", "name": "탕비공간", "type": "staff", "category": "staff_area", "tilePosition": { "x": 16, "y": 15 }, "socialEnabled": false },
-  { "zoneId": "staff_zone", "name": "직원 탈의실·휴게실", "type": "staff", "category": "staff_area", "tilePosition": { "x": 21, "y": 15 }, "socialEnabled": false },
-  { "zoneId": "director", "name": "대표원장실·의국실", "type": "staff", "category": "staff_area", "tilePosition": { "x": 19, "y": 15 }, "socialEnabled": false }
+  {
+    "zoneId": "proc_1",
+    "name": "시술실 1",
+    "type": "surgery",
+    "category": "patient_area",
+    "rect": {
+      "x": 1136,
+      "y": 525,
+      "w": 312,
+      "h": 412
+    },
+    "tilePosition": {
+      "x": 1292,
+      "y": 731
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "proc_2",
+    "name": "시술실 2",
+    "type": "surgery",
+    "category": "patient_area",
+    "rect": {
+      "x": 1534,
+      "y": 525,
+      "w": 270,
+      "h": 355
+    },
+    "tilePosition": {
+      "x": 1669,
+      "y": 702
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "proc_3",
+    "name": "시술실 3",
+    "type": "surgery",
+    "category": "patient_area",
+    "rect": {
+      "x": 1846,
+      "y": 525,
+      "w": 312,
+      "h": 355
+    },
+    "tilePosition": {
+      "x": 2002,
+      "y": 702
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "laser",
+    "name": "레이저실",
+    "type": "laser",
+    "category": "patient_area",
+    "rect": {
+      "x": 2272,
+      "y": 525,
+      "w": 341,
+      "h": 426
+    },
+    "tilePosition": {
+      "x": 2442,
+      "y": 738
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "vip_skin_1",
+    "name": "VIP 피부관리실 1",
+    "type": "skincare",
+    "category": "patient_area",
+    "rect": {
+      "x": 2783,
+      "y": 540,
+      "w": 568,
+      "h": 483
+    },
+    "tilePosition": {
+      "x": 3067,
+      "y": 781
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "vip_skin_2",
+    "name": "VIP 피부관리실 2",
+    "type": "skincare",
+    "category": "patient_area",
+    "rect": {
+      "x": 3408,
+      "y": 540,
+      "w": 398,
+      "h": 483
+    },
+    "tilePosition": {
+      "x": 3607,
+      "y": 781
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "nurse_prep",
+    "name": "간호준비실·소독실",
+    "type": "staff",
+    "category": "staff_area",
+    "rect": {
+      "x": 1065,
+      "y": 795,
+      "w": 327,
+      "h": 426
+    },
+    "tilePosition": {
+      "x": 1228,
+      "y": 1008
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "surgery_1",
+    "name": "수술실 1",
+    "type": "surgery",
+    "category": "patient_area",
+    "rect": {
+      "x": 1363,
+      "y": 1250,
+      "w": 398,
+      "h": 454
+    },
+    "tilePosition": {
+      "x": 1562,
+      "y": 1477
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "surgery_2",
+    "name": "수술실 2",
+    "type": "surgery",
+    "category": "patient_area",
+    "rect": {
+      "x": 1363,
+      "y": 1704,
+      "w": 398,
+      "h": 483
+    },
+    "tilePosition": {
+      "x": 1562,
+      "y": 1945
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "surgery_vip",
+    "name": "VIP 수술실",
+    "type": "surgery",
+    "category": "patient_area",
+    "rect": {
+      "x": 1136,
+      "y": 2783,
+      "w": 454,
+      "h": 369
+    },
+    "tilePosition": {
+      "x": 1363,
+      "y": 2967
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "changing_m",
+    "name": "남자 체인징룸",
+    "type": "etc",
+    "category": "common",
+    "rect": {
+      "x": 1704,
+      "y": 1221,
+      "w": 256,
+      "h": 312
+    },
+    "tilePosition": {
+      "x": 1832,
+      "y": 1377
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "toilet_common",
+    "name": "공용화장실",
+    "type": "etc",
+    "category": "common",
+    "rect": {
+      "x": 1988,
+      "y": 1221,
+      "w": 199,
+      "h": 312
+    },
+    "tilePosition": {
+      "x": 2087,
+      "y": 1377
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "changing_w",
+    "name": "여자 체인징룸",
+    "type": "etc",
+    "category": "common",
+    "rect": {
+      "x": 2158,
+      "y": 1221,
+      "w": 256,
+      "h": 312
+    },
+    "tilePosition": {
+      "x": 2286,
+      "y": 1377
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "vip_recovery",
+    "name": "VIP 회복실",
+    "type": "recovery",
+    "category": "patient_area",
+    "rect": {
+      "x": 1704,
+      "y": 1534,
+      "w": 256,
+      "h": 341
+    },
+    "tilePosition": {
+      "x": 1832,
+      "y": 1704
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "pharmacy",
+    "name": "약재실",
+    "type": "etc",
+    "category": "staff_area",
+    "rect": {
+      "x": 1704,
+      "y": 1931,
+      "w": 284,
+      "h": 341
+    },
+    "tilePosition": {
+      "x": 1846,
+      "y": 2101
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "consult_1",
+    "name": "상담실 1",
+    "type": "consult",
+    "category": "patient_area",
+    "rect": {
+      "x": 2442,
+      "y": 1335,
+      "w": 227,
+      "h": 256
+    },
+    "tilePosition": {
+      "x": 2555,
+      "y": 1463
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "consult_2",
+    "name": "상담실 2",
+    "type": "consult",
+    "category": "patient_area",
+    "rect": {
+      "x": 2442,
+      "y": 1590,
+      "w": 227,
+      "h": 284
+    },
+    "tilePosition": {
+      "x": 2555,
+      "y": 1732
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "equip_store",
+    "name": "장비격납",
+    "type": "etc",
+    "category": "staff_area",
+    "rect": {
+      "x": 2812,
+      "y": 1193,
+      "w": 199,
+      "h": 256
+    },
+    "tilePosition": {
+      "x": 2911,
+      "y": 1321
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "photo",
+    "name": "촬영실",
+    "type": "etc",
+    "category": "patient_area",
+    "rect": {
+      "x": 3010,
+      "y": 1193,
+      "w": 398,
+      "h": 398
+    },
+    "tilePosition": {
+      "x": 3209,
+      "y": 1392
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "toilet_w",
+    "name": "여자화장실",
+    "type": "etc",
+    "category": "common",
+    "rect": {
+      "x": 2812,
+      "y": 1590,
+      "w": 227,
+      "h": 341
+    },
+    "tilePosition": {
+      "x": 2925,
+      "y": 1760
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "changing_w2",
+    "name": "여자 체인징룸 2",
+    "type": "etc",
+    "category": "common",
+    "rect": {
+      "x": 3351,
+      "y": 1221,
+      "w": 227,
+      "h": 312
+    },
+    "tilePosition": {
+      "x": 3464,
+      "y": 1377
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "skincare_prep",
+    "name": "피부관리 준비실·탈의실",
+    "type": "skincare",
+    "category": "patient_area",
+    "rect": {
+      "x": 3010,
+      "y": 1619,
+      "w": 341,
+      "h": 369
+    },
+    "tilePosition": {
+      "x": 3180,
+      "y": 1803
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "skincare",
+    "name": "피부관리실",
+    "type": "skincare",
+    "category": "patient_area",
+    "rect": {
+      "x": 3351,
+      "y": 1335,
+      "w": 426,
+      "h": 256
+    },
+    "tilePosition": {
+      "x": 3564,
+      "y": 1463
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "consult_3",
+    "name": "상담실 3",
+    "type": "consult",
+    "category": "patient_area",
+    "rect": {
+      "x": 3351,
+      "y": 1818,
+      "w": 426,
+      "h": 341
+    },
+    "tilePosition": {
+      "x": 3564,
+      "y": 1988
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "vip_consult",
+    "name": "VIP 상담실",
+    "type": "consult",
+    "category": "patient_area",
+    "rect": {
+      "x": 3294,
+      "y": 2215,
+      "w": 454,
+      "h": 341
+    },
+    "tilePosition": {
+      "x": 3521,
+      "y": 2385
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "reception",
+    "name": "접수·중앙 대기",
+    "type": "reception",
+    "category": "common",
+    "rect": {
+      "x": 2840,
+      "y": 1818,
+      "w": 497,
+      "h": 738
+    },
+    "tilePosition": {
+      "x": 3088,
+      "y": 2187
+    },
+    "socialEnabled": true
+  },
+  {
+    "zoneId": "staff_room",
+    "name": "직원실",
+    "type": "staff",
+    "category": "staff_area",
+    "rect": {
+      "x": 3351,
+      "y": 1960,
+      "w": 256,
+      "h": 312
+    },
+    "tilePosition": {
+      "x": 3479,
+      "y": 2116
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "waiting_2",
+    "name": "대기공간",
+    "type": "waiting",
+    "category": "common",
+    "rect": {
+      "x": 3351,
+      "y": 2584,
+      "w": 454,
+      "h": 426
+    },
+    "tilePosition": {
+      "x": 3578,
+      "y": 2797
+    },
+    "socialEnabled": true
+  },
+  {
+    "zoneId": "pantry",
+    "name": "탕비공간",
+    "type": "staff",
+    "category": "staff_area",
+    "rect": {
+      "x": 2954,
+      "y": 2556,
+      "w": 256,
+      "h": 256
+    },
+    "tilePosition": {
+      "x": 3082,
+      "y": 2684
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "doctors_office",
+    "name": "의국실",
+    "type": "staff",
+    "category": "staff_area",
+    "rect": {
+      "x": 2357,
+      "y": 2783,
+      "w": 341,
+      "h": 341
+    },
+    "tilePosition": {
+      "x": 2527,
+      "y": 2953
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "director",
+    "name": "대표원장실",
+    "type": "staff",
+    "category": "staff_area",
+    "rect": {
+      "x": 2357,
+      "y": 3181,
+      "w": 341,
+      "h": 398
+    },
+    "tilePosition": {
+      "x": 2527,
+      "y": 3380
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "staff_zone",
+    "name": "직원 탈의실·휴게실",
+    "type": "staff",
+    "category": "staff_area",
+    "rect": {
+      "x": 3294,
+      "y": 3067,
+      "w": 454,
+      "h": 568
+    },
+    "tilePosition": {
+      "x": 3521,
+      "y": 3351
+    },
+    "socialEnabled": false
+  },
+  {
+    "zoneId": "staff_toilet",
+    "name": "직원 화장실",
+    "type": "etc",
+    "category": "common",
+    "rect": {
+      "x": 2471,
+      "y": 3834,
+      "w": 227,
+      "h": 256
+    },
+    "tilePosition": {
+      "x": 2584,
+      "y": 3962
+    },
+    "socialEnabled": false
+  }
 ]

@@ -18,7 +18,9 @@ export interface Zone {
   name: string; // "메인 대기실"
   type: ZoneType;
   category: ZoneCategory;
-  tilePosition: { x: number; y: number }; // Phaser 맵 좌표
+  /** 도면 기준 방 실제 footprint (cm, 좌상단 원점) — 프론트가 캔버스에 fit */
+  rect: { x: number; y: number; w: number; h: number };
+  tilePosition: { x: number; y: number }; // rect 중심 (cm) — 아바타/게이트웨이 기준점
   socialEnabled: boolean; // 존 채팅 허용 여부
 }
 

@@ -3,9 +3,9 @@ import { io, type Socket } from 'socket.io-client';
 import type { PositionEstimate, PresenceState, TagMetaMap, Zone } from '@meditracker/shared';
 
 /**
- * 직원용 화면 (설계서 8) — 임시 시각화 버전
- * - Tiled 타일맵(Phase 3) 전까지 존을 사각형으로 그린 간이 평면도
- * - 아바타(원) = 태그 소지자. 존 변경 시 tween 이동 (서버가 채터링 억제하므로 떨림 없음)
+ * 직원용 화면 (설계서 8) — 도면 기반 평면도
+ * - zones.json 의 rect(cm) 를 캔버스에 fit 해서 각 방을 실제 크기로 렌더
+ * - 아바타(원) = 태그 소지자. pos:update(cm 좌표) 를 동일 변환으로 배치
  * - namespace: /staff — 서버가 권한 필터링한 presence:update 만 수신
  *
  * ⚠️ 불변식 B-5: 브라우저 스토리지(localStorage 등) 사용 금지.
@@ -13,7 +13,6 @@ import type { PositionEstimate, PresenceState, TagMetaMap, Zone } from '@meditra
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080';
 
-/** ?token= 이 있으면 사용, 없으면 개발용 토큰 자동 발급 (Phase 2 로그인 화면에서 대체) */
 async function resolveToken(): Promise<string> {
   const urlToken = new URLSearchParams(window.location.search).get('token');
   if (urlToken) return urlToken;
@@ -21,22 +20,24 @@ async function resolveToken(): Promise<string> {
   return (await res.json()).token;
 }
 
-// 관리자 모드 버튼 → 서버 관제 페이지. back= 로 이 화면 복귀 경로 전달.
 const adminBtn = document.getElementById('admin-btn') as HTMLAnchorElement | null;
 if (adminBtn) {
   adminBtn.href = `${SERVER_URL}/monitor?back=${encodeURIComponent(window.location.href)}`;
 }
 
-const TILE = 40;
-const ZONE_W = 104; // 도면 기준 30개 구역이 겹치지 않게 축소
-const ZONE_H = 76;
+const CW = 1280;
+const CH = 800;
+const PAD = 24;
+const TOP = 52; // 제목 영역
 
 const ZONE_COLORS: Record<string, number> = {
   waiting: 0x2d6a4f,
   reception: 0x1d5d8f,
   consult: 0x7b4b94,
   surgery: 0x9d4444,
+  laser: 0xc75b39,
   recovery: 0xb07d3a,
+  skincare: 0x2a8a8a,
   staff: 0x555b6e,
   etc: 0x444444,
 };
@@ -46,56 +47,76 @@ const AVATAR_COLORS = [0xffd166, 0xef476f, 0x06d6a0, 0x118ab2, 0xf78c6b, 0x9b5de
 class StaffMapScene extends Phaser.Scene {
   private socket!: Socket;
   private zones = new Map<string, Zone>();
-  private avatars = new Map<string, Phaser.GameObjects.Container>(); // tagId → avatar
-  private zoneOccupants = new Map<string, string[]>(); // zoneId → tagIds (배치 오프셋용)
-  private lastPosAt = new Map<string, number>(); // 연속 위치 수신 시각 (존 스냅과 충돌 방지)
-  private avatarLabels = new Map<string, Phaser.GameObjects.Text>(); // tagId → 이름 라벨
-  private tagMeta: TagMetaMap = {}; // tagId → { name, memo }
-  private absentArea = { x: 1100, y: 720 };
+  private avatars = new Map<string, Phaser.GameObjects.Container>();
+  private avatarLabels = new Map<string, Phaser.GameObjects.Text>();
+  private lastPosAt = new Map<string, number>();
+  private tagMeta: TagMetaMap = {};
+
+  // 월드(cm) → 화면 변환 (Phaser.Scene.scale 예약과 충돌 방지 위해 worldScale)
+  private worldScale = 1;
+  private minX = 0;
+  private minY = 0;
+  private absentPt = { x: CW - 90, y: CH - 60 };
 
   constructor() {
     super('staff-map');
   }
 
+  private sx(x: number): number {
+    return PAD + (x - this.minX) * this.worldScale;
+  }
+  private sy(y: number): number {
+    return TOP + (y - this.minY) * this.worldScale;
+  }
+
   async create(): Promise<void> {
-    this.add.text(20, 14, 'MediTracker — 직원용 (전체 위치)', {
+    this.add.text(20, 14, 'MediTracker — 직원용 (도면 기반 전체 위치)', {
       color: '#ffffff',
-      fontSize: '22px',
+      fontSize: '20px',
       fontStyle: 'bold',
     });
 
-    // 존 레이아웃 로드 → 간이 평면도
     const zones: Zone[] = await fetch(`${SERVER_URL}/zones`).then((r) => r.json());
+
+    // 전체 rect 바운딩박스 → 캔버스에 fit
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const z of zones) {
+      minX = Math.min(minX, z.rect.x);
+      minY = Math.min(minY, z.rect.y);
+      maxX = Math.max(maxX, z.rect.x + z.rect.w);
+      maxY = Math.max(maxY, z.rect.y + z.rect.h);
+    }
+    this.minX = minX;
+    this.minY = minY;
+    this.worldScale = Math.min((CW - 2 * PAD) / (maxX - minX), (CH - TOP - PAD) / (maxY - minY));
+
     for (const zone of zones) {
       this.zones.set(zone.zoneId, zone);
       this.drawZone(zone);
     }
 
-    // 자리비움 영역
+    // 자리비움 영역 (우하단)
     this.add
-      .rectangle(this.absentArea.x, this.absentArea.y, ZONE_W, ZONE_H, 0x333333, 0.5)
+      .rectangle(this.absentPt.x, this.absentPt.y, 150, 70, 0x333333, 0.5)
       .setStrokeStyle(2, 0x777777, 1);
     this.add
-      .text(this.absentArea.x, this.absentArea.y - ZONE_H / 2 + 12, '자리비움', {
-        color: '#999999',
-        fontSize: '14px',
-      })
+      .text(this.absentPt.x, this.absentPt.y - 30, '자리비움', { color: '#999999', fontSize: '12px' })
       .setOrigin(0.5, 0);
 
-    // 태그 이름/메모 초기 로드
     this.tagMeta = await fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json());
-
     this.connect(await resolveToken());
   }
 
   private drawZone(zone: Zone): void {
-    const x = zone.tilePosition.x * TILE;
-    const y = zone.tilePosition.y * TILE;
+    const x = this.sx(zone.rect.x);
+    const y = this.sy(zone.rect.y);
+    const w = zone.rect.w * this.worldScale;
+    const h = zone.rect.h * this.worldScale;
     const color = ZONE_COLORS[zone.type] ?? ZONE_COLORS.etc;
 
-    this.add.rectangle(x, y, ZONE_W, ZONE_H, color, 0.35).setStrokeStyle(2, color, 1);
+    this.add.rectangle(x, y, w, h, color, 0.35).setOrigin(0, 0).setStrokeStyle(1.5, color, 1);
     this.add
-      .text(x, y - ZONE_H / 2 + 8, zone.name, { color: '#dddddd', fontSize: '14px' })
+      .text(x + w / 2, y + 3, zone.name, { color: '#e8e8e8', fontSize: '11px', align: 'center' })
       .setOrigin(0.5, 0);
   }
 
@@ -107,12 +128,12 @@ class StaffMapScene extends Phaser.Scene {
     });
 
     this.socket.on('presence:remove', ({ tagId }: { tagId: string }) => {
-      const avatar = this.avatars.get(tagId);
       this.lastPosAt.delete(tagId);
-      if (avatar) this.moveTo(avatar, tagId, null);
+      const avatar = this.avatars.get(tagId);
+      if (avatar) this.moveTo(avatar, null);
     });
 
-    // RSSI 가중평균 연속 위치 (0.5초 주기) — 존 스냅 대신 부드러운 실시간 이동
+    // RSSI 가중평균 연속 위치 (cm 좌표) → 동일 변환으로 부드럽게 이동
     this.socket.on('pos:update', (positions: PositionEstimate[]) => {
       for (const p of positions) {
         let avatar = this.avatars.get(p.tagId);
@@ -121,18 +142,17 @@ class StaffMapScene extends Phaser.Scene {
           this.avatars.set(p.tagId, avatar);
         }
         this.lastPosAt.set(p.tagId, Date.now());
-        this.tweens.killTweensOf(avatar); // 이전 tween 정리 (누적 방지)
+        this.tweens.killTweensOf(avatar);
         this.tweens.add({
           targets: avatar,
-          x: p.x * TILE,
-          y: p.y * TILE,
-          duration: 480, // 서버 주기(500ms)에 맞춰 끊김 없이 미끄러지게
+          x: this.sx(p.x),
+          y: this.sy(p.y),
+          duration: 480,
           ease: 'Linear',
         });
       }
     });
 
-    // 이름/메모 변경 실시간 반영 (관제·다른 직원 화면에서 편집 시)
     this.socket.on('tagmeta', (map: TagMetaMap) => {
       this.tagMeta = map;
       for (const [tagId, label] of this.avatarLabels) label.setText(this.labelFor(tagId));
@@ -140,18 +160,15 @@ class StaffMapScene extends Phaser.Scene {
 
     this.socket.on('connect_error', (err) => {
       console.error('[ws] connect error:', err.message);
-      this.add.text(20, 50, `연결 실패: ${err.message} (?token= 확인)`, { color: '#ff6b6b' });
     });
   }
 
-  /** 아바타 라벨 텍스트 — 이름 있으면 이름(+메모📝), 없으면 tagId 끝 5자 */
   private labelFor(tagId: string): string {
     const m = this.tagMeta[tagId];
     const base = m?.name?.trim() ? m.name.trim() : tagId.slice(-5);
     return m?.memo?.trim() ? `${base} 📝` : base;
   }
 
-  /** 아바타 클릭 → 이름/메모 입력 → 서버 저장 (broadcast 로 전 화면 반영) */
   private editMeta(tagId: string): void {
     const cur = this.tagMeta[tagId] ?? {};
     const name = window.prompt(`태그 ${tagId}\n\n이름:`, cur.name ?? '');
@@ -164,66 +181,47 @@ class StaffMapScene extends Phaser.Scene {
   }
 
   private upsertAvatar(state: PresenceState): void {
-    console.log('[presence]', state.tagId, '→', state.currentZone);
     let avatar = this.avatars.get(state.tagId);
     if (!avatar) {
       avatar = this.makeAvatar(state.tagId);
       this.avatars.set(state.tagId, avatar);
     }
-    // 연속 위치(pos:update)가 흐르는 동안은 존 스냅 이동 생략 (tween 충돌 방지)
-    const last = this.lastPosAt.get(state.tagId) ?? 0;
-    if (Date.now() - last < 2000) return;
-    this.moveTo(avatar, state.tagId, state.currentZone);
+    // 연속 위치가 흐르는 동안은 존 스냅 생략 (tween 충돌 방지)
+    if (Date.now() - (this.lastPosAt.get(state.tagId) ?? 0) < 2000) return;
+    this.moveTo(avatar, state.currentZone);
   }
 
   private makeAvatar(tagId: string): Phaser.GameObjects.Container {
     const color = AVATAR_COLORS[this.avatars.size % AVATAR_COLORS.length];
-    const circle = this.add.circle(0, 0, 14, color).setStrokeStyle(2, 0xffffff, 0.9);
-    // 클릭 → 이름/메모 편집
+    const circle = this.add.circle(0, 0, 9, color).setStrokeStyle(2, 0xffffff, 0.9);
     circle.setInteractive({ useHandCursor: true });
     circle.on('pointerdown', () => this.editMeta(tagId));
     const label = this.add
-      .text(0, 22, this.labelFor(tagId), { color: '#ffffff', fontSize: '11px' })
+      .text(0, 12, this.labelFor(tagId), { color: '#ffffff', fontSize: '11px' })
       .setOrigin(0.5, 0);
     this.avatarLabels.set(tagId, label);
-    return this.add.container(this.absentArea.x, this.absentArea.y, [circle, label]);
+    return this.add.container(this.absentPt.x, this.absentPt.y, [circle, label]);
   }
 
-  /** 존 중심 + 점유 순번별 오프셋으로 tween 이동 */
-  private moveTo(avatar: Phaser.GameObjects.Container, tagId: string, zoneId: string | null): void {
-    // 이전 존 점유 목록에서 제거
-    for (const [zid, tags] of this.zoneOccupants) {
-      const i = tags.indexOf(tagId);
-      if (i >= 0) {
-        tags.splice(i, 1);
-        if (tags.length === 0) this.zoneOccupants.delete(zid);
-      }
-    }
-
-    let target: { x: number; y: number };
+  /** 존 스냅 이동 (연속 위치가 없을 때 fallback) — 존 중심으로 */
+  private moveTo(avatar: Phaser.GameObjects.Container, zoneId: string | null): void {
+    let tx: number, ty: number;
     if (zoneId === null) {
-      target = this.absentArea;
+      tx = this.absentPt.x;
+      ty = this.absentPt.y;
     } else {
       const zone = this.zones.get(zoneId);
       if (!zone) return;
-      const occupants = this.zoneOccupants.get(zoneId) ?? [];
-      occupants.push(tagId);
-      this.zoneOccupants.set(zoneId, occupants);
-      const idx = occupants.length - 1;
-      target = {
-        x: zone.tilePosition.x * TILE - 40 + (idx % 3) * 40,
-        y: zone.tilePosition.y * TILE - 4 + Math.floor(idx / 3) * 36,
-      };
+      tx = this.sx(zone.tilePosition.x);
+      ty = this.sy(zone.tilePosition.y);
     }
-
-    // 거리 비례 이동 시간 (0.8초~2.5초) — 순간이동처럼 안 보이게
-    const dist = Phaser.Math.Distance.Between(avatar.x, avatar.y, target.x, target.y);
+    const dist = Phaser.Math.Distance.Between(avatar.x, avatar.y, tx, ty);
     this.tweens.killTweensOf(avatar);
     this.tweens.add({
       targets: avatar,
-      x: target.x,
-      y: target.y,
-      duration: Phaser.Math.Clamp(dist * 2.5, 800, 2500),
+      x: tx,
+      y: ty,
+      duration: Phaser.Math.Clamp(dist * 3, 400, 1600),
       ease: 'Sine.easeInOut',
     });
   }
@@ -232,10 +230,9 @@ class StaffMapScene extends Phaser.Scene {
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'app',
-  width: 1280,
-  height: 800,
+  width: CW,
+  height: CH,
   backgroundColor: '#1a1a2e',
   scene: [StaffMapScene],
 });
-// 디버깅용 (콘솔에서 씬 상태 확인)
 (window as unknown as Record<string, unknown>).__game = game;

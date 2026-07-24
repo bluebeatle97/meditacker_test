@@ -13,34 +13,39 @@
  *   SCAN_INTERVAL_MS=500 (기본)        # 게이트웨이 업로드 주기
  */
 import mqtt from 'mqtt';
-import { loadGateways } from '../config/index.js';
+import { loadGateways, loadZones } from '../config/index.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
 const SPEED = Number(process.env.MOCK_SPEED ?? 1);
 const SCAN_INTERVAL_MS = Number(process.env.SCAN_INTERVAL_MS ?? 500);
-const WALK_SPEED = 1.4; // 타일/초 (성인 보행 ≈ 1.4m/s, 1타일≈1m 가정)
+const WALK_SPEED = 140; // cm/초 (성인 보행 ≈ 1.4m/s, 좌표는 cm)
 
 const client = mqtt.connect(MQTT_URL);
 const gateways = loadGateways().filter((g) => g.tile);
+const zoneCenter = new Map(loadZones().map((z) => [z.zoneId, z.tilePosition]));
 
-// ── 경로: {x, y} waypoint + 도착 후 머무는 시간(초) ─────────────────────────
+// ── 경로: 존 중심(cm)을 지나는 환자 동선 + 도착 후 머무는 시간(초) ───────────
 interface Waypoint {
   x: number;
   y: number;
   pause: number;
 }
 
-const ROUTE: Waypoint[] = [
-  // 도면(zones.json/gateways.json) 좌표 기준 환자 동선
-  { x: 16, y: 12, pause: 40 }, // 접수·중앙 대기
-  { x: 16, y: 13, pause: 25 }, // 대기 안에서 자리 이동 ← 같은 존 내 움직임 확인
-  { x: 12, y: 11, pause: 30 }, // 상담실 2
-  { x: 10, y: 9, pause: 25 }, // 상담실 1
-  { x: 10, y: 3, pause: 45 }, // 시술실 2
-  { x: 3, y: 8, pause: 40 }, // 수술실 1
-  { x: 7, y: 9, pause: 35 }, // VIP 회복실
-  { x: 24, y: 13, pause: 20 }, // 대기공간 복귀
+// 도면 구역을 순서대로 경유 (존 중심 좌표 자동 사용)
+const ROUTE_ZONES: Array<{ zoneId: string; pause: number }> = [
+  { zoneId: 'reception', pause: 40 }, // 접수·중앙 대기
+  { zoneId: 'consult_2', pause: 30 }, // 상담실 2
+  { zoneId: 'consult_1', pause: 25 }, // 상담실 1
+  { zoneId: 'proc_2', pause: 45 }, // 시술실 2
+  { zoneId: 'surgery_1', pause: 40 }, // 수술실 1
+  { zoneId: 'vip_recovery', pause: 35 }, // VIP 회복실
+  { zoneId: 'waiting_2', pause: 20 }, // 대기공간
 ];
+
+const ROUTE: Waypoint[] = ROUTE_ZONES.map(({ zoneId, pause }) => {
+  const c = zoneCenter.get(zoneId) ?? { x: 2500, y: 2000 };
+  return { x: c.x, y: c.y, pause };
+});
 
 const TAGS = [
   { mac: 'AA:BB:CC:00:00:01', routeOffsetSec: 0 },
@@ -90,14 +95,14 @@ function positionAt(sec: number): { x: number; y: number } {
   return { x: ROUTE[0].x, y: ROUTE[0].y };
 }
 
-// ── 경로손실 모델: 거리(타일≈m) → RSSI ──────────────────────────────────────
+// ── 경로손실 모델: 거리(cm) → RSSI ──────────────────────────────────────────
 const TX_AT_1M = -45; // 1m 에서의 수신세기
 const PATH_LOSS_N = 2.2; // 실내 감쇠 지수
 const RX_FLOOR = -92; // 이보다 약하면 게이트웨이가 못 들음
 
-function rssiFor(dist: number): number | null {
-  const d = Math.max(dist, 0.3);
-  const rssi = TX_AT_1M - 10 * PATH_LOSS_N * Math.log10(d) + (Math.random() - 0.5) * 4;
+function rssiFor(distCm: number): number | null {
+  const meters = Math.max(distCm / 100, 0.3); // cm → m
+  const rssi = TX_AT_1M - 10 * PATH_LOSS_N * Math.log10(meters) + (Math.random() - 0.5) * 4;
   return rssi < RX_FLOOR ? null : Math.round(rssi);
 }
 
