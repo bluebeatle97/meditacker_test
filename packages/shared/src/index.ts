@@ -26,6 +26,16 @@ export interface Gateway {
   gatewayId: string; // MAC 또는 고유 ID
   zoneId: string; // 이 게이트웨이가 커버하는 존
   label: string; // "대기실-천장-A"
+  /** 게이트웨이 설치 위치 (타일 좌표) — RSSI 가중평균 연속 위치 계산용 */
+  tile?: { x: number; y: number };
+}
+
+/** RSSI 가중평균으로 추정한 연속 위치 (타일 좌표, 트래킹 시각화용) */
+export interface PositionEstimate {
+  tagId: string;
+  x: number;
+  y: number;
+  zone: string | null; // 존 엔진의 현재 판정 (병행 표시용)
 }
 
 export type PersonType = 'patient' | 'staff';

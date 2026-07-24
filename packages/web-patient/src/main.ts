@@ -103,6 +103,7 @@ class PatientScene extends Phaser.Scene {
           const ty = zone.tilePosition.y * TILE + MAP_OFFSET_Y + 8;
           const dist = Phaser.Math.Distance.Between(this.me.x, this.me.y, tx, ty);
           this.me.setVisible(true);
+          this.tweens.killTweensOf(this.me);
           this.tweens.add({
             targets: this.me,
             x: tx,

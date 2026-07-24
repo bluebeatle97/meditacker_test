@@ -70,6 +70,11 @@ export class ZoneEngine extends EventEmitter {
     return [...this.states.values()];
   }
 
+  /** RSSI_WINDOW 내 게이트웨이별 최신 수신값 (연속 위치 추정 등 외부 활용) */
+  readingsOf(tagId: string): Array<{ gatewayId: string; rssi: number }> {
+    return this.freshReadings(tagId, this.now());
+  }
+
   /** 주기 호출 — 무신호 태그를 자리비움(null) 처리 */
   sweepAbsent(): void {
     const now = this.now();

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
-import type { PresenceState, Zone } from '@meditracker/shared';
+import type { PositionEstimate, PresenceState, Zone } from '@meditracker/shared';
 
 /**
  * 직원용 화면 (설계서 8) — 임시 시각화 버전
@@ -42,6 +42,7 @@ class StaffMapScene extends Phaser.Scene {
   private zones = new Map<string, Zone>();
   private avatars = new Map<string, Phaser.GameObjects.Container>(); // tagId → avatar
   private zoneOccupants = new Map<string, string[]>(); // zoneId → tagIds (배치 오프셋용)
+  private lastPosAt = new Map<string, number>(); // 연속 위치 수신 시각 (존 스냅과 충돌 방지)
   private absentArea = { x: 1100, y: 720 };
 
   constructor() {
@@ -96,7 +97,28 @@ class StaffMapScene extends Phaser.Scene {
 
     this.socket.on('presence:remove', ({ tagId }: { tagId: string }) => {
       const avatar = this.avatars.get(tagId);
+      this.lastPosAt.delete(tagId);
       if (avatar) this.moveTo(avatar, tagId, null);
+    });
+
+    // RSSI 가중평균 연속 위치 (0.5초 주기) — 존 스냅 대신 부드러운 실시간 이동
+    this.socket.on('pos:update', (positions: PositionEstimate[]) => {
+      for (const p of positions) {
+        let avatar = this.avatars.get(p.tagId);
+        if (!avatar) {
+          avatar = this.makeAvatar(p.tagId);
+          this.avatars.set(p.tagId, avatar);
+        }
+        this.lastPosAt.set(p.tagId, Date.now());
+        this.tweens.killTweensOf(avatar); // 이전 tween 정리 (누적 방지)
+        this.tweens.add({
+          targets: avatar,
+          x: p.x * TILE,
+          y: p.y * TILE,
+          duration: 480, // 서버 주기(500ms)에 맞춰 끊김 없이 미끄러지게
+          ease: 'Linear',
+        });
+      }
     });
 
     this.socket.on('connect_error', (err) => {
@@ -112,6 +134,9 @@ class StaffMapScene extends Phaser.Scene {
       avatar = this.makeAvatar(state.tagId);
       this.avatars.set(state.tagId, avatar);
     }
+    // 연속 위치(pos:update)가 흐르는 동안은 존 스냅 이동 생략 (tween 충돌 방지)
+    const last = this.lastPosAt.get(state.tagId) ?? 0;
+    if (Date.now() - last < 2000) return;
     this.moveTo(avatar, state.tagId, state.currentZone);
   }
 
@@ -153,6 +178,7 @@ class StaffMapScene extends Phaser.Scene {
 
     // 거리 비례 이동 시간 (0.8초~2.5초) — 순간이동처럼 안 보이게
     const dist = Phaser.Math.Distance.Between(avatar.x, avatar.y, target.x, target.y);
+    this.tweens.killTweensOf(avatar);
     this.tweens.add({
       targets: avatar,
       x: target.x,
@@ -163,7 +189,7 @@ class StaffMapScene extends Phaser.Scene {
   }
 }
 
-new Phaser.Game({
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'app',
   width: 1280,
@@ -171,3 +197,5 @@ new Phaser.Game({
   backgroundColor: '#1a1a2e',
   scene: [StaffMapScene],
 });
+// 디버깅용 (콘솔에서 씬 상태 확인)
+(window as unknown as Record<string, unknown>).__game = game;

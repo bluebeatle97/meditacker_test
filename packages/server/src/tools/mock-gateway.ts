@@ -1,64 +1,123 @@
 /**
- * 목 게이트웨이 (Phase 0 — 하드웨어 도착 전 E2E 검증용)
+ * 목 게이트웨이 — 좌표 기반 이동 시뮬레이션 (트래킹 품질 검증용)
  *
- * 가상 태그 2개가 대기실 → 상담실1 로 이동하는 시나리오를
- * MQTT 로 publish 한다. 서버를 켠 상태에서 실행:
+ * 가상 태그가 맵(타일 좌표)을 실제로 "걸어서" 이동한다:
+ *   waypoint 경로를 일정 속도로 걸으며, 매 스캔 주기마다
+ *   각 게이트웨이까지의 거리 → 경로손실 모델로 RSSI 계산 → publish.
+ *
+ * 서버의 RSSI 가중평균(pos:update)이 이 실제 경로를 잘 따라오는지,
+ * 존 판정(presence:update)이 경계에서 안정적인지 눈으로 확인하는 용도.
  *
  *   npm run mock:gw -w @meditracker/server
+ *   MOCK_SPEED=4 npm run mock:gw ...   # 4배속
+ *   SCAN_INTERVAL_MS=500 (기본)        # 게이트웨이 업로드 주기
  */
 import mqtt from 'mqtt';
+import { loadGateways } from '../config/index.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
-const client = mqtt.connect(MQTT_URL);
-
-const TAGS = ['AA:BB:CC:00:00:01', 'AA:BB:CC:00:00:02'];
-
-function publish(gatewayId: string, mac: string, rssi: number): void {
-  const payload = JSON.stringify([{ mac, rssi: rssi + jitter(), ts: Date.now() }]);
-  client.publish(`gw/${gatewayId}/scan`, payload);
-}
-
-function jitter(): number {
-  return Math.round((Math.random() - 0.5) * 4); // ±2dB 노이즈
-}
-
-// 실제 환자 동선에 가까운 체류 시간 (환경변수 MOCK_SPEED 배속 — 예: 4 면 4배 빨리)
 const SPEED = Number(process.env.MOCK_SPEED ?? 1);
-// 게이트웨이 스캔 업로드 주기 (실물 gateway4 주기는 판매자 확인 필요 — 설계서 12장)
 const SCAN_INTERVAL_MS = Number(process.env.SCAN_INTERVAL_MS ?? 500);
-const DWELL = {
-  waiting: 90, // 대기실 90초
-  boundary: 8, // 경계 구간 (히스테리시스 검증)
-  consult: 60, // 상담실 60초
-  surgery: 60, // 시술실 60초
-  recovery: 45, // 회복실 45초
-  absent: 25, // 자리비움 (무신호)
-};
-const CYCLE = Object.values(DWELL).reduce((a, b) => a + b, 0); // 288초 ≈ 4.8분
+const WALK_SPEED = 1.4; // 타일/초 (성인 보행 ≈ 1.4m/s, 1타일≈1m 가정)
 
-/** tick 위치에 따라 (게이트웨이 신호 세트) 반환 */
-function signalsAt(tick: number): Array<[string, number]> {
-  let t = tick;
-  if ((t -= DWELL.waiting) < 0) return [['GW-A1', -58], ['GW-C1', -82]];
-  if ((t -= DWELL.boundary) < 0) return [['GW-A1', -70], ['GW-C1', -66]];
-  if ((t -= DWELL.consult) < 0) return [['GW-A1', -85], ['GW-C1', -55]];
-  if ((t -= DWELL.surgery) < 0) return [['GW-C1', -85], ['GW-D1', -54]];
-  if ((t -= DWELL.recovery) < 0) return [['GW-D1', -84], ['GW-E1', -56]];
-  return []; // 자리비움 — 무신호
+const client = mqtt.connect(MQTT_URL);
+const gateways = loadGateways().filter((g) => g.tile);
+
+// ── 경로: {x, y} waypoint + 도착 후 머무는 시간(초) ─────────────────────────
+interface Waypoint {
+  x: number;
+  y: number;
+  pause: number;
+}
+
+const ROUTE: Waypoint[] = [
+  { x: 4, y: 3, pause: 15 }, // 접수
+  { x: 10, y: 8, pause: 60 }, // 대기실 (좌측)
+  { x: 12, y: 9, pause: 30 }, // 대기실 안에서 자리 이동 ← 같은 존 내 움직임 확인
+  { x: 18, y: 4, pause: 45 }, // 상담실1
+  { x: 26, y: 10, pause: 45 }, // 시술실1
+  { x: 26, y: 16, pause: 30 }, // 회복실1
+  { x: 10, y: 8, pause: 20 }, // 대기실 복귀
+];
+
+const TAGS = [
+  { mac: 'AA:BB:CC:00:00:01', routeOffsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:02', routeOffsetSec: 150 },
+];
+
+// 경로를 시간축으로 펼치기: 각 구간 (걷기 or 정지) 의 시작시각 테이블
+interface Segment {
+  from: Waypoint;
+  to: Waypoint;
+  startSec: number;
+  durationSec: number;
+  moving: boolean;
+}
+
+function buildTimeline(route: Waypoint[]): { segments: Segment[]; totalSec: number } {
+  const segments: Segment[] = [];
+  let t = 0;
+  for (let i = 0; i < route.length; i++) {
+    const cur = route[i];
+    const next = route[(i + 1) % route.length];
+    segments.push({ from: cur, to: cur, startSec: t, durationSec: cur.pause, moving: false });
+    t += cur.pause;
+    const dist = Math.hypot(next.x - cur.x, next.y - cur.y);
+    const walkSec = dist / WALK_SPEED;
+    segments.push({ from: cur, to: next, startSec: t, durationSec: walkSec, moving: true });
+    t += walkSec;
+  }
+  return { segments, totalSec: t };
+}
+
+const { segments, totalSec } = buildTimeline(ROUTE);
+
+/** 시나리오 시각 → 현재 좌표 */
+function positionAt(sec: number): { x: number; y: number } {
+  const t = sec % totalSec;
+  for (const seg of segments) {
+    if (t >= seg.startSec && t < seg.startSec + seg.durationSec) {
+      if (!seg.moving) return { x: seg.from.x, y: seg.from.y };
+      const p = (t - seg.startSec) / seg.durationSec;
+      return {
+        x: seg.from.x + (seg.to.x - seg.from.x) * p,
+        y: seg.from.y + (seg.to.y - seg.from.y) * p,
+      };
+    }
+  }
+  return { x: ROUTE[0].x, y: ROUTE[0].y };
+}
+
+// ── 경로손실 모델: 거리(타일≈m) → RSSI ──────────────────────────────────────
+const TX_AT_1M = -45; // 1m 에서의 수신세기
+const PATH_LOSS_N = 2.2; // 실내 감쇠 지수
+const RX_FLOOR = -92; // 이보다 약하면 게이트웨이가 못 들음
+
+function rssiFor(dist: number): number | null {
+  const d = Math.max(dist, 0.3);
+  const rssi = TX_AT_1M - 10 * PATH_LOSS_N * Math.log10(d) + (Math.random() - 0.5) * 4;
+  return rssi < RX_FLOOR ? null : Math.round(rssi);
 }
 
 client.on('connect', () => {
   console.log(
-    `[mock-gw] connected: ${MQTT_URL} — 사이클 ${Math.round(CYCLE / SPEED)}초 무한 반복 (Ctrl+C 종료)`,
+    `[mock-gw] connected: ${MQTT_URL} — 보행 시뮬레이션 (경로 ${Math.round(totalSec / SPEED)}초/바퀴, 스캔 ${SCAN_INTERVAL_MS}ms)`,
   );
-  let elapsed = 0; // 초 (시나리오 시간)
+  let elapsed = 0;
 
   setInterval(() => {
     elapsed += (SCAN_INTERVAL_MS / 1000) * SPEED;
-    TAGS.forEach((mac, i) => {
-      // 태그마다 시차를 줘서 따로 움직이게 (동선 겹침 방지)
-      const tick = (elapsed + i * Math.floor(CYCLE / TAGS.length)) % CYCLE;
-      for (const [gw, rssi] of signalsAt(tick)) publish(gw, mac, rssi);
-    });
+    for (const tag of TAGS) {
+      const pos = positionAt(elapsed + tag.routeOffsetSec);
+      for (const gw of gateways) {
+        const dist = Math.hypot(gw.tile!.x - pos.x, gw.tile!.y - pos.y);
+        const rssi = rssiFor(dist);
+        if (rssi === null) continue;
+        client.publish(
+          `gw/${gw.gatewayId}/scan`,
+          JSON.stringify([{ mac: tag.mac, rssi, ts: Date.now() }]),
+        );
+      }
+    }
   }, SCAN_INTERVAL_MS);
 });

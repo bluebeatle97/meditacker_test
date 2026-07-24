@@ -1,10 +1,10 @@
 [
-  { "gatewayId": "GW-A1", "zoneId": "waiting_main", "label": "대기실-천장-A" },
-  { "gatewayId": "GW-A2", "zoneId": "waiting_main", "label": "대기실-천장-B" },
-  { "gatewayId": "GW-B1", "zoneId": "reception", "label": "접수-천장" },
-  { "gatewayId": "GW-C1", "zoneId": "consult_1", "label": "상담실1-천장" },
-  { "gatewayId": "GW-C2", "zoneId": "consult_2", "label": "상담실2-천장" },
-  { "gatewayId": "GW-D1", "zoneId": "surgery_1", "label": "시술실1-천장" },
-  { "gatewayId": "GW-E1", "zoneId": "recovery_1", "label": "회복실1-천장" },
-  { "gatewayId": "GW-F1", "zoneId": "staff_room", "label": "직원공간-천장" }
+  { "gatewayId": "GW-A1", "zoneId": "waiting_main", "label": "대기실-천장-A", "tile": { "x": 8, "y": 8 } },
+  { "gatewayId": "GW-A2", "zoneId": "waiting_main", "label": "대기실-천장-B", "tile": { "x": 12, "y": 8 } },
+  { "gatewayId": "GW-B1", "zoneId": "reception", "label": "접수-천장", "tile": { "x": 4, "y": 3 } },
+  { "gatewayId": "GW-C1", "zoneId": "consult_1", "label": "상담실1-천장", "tile": { "x": 18, "y": 4 } },
+  { "gatewayId": "GW-C2", "zoneId": "consult_2", "label": "상담실2-천장", "tile": { "x": 22, "y": 4 } },
+  { "gatewayId": "GW-D1", "zoneId": "surgery_1", "label": "시술실1-천장", "tile": { "x": 26, "y": 10 } },
+  { "gatewayId": "GW-E1", "zoneId": "recovery_1", "label": "회복실1-천장", "tile": { "x": 26, "y": 16 } },
+  { "gatewayId": "GW-F1", "zoneId": "staff_room", "label": "직원공간-천장", "tile": { "x": 2, "y": 16 } }
 ]

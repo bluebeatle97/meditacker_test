@@ -4,6 +4,7 @@ import { ZoneEngine } from './zone-engine/zone-engine.js';
 import { MqttIngestion } from './ingestion/mqtt-ingestion.js';
 import { GenericJsonAdapter } from './ingestion/adapters/generic-json.adapter.js';
 import { PresenceService } from './presence/presence-service.js';
+import { PositionEstimator } from './presence/position-estimator.js';
 import { openDb } from './db/index.js';
 import { createWsServer } from './ws/index.js';
 import { signToken } from './auth/jwt.js';
@@ -61,7 +62,15 @@ const httpServer = createServer((req, res) => {
   res.end();
 });
 
-createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db);
+const io = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db);
+
+// 연속 위치 추정 브로드캐스트 (트래킹 시각화 — 0.5초 주기)
+// TODO: 권한 매트릭스 확정 후 visibleTargets 필터 경유로 변경 (지금은 staff 전체)
+const estimator = new PositionEstimator(gateways, engine);
+setInterval(() => {
+  const positions = estimator.estimateAll();
+  if (positions.length > 0) io.of('/staff').emit('pos:update', positions);
+}, 500);
 
 httpServer.listen(SERVER_CONFIG.httpPort, () => {
   console.log(`[server] listening on :${SERVER_CONFIG.httpPort} (ws: /patient, /staff)`);
