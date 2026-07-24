@@ -22,12 +22,15 @@ function jitter(): number {
   return Math.round((Math.random() - 0.5) * 4); // ±2dB 노이즈
 }
 
+const CYCLE = 65; // 초 — 시나리오 1바퀴 후 반복
+
 client.on('connect', () => {
-  console.log(`[mock-gw] connected: ${MQTT_URL} — 시나리오 시작 (Ctrl+C 종료)`);
-  let tick = 0;
+  console.log(`[mock-gw] connected: ${MQTT_URL} — 시나리오 무한 반복 (Ctrl+C 종료)`);
+  let elapsed = 0;
 
   setInterval(() => {
-    tick++;
+    elapsed++;
+    const tick = elapsed % CYCLE;
     for (const mac of TAGS) {
       if (tick < 15) {
         // 0~15초: 대기실 체류 (상담실 신호도 약하게 샘)
@@ -37,14 +40,21 @@ client.on('connect', () => {
         // 15~20초: 경계 구간 — 히스테리시스가 채터링을 막아야 함
         publish('GW-A1', mac, -70);
         publish('GW-C1', mac, -66);
-      } else if (tick < 40) {
-        // 20~40초: 상담실1 진입 (명확히 셈 → CONFIRM_COUNT 후 전환)
+      } else if (tick < 30) {
+        // 20~30초: 상담실1 진입 (명확히 셈 → CONFIRM_COUNT 후 전환)
         publish('GW-A1', mac, -85);
         publish('GW-C1', mac, -55);
+      } else if (tick < 40) {
+        // 30~40초: 시술실1 이동
+        publish('GW-C1', mac, -85);
+        publish('GW-D1', mac, -54);
+      } else if (tick < 48) {
+        // 40~48초: 회복실1 이동
+        publish('GW-D1', mac, -84);
+        publish('GW-E1', mac, -56);
       }
-      // 40초~: 무신호 → ABSENT_TIMEOUT 후 자리비움 처리 확인
+      // 48~65초: 무신호 → ABSENT_TIMEOUT 후 자리비움 → 다시 대기실부터
     }
-    if (tick === 40) console.log('[mock-gw] 송출 중단 — 15초 후 자리비움 처리 확인');
-    if (tick > 60) process.exit(0);
+    if (tick === 0) console.log('[mock-gw] 사이클 재시작 — 대기실부터');
   }, 1000);
 });
