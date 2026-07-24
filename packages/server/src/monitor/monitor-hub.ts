@@ -2,6 +2,7 @@ import type { Server, Namespace } from 'socket.io';
 import type { Gateway, ScanEvent, Zone } from '@meditracker/shared';
 import type { ZoneEngine } from '../zone-engine/zone-engine.js';
 import type { PositionEstimator } from '../presence/position-estimator.js';
+import type { TagMetaStore } from '../presence/tag-meta-store.js';
 
 export interface MonitorZoneChange {
   tagId: string;
@@ -33,6 +34,7 @@ export class MonitorHub {
     private estimator: PositionEstimator,
     private gateways: Gateway[],
     private zones: Zone[],
+    private tagMeta: TagMetaStore,
     private now: () => number = Date.now,
   ) {
     this.ns = io.of('/monitor');
@@ -44,6 +46,7 @@ export class MonitorHub {
         startedAt: this.startedAt,
         recentScans: this.recentScans,
         recentZoneChanges: this.recentZoneChanges,
+        tagMeta: this.tagMeta.all(),
       });
     });
 

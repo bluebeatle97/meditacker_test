@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Person, TagAssignment } from '@meditracker/shared';
+import type { Person, TagAssignment, TagMetaMap } from '@meditracker/shared';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -57,4 +57,24 @@ export function closePresenceLog(db: Db, tagId: string, exitedAt: number, durati
     `UPDATE presence_logs SET exited_at = ?, duration_sec = ?
      WHERE id = (SELECT id FROM presence_logs WHERE tag_id = ? AND exited_at IS NULL ORDER BY entered_at DESC LIMIT 1)`,
   ).run(exitedAt, durationSec, tagId);
+}
+
+// ── 태그 이름/메모 (설계서 외 운영 편의 — 관제·직원 화면 라벨) ──────────────
+
+export function getAllTagMeta(db: Db): TagMetaMap {
+  const rows = db.prepare(`SELECT tag_id, name, memo FROM tag_meta`).all() as Array<{
+    tag_id: string;
+    name: string | null;
+    memo: string | null;
+  }>;
+  const map: TagMetaMap = {};
+  for (const r of rows) map[r.tag_id] = { name: r.name ?? undefined, memo: r.memo ?? undefined };
+  return map;
+}
+
+export function upsertTagMeta(db: Db, tagId: string, name: string, memo: string): void {
+  db.prepare(
+    `INSERT INTO tag_meta (tag_id, name, memo, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(tag_id) DO UPDATE SET name = excluded.name, memo = excluded.memo, updated_at = excluded.updated_at`,
+  ).run(tagId, name || null, memo || null, Date.now());
 }

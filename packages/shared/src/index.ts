@@ -30,6 +30,13 @@ export interface Gateway {
   tile?: { x: number; y: number };
 }
 
+/** 태그에 운영자가 붙인 이름/메모 (관제·직원 화면에서 tagId 대신 표시) */
+export interface TagMeta {
+  name?: string;
+  memo?: string;
+}
+export type TagMetaMap = Record<string, TagMeta>;
+
 /** RSSI 가중평균으로 추정한 연속 위치 (타일 좌표, 트래킹 시각화용) */
 export interface PositionEstimate {
   tagId: string;

@@ -27,3 +27,11 @@ CREATE TABLE IF NOT EXISTS presence_logs (
 
 CREATE INDEX IF NOT EXISTS idx_logs_person ON presence_logs(person_id);
 CREATE INDEX IF NOT EXISTS idx_logs_zone ON presence_logs(zone_id);
+
+-- 운영자가 태그에 붙인 이름/메모 (tagId 대신 표시)
+CREATE TABLE IF NOT EXISTS tag_meta (
+  tag_id TEXT PRIMARY KEY,
+  name TEXT,
+  memo TEXT,
+  updated_at INTEGER
+);

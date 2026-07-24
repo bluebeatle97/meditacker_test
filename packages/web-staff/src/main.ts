@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
-import type { PositionEstimate, PresenceState, Zone } from '@meditracker/shared';
+import type { PositionEstimate, PresenceState, TagMetaMap, Zone } from '@meditracker/shared';
 
 /**
  * 직원용 화면 (설계서 8) — 임시 시각화 버전
@@ -49,6 +49,8 @@ class StaffMapScene extends Phaser.Scene {
   private avatars = new Map<string, Phaser.GameObjects.Container>(); // tagId → avatar
   private zoneOccupants = new Map<string, string[]>(); // zoneId → tagIds (배치 오프셋용)
   private lastPosAt = new Map<string, number>(); // 연속 위치 수신 시각 (존 스냅과 충돌 방지)
+  private avatarLabels = new Map<string, Phaser.GameObjects.Text>(); // tagId → 이름 라벨
+  private tagMeta: TagMetaMap = {}; // tagId → { name, memo }
   private absentArea = { x: 1100, y: 720 };
 
   constructor() {
@@ -79,6 +81,9 @@ class StaffMapScene extends Phaser.Scene {
         fontSize: '14px',
       })
       .setOrigin(0.5, 0);
+
+    // 태그 이름/메모 초기 로드
+    this.tagMeta = await fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json());
 
     this.connect(await resolveToken());
   }
@@ -127,9 +132,34 @@ class StaffMapScene extends Phaser.Scene {
       }
     });
 
+    // 이름/메모 변경 실시간 반영 (관제·다른 직원 화면에서 편집 시)
+    this.socket.on('tagmeta', (map: TagMetaMap) => {
+      this.tagMeta = map;
+      for (const [tagId, label] of this.avatarLabels) label.setText(this.labelFor(tagId));
+    });
+
     this.socket.on('connect_error', (err) => {
       console.error('[ws] connect error:', err.message);
       this.add.text(20, 50, `연결 실패: ${err.message} (?token= 확인)`, { color: '#ff6b6b' });
+    });
+  }
+
+  /** 아바타 라벨 텍스트 — 이름 있으면 이름(+메모📝), 없으면 tagId 끝 5자 */
+  private labelFor(tagId: string): string {
+    const m = this.tagMeta[tagId];
+    const base = m?.name?.trim() ? m.name.trim() : tagId.slice(-5);
+    return m?.memo?.trim() ? `${base} 📝` : base;
+  }
+
+  /** 아바타 클릭 → 이름/메모 입력 → 서버 저장 (broadcast 로 전 화면 반영) */
+  private editMeta(tagId: string): void {
+    const cur = this.tagMeta[tagId] ?? {};
+    const name = window.prompt(`태그 ${tagId}\n\n이름:`, cur.name ?? '');
+    if (name === null) return;
+    const memo = window.prompt('메모 (선택):', cur.memo ?? '');
+    void fetch(`${SERVER_URL}/tag-meta`, {
+      method: 'POST',
+      body: JSON.stringify({ tagId, name, memo: memo ?? '' }),
     });
   }
 
@@ -149,9 +179,13 @@ class StaffMapScene extends Phaser.Scene {
   private makeAvatar(tagId: string): Phaser.GameObjects.Container {
     const color = AVATAR_COLORS[this.avatars.size % AVATAR_COLORS.length];
     const circle = this.add.circle(0, 0, 14, color).setStrokeStyle(2, 0xffffff, 0.9);
+    // 클릭 → 이름/메모 편집
+    circle.setInteractive({ useHandCursor: true });
+    circle.on('pointerdown', () => this.editMeta(tagId));
     const label = this.add
-      .text(0, 22, tagId.slice(-5), { color: '#ffffff', fontSize: '11px' })
+      .text(0, 22, this.labelFor(tagId), { color: '#ffffff', fontSize: '11px' })
       .setOrigin(0.5, 0);
+    this.avatarLabels.set(tagId, label);
     return this.add.container(this.absentArea.x, this.absentArea.y, [circle, label]);
   }
 

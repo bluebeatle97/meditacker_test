@@ -10,6 +10,7 @@ import { createWsServer } from './ws/index.js';
 import { signToken } from './auth/jwt.js';
 import { MonitorHub } from './monitor/monitor-hub.js';
 import { monitorPageHtml } from './monitor/monitor-page.js';
+import { TagMetaStore } from './presence/tag-meta-store.js';
 
 // ── 조립: Ingestion → Zone Engine → Presence/DB → Permission → WS ──────────
 
@@ -20,6 +21,7 @@ const engine = new ZoneEngine(buildGatewayZoneMap(gateways), ZONE_ENGINE_CONFIG)
 
 const presence = new PresenceService(engine, db);
 const estimator = new PositionEstimator(gateways, engine);
+const tagMeta = new TagMetaStore(db);
 
 // 모니터 허브는 io 생성 후 초기화 (아래) — 참조만 먼저 선언
 let monitor: MonitorHub | undefined;
@@ -58,6 +60,34 @@ const httpServer = createServer((req, res) => {
     res.end(JSON.stringify(loadZones()));
     return;
   }
+  // 태그 이름/메모 — 관제·직원 화면 공용
+  if (req.url === '/tag-meta') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(tagMeta.all()));
+      return;
+    }
+    if (req.method === 'POST') {
+      // content-type 을 명시 안 해 preflight 없는 simple request 로 받음
+      let body = '';
+      req.on('data', (c) => {
+        body += c;
+        if (body.length > 10_000) req.destroy(); // 방어
+      });
+      req.on('end', () => {
+        try {
+          const { tagId, name, memo } = JSON.parse(body) as { tagId: string; name?: string; memo?: string };
+          tagMeta.set(tagId, (name ?? '').trim(), (memo ?? '').trim());
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch {
+          res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: false }));
+        }
+      });
+      return;
+    }
+  }
   // 실시간 관제 페이지 (하드웨어 디버깅/현장 튜닝) — 서버 자체 서빙, CDN 불필요
   if (req.url === '/monitor' || req.url?.startsWith('/monitor?')) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -85,7 +115,13 @@ const httpServer = createServer((req, res) => {
 const io = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db);
 
 // 관제 허브 (/monitor namespace) — io 준비 후 초기화
-monitor = new MonitorHub(io, engine, estimator, gateways, loadZones());
+monitor = new MonitorHub(io, engine, estimator, gateways, loadZones(), tagMeta);
+
+// 태그 이름/메모 변경 → 관제·직원 화면 양쪽 실시간 반영
+tagMeta.onChange((map) => {
+  io.of('/monitor').emit('tagmeta', map);
+  io.of('/staff').emit('tagmeta', map);
+});
 
 // 연속 위치 추정 브로드캐스트 (트래킹 시각화 — 0.5초 주기)
 // TODO: 권한 매트릭스 확정 후 visibleTargets 필터 경유로 변경 (지금은 staff 전체)

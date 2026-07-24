@@ -49,6 +49,11 @@ export function monitorPageHtml(): string {
   .badge.absent { background: #f8514933; color: var(--bad); }
   .muted { color: var(--muted); }
   .empty { color: var(--muted); padding: 16px; text-align: center; }
+  .edit { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px;
+          cursor: pointer; font: 11px var(--mono); padding: 1px 6px; }
+  .edit:hover { color: var(--accent); border-color: var(--accent); }
+  .memo { color: var(--warn); font-size: 12px; margin: 2px 0 6px; white-space: pre-wrap; }
+  .rawid { color: var(--muted); font-size: 10px; }
   #back-btn {
     margin-left: auto; padding: 8px 14px; border: 1px solid var(--accent); border-radius: 6px;
     background: #1c2b45; color: var(--accent); font: 600 13px var(--mono); cursor: pointer; text-decoration: none;
@@ -98,6 +103,11 @@ export function monitorPageHtml(): string {
   var startedAt = Date.now();
   var scanCounter = 0, rate = 0;
   var gateways = [], zoneName = {};
+  var meta = {};        // tagId → { name, memo }
+  var lastState = null; // 이름 변경 시 즉시 재렌더용
+
+  function nameOf(tagId) { return (meta[tagId] && meta[tagId].name) || tagShort(tagId); }
+  function memoOf(tagId) { return (meta[tagId] && meta[tagId].memo) || ''; }
 
   function ago(ms) {
     if (ms == null) return '-';
@@ -123,10 +133,26 @@ export function monitorPageHtml(): string {
   socket.on('init', function(d){
     gateways = d.gateways || [];
     (d.zones || []).forEach(function(z){ zoneName[z.zoneId] = z.name; });
+    meta = d.tagMeta || {};
     document.getElementById('s-gwtotal').textContent = gateways.length;
     if (d.startedAt) startedAt = d.startedAt;
     (d.recentScans || []).forEach(pushScan);
     (d.recentZoneChanges || []).forEach(pushZone);
+  });
+
+  socket.on('tagmeta', function(m){ meta = m || {}; if (lastState) renderState(lastState); });
+
+  // 이름/메모 편집 (프롬프트 → POST). content-type 미지정으로 preflight 회피.
+  function editMeta(tagId){
+    var cur = meta[tagId] || {};
+    var name = prompt('태그 ' + tagId + '\\n\\n이름:', cur.name || '');
+    if (name === null) return;
+    var memo = prompt('메모 (선택):', cur.memo || '');
+    fetch('/tag-meta', { method: 'POST', body: JSON.stringify({ tagId: tagId, name: name, memo: memo || '' }) });
+  }
+  document.getElementById('tag-cards').addEventListener('click', function(e){
+    var btn = e.target.closest('.edit');
+    if (btn) editMeta(btn.getAttribute('data-tag'));
   });
 
   // ── 스캔 피드 (배치 수신) ──
@@ -138,7 +164,7 @@ export function monitorPageHtml(): string {
     row.className = 'row';
     row.innerHTML = '<span class="t">' + clock(s.timestamp) + '</span>'
       + '<span class="gw">' + esc(s.gatewayId) + '</span>'
-      + '<span class="tag">' + esc(tagShort(s.tagId)) + '</span>'
+      + '<span class="tag">' + esc(nameOf(s.tagId)) + '</span>'
       + '<span style="width:60px;text-align:right">' + s.rssi + 'dBm</span>'
       + '<span class="rssi-bar" style="width:' + w + 'px;background:' + c + '"></span>';
     feed.insertBefore(row, feed.firstChild);
@@ -158,7 +184,7 @@ export function monitorPageHtml(): string {
     var row = document.createElement('div');
     row.className = 'row';
     row.innerHTML = '<span class="t">' + clock(c.at) + '</span>'
-      + '<span class="tag">' + esc(tagShort(c.tagId)) + '</span>'
+      + '<span class="tag">' + esc(nameOf(c.tagId)) + '</span>'
       + '<span class="muted">' + esc(from) + ' → </span>'
       + '<span style="color:' + (c.toZone ? 'var(--accent)' : 'var(--bad)') + '">' + esc(to) + '</span>';
     zoneFeed.insertBefore(row, zoneFeed.firstChild);
@@ -167,7 +193,9 @@ export function monitorPageHtml(): string {
   socket.on('zone', pushZone);
 
   // ── 상태 스냅샷 (1초) ──
-  socket.on('state', function(st){
+  socket.on('state', function(st){ lastState = st; renderState(st); });
+
+  function renderState(st){
     document.getElementById('s-tags').textContent = st.tags.length;
 
     // 게이트웨이 테이블
@@ -201,12 +229,17 @@ export function monitorPageHtml(): string {
           + '<td style="width:55px;text-align:right">' + r.rssi + '</td>'
           + '<td><span class="rssi-bar" style="width:' + rssiWidth(r.rssi) + 'px;background:' + rssiColor(r.rssi) + '"></span></td></tr>';
       }).join('') || '<tr><td class="muted" colspan="3">신호 없음</td></tr>';
+      var named = meta[t.tagId] && meta[t.tagId].name;
+      var memo = memoOf(t.tagId);
       return '<div class="card"><div class="hd">'
-        + '<b class="tag">' + esc(tagShort(t.tagId)) + '</b>' + badge
+        + '<b class="tag">' + esc(nameOf(t.tagId)) + '</b>' + badge
+        + '<button class="edit" data-tag="' + esc(t.tagId) + '">✎ 이름/메모</button>'
         + '<span class="muted">최근 ' + ago(t.ageMs) + '</span></div>'
+        + (named ? '<div class="rawid">' + esc(t.tagId) + '</div>' : '')
+        + (memo ? '<div class="memo">📝 ' + esc(memo) + '</div>' : '')
         + '<table>' + bars + '</table></div>';
     }).join('');
-  });
+  }
 
   // ── 헤더 카운터 (1초) ──
   setInterval(function(){
