@@ -14,14 +14,20 @@ export type ZoneType =
 export type ZoneCategory = 'patient_area' | 'staff_area' | 'common';
 
 export interface Zone {
-  zoneId: string; // "waiting_main", "consult_1"
-  name: string; // "메인 대기실"
+  zoneId: string; // "waiting_1", "consult_1"
+  name: string; // 도면 라벨 그대로 ("시술실 1")
   type: ZoneType;
   category: ZoneCategory;
-  /** 도면 기준 방 실제 footprint (cm, 좌상단 원점) — 프론트가 캔버스에 fit */
-  rect: { x: number; y: number; w: number; h: number };
-  tilePosition: { x: number; y: number }; // rect 중심 (cm) — 아바타/게이트웨이 기준점
+  /** 도면 배경 이미지 픽셀 좌표 — 방 라벨 위치 (아바타/게이트웨이 기준점) */
+  tilePosition: { x: number; y: number };
   socialEnabled: boolean; // 존 채팅 허용 여부
+}
+
+/** 도면 배경 이미지 메타 — 프론트가 이 이미지를 깔고 tilePosition 을 그 위에 매핑 */
+export interface FloorplanMeta {
+  image: string; // public/ 에 놓인 파일명
+  width: number;
+  height: number;
 }
 
 export interface Gateway {

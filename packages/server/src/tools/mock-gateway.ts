@@ -18,7 +18,9 @@ import { loadGateways, loadZones } from '../config/index.js';
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
 const SPEED = Number(process.env.MOCK_SPEED ?? 1);
 const SCAN_INTERVAL_MS = Number(process.env.SCAN_INTERVAL_MS ?? 500);
-const WALK_SPEED = 140; // cm/초 (성인 보행 ≈ 1.4m/s, 좌표는 cm)
+// 좌표계 = 도면 이미지 픽셀. 도면 폭 1650px ≈ 26700mm → 1px ≈ 1.62cm
+const CM_PER_PX = 1.62;
+const WALK_SPEED = 140 / CM_PER_PX; // px/초 (성인 보행 ≈ 1.4m/s)
 
 const client = mqtt.connect(MQTT_URL);
 const gateways = loadGateways().filter((g) => g.tile);
@@ -43,7 +45,7 @@ const ROUTE_ZONES: Array<{ zoneId: string; pause: number }> = [
 ];
 
 const ROUTE: Waypoint[] = ROUTE_ZONES.map(({ zoneId, pause }) => {
-  const c = zoneCenter.get(zoneId) ?? { x: 2500, y: 2000 };
+  const c = zoneCenter.get(zoneId) ?? { x: 960, y: 980 }; // fallback: 도면 중앙
   return { x: c.x, y: c.y, pause };
 });
 
@@ -100,8 +102,8 @@ const TX_AT_1M = -45; // 1m 에서의 수신세기
 const PATH_LOSS_N = 2.2; // 실내 감쇠 지수
 const RX_FLOOR = -92; // 이보다 약하면 게이트웨이가 못 들음
 
-function rssiFor(distCm: number): number | null {
-  const meters = Math.max(distCm / 100, 0.3); // cm → m
+function rssiFor(distPx: number): number | null {
+  const meters = Math.max((distPx * CM_PER_PX) / 100, 0.3); // px → cm → m
   const rssi = TX_AT_1M - 10 * PATH_LOSS_N * Math.log10(meters) + (Math.random() - 0.5) * 4;
   return rssi < RX_FLOOR ? null : Math.round(rssi);
 }

@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
-import type { Zone, ZoneAction } from '@meditracker/shared';
+import type { FloorplanMeta, Zone, ZoneAction } from '@meditracker/shared';
 
 /**
- * 환자용 화면 (설계서 8) — 임시 시각화 버전
- * - 간이 평면도 + 본인 아바타 + 대기정보 HUD + 존 액션 버튼
+ * 환자용 화면 (설계서 8) — 실제 도면 배경 방식
+ * - 병원 도면(floorplan.png) 배경 + 본인 아바타 + 대기정보 HUD + 존 액션 버튼
  * - 타 환자 아바타 미표시 — 서버가 애초에 좌표를 안 보냄 (불변식 B-1)
  * - namespace: /patient
  *
@@ -13,7 +13,6 @@ import type { Zone, ZoneAction } from '@meditracker/shared';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080';
 
-/** ?token= 이 있으면 사용, 없으면 개발용 토큰 자동 발급 (Phase 2 로그인 화면에서 대체) */
 async function resolveToken(): Promise<string> {
   const urlToken = new URLSearchParams(window.location.search).get('token');
   if (urlToken) return urlToken;
@@ -23,21 +22,9 @@ async function resolveToken(): Promise<string> {
 
 const CW = 800;
 const CH = 1280;
-const MAP_TOP = 170; // HUD 아래부터 맵
-const MAP_BOTTOM = 1140; // 액션바 위까지
-const PAD = 20;
-
-const ZONE_COLORS: Record<string, number> = {
-  waiting: 0x2d6a4f,
-  reception: 0x1d5d8f,
-  consult: 0x7b4b94,
-  surgery: 0x9d4444,
-  laser: 0xc75b39,
-  recovery: 0xb07d3a,
-  skincare: 0x2a8a8a,
-  staff: 0x555b6e,
-  etc: 0x444444,
-};
+const MAP_TOP = 150;
+const MAP_BOTTOM = 1150;
+const PAD = 12;
 
 class PatientScene extends Phaser.Scene {
   private socket!: Socket;
@@ -46,19 +33,22 @@ class PatientScene extends Phaser.Scene {
   private occupancyText!: Phaser.GameObjects.Text;
   private actionsBar!: Phaser.GameObjects.Container;
   private me!: Phaser.GameObjects.Container;
+
   private worldScale = 1;
-  private minX = 0;
-  private minY = 0;
+  private offX = 0;
+  private offY = 0;
+  /** 본인 아바타 목표 좌표 — update() 에서 보간 이동 (tween 누적 방지) */
+  private target: { x: number; y: number } | null = null;
 
   constructor() {
     super('patient');
   }
 
   private sx(x: number): number {
-    return PAD + (x - this.minX) * this.worldScale;
+    return this.offX + x * this.worldScale;
   }
   private sy(y: number): number {
-    return MAP_TOP + (y - this.minY) * this.worldScale;
+    return this.offY + y * this.worldScale;
   }
 
   async create(): Promise<void> {
@@ -67,51 +57,50 @@ class PatientScene extends Phaser.Scene {
       fontSize: '22px',
       fontStyle: 'bold',
     });
-
-    this.hud = this.add.text(20, 52, '대기 정보를 불러오는 중…', {
+    this.hud = this.add.text(20, 50, '대기 정보를 불러오는 중…', {
       color: '#a8dadc',
       fontSize: '17px',
       lineSpacing: 6,
     });
-    this.occupancyText = this.add.text(20, 128, '', { color: '#888888', fontSize: '14px' });
-    this.actionsBar = this.add.container(20, MAP_BOTTOM + 20);
+    this.occupancyText = this.add.text(20, 118, '', { color: '#888888', fontSize: '14px' });
+    this.actionsBar = this.add.container(20, MAP_BOTTOM + 24);
 
-    const zones: Zone[] = await fetch(`${SERVER_URL}/zones`).then((r) => r.json());
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const z of zones) {
-      minX = Math.min(minX, z.rect.x);
-      minY = Math.min(minY, z.rect.y);
-      maxX = Math.max(maxX, z.rect.x + z.rect.w);
-      maxY = Math.max(maxY, z.rect.y + z.rect.h);
-    }
-    this.minX = minX;
-    this.minY = minY;
-    this.worldScale = Math.min((CW - 2 * PAD) / (maxX - minX), (MAP_BOTTOM - MAP_TOP) / (maxY - minY));
+    const [plan, zones] = await Promise.all([
+      fetch(`${SERVER_URL}/floorplan`).then((r) => r.json() as Promise<FloorplanMeta>),
+      fetch(`${SERVER_URL}/zones`).then((r) => r.json() as Promise<Zone[]>),
+    ]);
+    for (const z of zones) this.zones.set(z.zoneId, z);
 
-    for (const zone of zones) {
-      this.zones.set(zone.zoneId, zone);
-      this.drawZone(zone);
-    }
+    this.worldScale = Math.min(
+      (CW - 2 * PAD) / plan.width,
+      (MAP_BOTTOM - MAP_TOP) / plan.height,
+    );
+    this.offX = (CW - plan.width * this.worldScale) / 2;
+    this.offY = MAP_TOP;
+
+    await this.loadPlanImage(plan.image);
+    this.add
+      .image(this.offX, this.offY, 'plan')
+      .setOrigin(0, 0)
+      .setDisplaySize(plan.width * this.worldScale, plan.height * this.worldScale);
 
     // 본인 아바타 (강조 링)
-    const ring = this.add.circle(0, 0, 17, 0x000000, 0).setStrokeStyle(3, 0xffd166, 1);
-    const dot = this.add.circle(0, 0, 11, 0xffd166);
-    const label = this.add.text(0, 24, '나', { color: '#ffd166', fontSize: '13px' }).setOrigin(0.5, 0);
-    this.me = this.add.container(400, 640, [ring, dot, label]).setVisible(false);
+    const ring = this.add.circle(0, 0, 14, 0x000000, 0).setStrokeStyle(3, 0xffd166, 1);
+    const dot = this.add.circle(0, 0, 8, 0xffd166);
+    const label = this.add
+      .text(0, 18, '나', { color: '#ffd166', fontSize: '13px' })
+      .setOrigin(0.5, 0);
+    this.me = this.add.container(CW / 2, (MAP_TOP + MAP_BOTTOM) / 2, [ring, dot, label]).setVisible(false);
 
     this.connect(await resolveToken());
   }
 
-  private drawZone(zone: Zone): void {
-    const x = this.sx(zone.rect.x);
-    const y = this.sy(zone.rect.y);
-    const w = zone.rect.w * this.worldScale;
-    const h = zone.rect.h * this.worldScale;
-    const color = ZONE_COLORS[zone.type] ?? ZONE_COLORS.etc;
-    this.add.rectangle(x, y, w, h, color, 0.35).setOrigin(0, 0).setStrokeStyle(1.5, color, 1);
-    this.add
-      .text(x + w / 2, y + 2, zone.name, { color: '#cccccc', fontSize: '10px', align: 'center' })
-      .setOrigin(0.5, 0);
+  /** ⚠️ create() 안에서 load.start() 는 씬을 LOADING 으로 되돌려 update() 를 멈춘다 */
+  private async loadPlanImage(file: string): Promise<void> {
+    const img = new Image();
+    img.src = `/${file}`;
+    await img.decode();
+    this.textures.addImage('plan', img);
   }
 
   private connect(token: string): void {
@@ -125,20 +114,11 @@ class PatientScene extends Phaser.Scene {
           `현재 위치: ${zone?.name ?? '추적 구역 밖'}\n대기 순번: ${p.waitingRank}번 · 예상 대기 ${Math.round(p.estimatedWaitSec / 60)}분`,
         );
         if (zone) {
-          const tx = this.sx(zone.tilePosition.x);
-          const ty = this.sy(zone.tilePosition.y);
-          const dist = Phaser.Math.Distance.Between(this.me.x, this.me.y, tx, ty);
           this.me.setVisible(true);
-          this.tweens.killTweensOf(this.me);
-          this.tweens.add({
-            targets: this.me,
-            x: tx,
-            y: ty,
-            duration: Phaser.Math.Clamp(dist * 2.5, 800, 2500),
-            ease: 'Sine.easeInOut',
-          });
+          this.target = { x: this.sx(zone.tilePosition.x), y: this.sy(zone.tilePosition.y) };
         } else {
           this.me.setVisible(false);
+          this.target = null;
         }
       },
     );
@@ -165,7 +145,6 @@ class PatientScene extends Phaser.Scene {
     });
 
     this.socket.on('reaction', (p: { alias: string; emoji: string; ts: number }) => {
-      // 같은 존 이모티콘 — 화면에 잠깐 띄우기
       const t = this.add
         .text(this.me.x, this.me.y - 40, `${p.alias} ${p.emoji}`, { fontSize: '18px', color: '#ffffff' })
         .setOrigin(0.5);
@@ -174,8 +153,16 @@ class PatientScene extends Phaser.Scene {
 
     this.socket.on('connect_error', (err) => {
       console.error('[ws] connect error:', err.message);
-      this.hud.setText(`연결 실패: ${err.message} (?token= 확인)`);
+      this.hud.setText(`연결 실패: ${err.message}`);
     });
+  }
+
+  /** 매 프레임 목표 좌표로 지수 보간 */
+  update(_time: number, delta: number): void {
+    if (!this.target) return;
+    const k = 1 - Math.exp(-delta / 200);
+    this.me.x += (this.target.x - this.me.x) * k;
+    this.me.y += (this.target.y - this.me.y) * k;
   }
 }
 

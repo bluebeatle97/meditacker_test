@@ -1,11 +1,17 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
-import type { PositionEstimate, PresenceState, TagMetaMap, Zone } from '@meditracker/shared';
+import type {
+  FloorplanMeta,
+  PositionEstimate,
+  PresenceState,
+  TagMetaMap,
+  Zone,
+} from '@meditracker/shared';
 
 /**
- * 직원용 화면 (설계서 8) — 도면 기반 평면도
- * - zones.json 의 rect(cm) 를 캔버스에 fit 해서 각 방을 실제 크기로 렌더
- * - 아바타(원) = 태그 소지자. pos:update(cm 좌표) 를 동일 변환으로 배치
+ * 직원용 화면 (설계서 8) — 실제 도면 배경 방식
+ * - 병원 도면(floorplan.png)을 배경으로 그대로 깔아 방 모양·크기·위치가 100% 일치
+ * - 존/아바타 좌표는 도면 이미지 픽셀 좌표계 → 동일 변환으로 배치
  * - namespace: /staff — 서버가 권한 필터링한 presence:update 만 수신
  *
  * ⚠️ 불변식 B-5: 브라우저 스토리지(localStorage 등) 사용 금지.
@@ -25,22 +31,11 @@ if (adminBtn) {
   adminBtn.href = `${SERVER_URL}/monitor?back=${encodeURIComponent(window.location.href)}`;
 }
 
-const CW = 1280;
-const CH = 800;
-const PAD = 24;
-const TOP = 52; // 제목 영역
-
-const ZONE_COLORS: Record<string, number> = {
-  waiting: 0x2d6a4f,
-  reception: 0x1d5d8f,
-  consult: 0x7b4b94,
-  surgery: 0x9d4444,
-  laser: 0xc75b39,
-  recovery: 0xb07d3a,
-  skincare: 0x2a8a8a,
-  staff: 0x555b6e,
-  etc: 0x444444,
-};
+// 도면이 거의 정사각형(26700×25700)이라 캔버스도 그 비율에 맞춤 (Scale.FIT 으로 창에 맞게 축소)
+const CW = 1120;
+const CH = 1120;
+const TOP = 40; // 상단 제목 여백
+const PAD = 6;
 
 const AVATAR_COLORS = [0xffd166, 0xef476f, 0x06d6a0, 0x118ab2, 0xf78c6b, 0x9b5de5];
 
@@ -51,73 +46,71 @@ class StaffMapScene extends Phaser.Scene {
   private avatarLabels = new Map<string, Phaser.GameObjects.Text>();
   private lastPosAt = new Map<string, number>();
   private tagMeta: TagMetaMap = {};
+  /** 아바타 목표 좌표(화면) — update() 에서 매 프레임 보간 이동 (tween 누적 방지) */
+  private targets = new Map<string, { x: number; y: number }>();
 
-  // 월드(cm) → 화면 변환 (Phaser.Scene.scale 예약과 충돌 방지 위해 worldScale)
+  private plan!: FloorplanMeta;
   private worldScale = 1;
-  private minX = 0;
-  private minY = 0;
-  private absentPt = { x: CW - 90, y: CH - 60 };
+  private offX = 0;
+  private offY = 0;
+  private absentPt = { x: CW - 62, y: 22 }; // 도면 밖 우상단
 
   constructor() {
     super('staff-map');
   }
 
+  /** 도면 이미지 픽셀 → 화면 좌표 */
   private sx(x: number): number {
-    return PAD + (x - this.minX) * this.worldScale;
+    return this.offX + x * this.worldScale;
   }
   private sy(y: number): number {
-    return TOP + (y - this.minY) * this.worldScale;
+    return this.offY + y * this.worldScale;
   }
 
   async create(): Promise<void> {
-    this.add.text(20, 14, 'MediTracker — 직원용 (도면 기반 전체 위치)', {
+    this.add.text(16, 12, 'MediTracker — 직원용 (고트의원 6F)', {
       color: '#ffffff',
-      fontSize: '20px',
+      fontSize: '18px',
       fontStyle: 'bold',
     });
 
-    const zones: Zone[] = await fetch(`${SERVER_URL}/zones`).then((r) => r.json());
+    const [plan, zones, meta] = await Promise.all([
+      fetch(`${SERVER_URL}/floorplan`).then((r) => r.json() as Promise<FloorplanMeta>),
+      fetch(`${SERVER_URL}/zones`).then((r) => r.json() as Promise<Zone[]>),
+      fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json() as Promise<TagMetaMap>),
+    ]);
+    this.plan = plan;
+    this.tagMeta = meta;
+    for (const z of zones) this.zones.set(z.zoneId, z);
 
-    // 전체 rect 바운딩박스 → 캔버스에 fit
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const z of zones) {
-      minX = Math.min(minX, z.rect.x);
-      minY = Math.min(minY, z.rect.y);
-      maxX = Math.max(maxX, z.rect.x + z.rect.w);
-      maxY = Math.max(maxY, z.rect.y + z.rect.h);
-    }
-    this.minX = minX;
-    this.minY = minY;
-    this.worldScale = Math.min((CW - 2 * PAD) / (maxX - minX), (CH - TOP - PAD) / (maxY - minY));
+    // 도면 배경을 캔버스에 fit (비율 유지, 중앙 정렬)
+    this.worldScale = Math.min((CW - 2 * PAD) / plan.width, (CH - TOP - PAD) / plan.height);
+    this.offX = (CW - plan.width * this.worldScale) / 2;
+    this.offY = TOP + (CH - TOP - PAD - plan.height * this.worldScale) / 2;
 
-    for (const zone of zones) {
-      this.zones.set(zone.zoneId, zone);
-      this.drawZone(zone);
-    }
-
-    // 자리비움 영역 (우하단)
+    await this.loadPlanImage(plan.image);
     this.add
-      .rectangle(this.absentPt.x, this.absentPt.y, 150, 70, 0x333333, 0.5)
-      .setStrokeStyle(2, 0x777777, 1);
-    this.add
-      .text(this.absentPt.x, this.absentPt.y - 30, '자리비움', { color: '#999999', fontSize: '12px' })
-      .setOrigin(0.5, 0);
+      .image(this.offX, this.offY, 'plan')
+      .setOrigin(0, 0)
+      .setDisplaySize(plan.width * this.worldScale, plan.height * this.worldScale);
 
-    this.tagMeta = await fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json());
+    // 자리비움 표시 (도면 밖 우상단)
+    this.add
+      .text(this.absentPt.x, this.absentPt.y - 16, '자리비움', { color: '#888888', fontSize: '11px' })
+      .setOrigin(0.5, 1);
+
     this.connect(await resolveToken());
   }
 
-  private drawZone(zone: Zone): void {
-    const x = this.sx(zone.rect.x);
-    const y = this.sy(zone.rect.y);
-    const w = zone.rect.w * this.worldScale;
-    const h = zone.rect.h * this.worldScale;
-    const color = ZONE_COLORS[zone.type] ?? ZONE_COLORS.etc;
-
-    this.add.rectangle(x, y, w, h, color, 0.35).setOrigin(0, 0).setStrokeStyle(1.5, color, 1);
-    this.add
-      .text(x + w / 2, y + 3, zone.name, { color: '#e8e8e8', fontSize: '11px', align: 'center' })
-      .setOrigin(0.5, 0);
+  /**
+   * 도면 이미지 등록. ⚠️ create() 안에서 this.load.start() 를 쓰면 씬이 LOADING 으로
+   * 되돌아가 update() 가 멈춘다 → Phaser 로더 대신 직접 디코드해 텍스처로 등록.
+   */
+  private async loadPlanImage(file: string): Promise<void> {
+    const img = new Image();
+    img.src = `/${file}`;
+    await img.decode();
+    this.textures.addImage('plan', img);
   }
 
   private connect(token: string): void {
@@ -130,10 +123,10 @@ class StaffMapScene extends Phaser.Scene {
     this.socket.on('presence:remove', ({ tagId }: { tagId: string }) => {
       this.lastPosAt.delete(tagId);
       const avatar = this.avatars.get(tagId);
-      if (avatar) this.moveTo(avatar, null);
+      if (avatar) this.moveTo(tagId, null);
     });
 
-    // RSSI 가중평균 연속 위치 (cm 좌표) → 동일 변환으로 부드럽게 이동
+    // RSSI 가중평균 연속 위치 → 도면 좌표계 그대로 변환
     this.socket.on('pos:update', (positions: PositionEstimate[]) => {
       for (const p of positions) {
         let avatar = this.avatars.get(p.tagId);
@@ -142,14 +135,7 @@ class StaffMapScene extends Phaser.Scene {
           this.avatars.set(p.tagId, avatar);
         }
         this.lastPosAt.set(p.tagId, Date.now());
-        this.tweens.killTweensOf(avatar);
-        this.tweens.add({
-          targets: avatar,
-          x: this.sx(p.x),
-          y: this.sy(p.y),
-          duration: 480,
-          ease: 'Linear',
-        });
+        this.targets.set(p.tagId, { x: this.sx(p.x), y: this.sy(p.y) });
       }
     });
 
@@ -186,44 +172,48 @@ class StaffMapScene extends Phaser.Scene {
       avatar = this.makeAvatar(state.tagId);
       this.avatars.set(state.tagId, avatar);
     }
-    // 연속 위치가 흐르는 동안은 존 스냅 생략 (tween 충돌 방지)
     if (Date.now() - (this.lastPosAt.get(state.tagId) ?? 0) < 2000) return;
-    this.moveTo(avatar, state.currentZone);
+    this.moveTo(state.tagId, state.currentZone);
   }
 
   private makeAvatar(tagId: string): Phaser.GameObjects.Container {
     const color = AVATAR_COLORS[this.avatars.size % AVATAR_COLORS.length];
-    const circle = this.add.circle(0, 0, 9, color).setStrokeStyle(2, 0xffffff, 0.9);
+    const halo = this.add.circle(0, 0, 11, color, 0.25);
+    const circle = this.add.circle(0, 0, 7, color).setStrokeStyle(2, 0xffffff, 0.95);
     circle.setInteractive({ useHandCursor: true });
     circle.on('pointerdown', () => this.editMeta(tagId));
     const label = this.add
-      .text(0, 12, this.labelFor(tagId), { color: '#ffffff', fontSize: '11px' })
+      .text(0, 11, this.labelFor(tagId), {
+        color: '#ffffff',
+        fontSize: '10px',
+        backgroundColor: '#000000aa',
+        padding: { x: 3, y: 1 },
+      })
       .setOrigin(0.5, 0);
     this.avatarLabels.set(tagId, label);
-    return this.add.container(this.absentPt.x, this.absentPt.y, [circle, label]);
+    return this.add.container(this.absentPt.x, this.absentPt.y, [halo, circle, label]);
   }
 
-  /** 존 스냅 이동 (연속 위치가 없을 때 fallback) — 존 중심으로 */
-  private moveTo(avatar: Phaser.GameObjects.Container, zoneId: string | null): void {
-    let tx: number, ty: number;
+  /** 존 스냅 이동 (연속 위치 없을 때) — 존 라벨 위치를 목표로 */
+  private moveTo(tagId: string, zoneId: string | null): void {
     if (zoneId === null) {
-      tx = this.absentPt.x;
-      ty = this.absentPt.y;
-    } else {
-      const zone = this.zones.get(zoneId);
-      if (!zone) return;
-      tx = this.sx(zone.tilePosition.x);
-      ty = this.sy(zone.tilePosition.y);
+      this.targets.set(tagId, { x: this.absentPt.x, y: this.absentPt.y });
+      return;
     }
-    const dist = Phaser.Math.Distance.Between(avatar.x, avatar.y, tx, ty);
-    this.tweens.killTweensOf(avatar);
-    this.tweens.add({
-      targets: avatar,
-      x: tx,
-      y: ty,
-      duration: Phaser.Math.Clamp(dist * 3, 400, 1600),
-      ease: 'Sine.easeInOut',
-    });
+    const zone = this.zones.get(zoneId);
+    if (!zone) return;
+    this.targets.set(tagId, { x: this.sx(zone.tilePosition.x), y: this.sy(zone.tilePosition.y) });
+  }
+
+  /** 매 프레임 목표 좌표로 지수 보간 — 부드럽게 따라가고 tween 이 쌓이지 않음 */
+  update(_time: number, delta: number): void {
+    const k = 1 - Math.exp(-delta / 160);
+    for (const [tagId, avatar] of this.avatars) {
+      const t = this.targets.get(tagId);
+      if (!t) continue;
+      avatar.x += (t.x - avatar.x) * k;
+      avatar.y += (t.y - avatar.y) * k;
+    }
   }
 }
 
@@ -232,7 +222,8 @@ const game = new Phaser.Game({
   parent: 'app',
   width: CW,
   height: CH,
-  backgroundColor: '#1a1a2e',
+  backgroundColor: '#11151c',
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [StaffMapScene],
 });
 (window as unknown as Record<string, unknown>).__game = game;

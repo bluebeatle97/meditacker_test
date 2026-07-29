@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { buildGatewayZoneMap, loadGateways, loadZones, SERVER_CONFIG, ZONE_ENGINE_CONFIG } from './config/index.js';
+import { buildGatewayZoneMap, loadFloorplan, loadGateways, loadZones, SERVER_CONFIG, ZONE_ENGINE_CONFIG } from './config/index.js';
 import { ZoneEngine } from './zone-engine/zone-engine.js';
 import { MqttIngestion } from './ingestion/mqtt-ingestion.js';
 import { GenericJsonAdapter } from './ingestion/adapters/generic-json.adapter.js';
@@ -49,6 +49,12 @@ const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, tags: engine.getAllStates().length }));
+    return;
+  }
+  // 도면 배경 이미지 메타 (프론트가 이미지 위에 존/아바타 매핑)
+  if (req.url === '/floorplan') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(loadFloorplan()));
     return;
   }
   // 존 레이아웃 (프론트 맵 렌더링용 — 위치 정보 아님, 정적 마스터)

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import type { Gateway, Zone } from '@meditracker/shared';
+import type { FloorplanMeta, Gateway, Zone } from '@meditracker/shared';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +29,11 @@ export function loadZones(): Zone[] {
 
 export function loadGateways(): Gateway[] {
   return JSON.parse(readFileSync(join(here, 'gateways.json'), 'utf-8'));
+}
+
+/** 도면 배경 이미지 메타 (프론트가 이 이미지 위에 존/아바타 매핑) */
+export function loadFloorplan(): FloorplanMeta {
+  return JSON.parse(readFileSync(join(here, 'floorplan.json'), 'utf-8'));
 }
 
 /** gatewayId → zoneId 매핑 테이블 */
