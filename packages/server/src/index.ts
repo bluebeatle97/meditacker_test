@@ -66,11 +66,12 @@ const httpServer = createServer((req, res) => {
     return;
   }
   // 통제구역(벽/샤프트) 그리드 — 프론트의 경로탐색·오버레이 표시용
+  // ⚠️ 캐시 금지: 그리드 갱신 후에도 브라우저가 구버전을 쓰면 화면과 서버 판정이 어긋난다
   if (req.url === '/walkable') {
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'no-store',
     });
     res.end(readFileSync(join(configDir, 'walkable.json'), 'utf-8'));
     return;
