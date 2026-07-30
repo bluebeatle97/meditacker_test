@@ -22,10 +22,20 @@
       }
       #blocked-btn:hover { background: #3a2323; }
       #blocked-btn.on { background: #7a2b2b; color: #fff; }
+      #name-btn {
+        position: fixed; top: 14px; right: 330px; z-index: 100;
+        padding: 8px 14px; border: 1px solid #4fae7f; border-radius: 6px;
+        background: #1c2b23; color: #8fe3b4; font: 600 13px ui-monospace, monospace;
+        cursor: pointer;
+      }
+      #name-btn:hover { background: #23372c; }
+      #name-btn.on { background: #2c6b4a; color: #fff; }
     </style>
   </head>
   <body>
     <div id="app"></div>
+    <!-- 방 이름 표시 토글 (도면 PDF 라벨 그대로) -->
+    <button id="name-btn" type="button">🏷 이름</button>
     <!-- 통제구역(벽·계단·엘리베이터) 표시 토글 -->
     <button id="blocked-btn" type="button">🚧 통제구역 보기</button>
     <!-- 관리자(관제) 모드 진입 — 서버가 서빙하는 /monitor 로 이동, back 파라미터로 복귀 경로 전달 -->

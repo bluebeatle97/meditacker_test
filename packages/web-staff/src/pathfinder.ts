@@ -39,6 +39,80 @@ export class Pathfinder {
     return this.walk[gy * this.cols + gx] === 1;
   }
 
+  /**
+   * 그 지점에서 좌우로 벽까지 이어지는 통행 가능 폭 (도면 px).
+   * 방 이름 라벨을 방 안에 넣기 위한 가용 폭 측정용.
+   */
+  freeWidthAt(px: number, py: number): number {
+    if (!this.isWalkable(px, py)) return 0;
+    const maxX = this.cols * this.cell;
+    let l = px;
+    while (l - this.cell > 0 && this.isWalkable(l - this.cell, py)) l -= this.cell;
+    let r = px;
+    while (r + this.cell < maxX && this.isWalkable(r + this.cell, py)) r += this.cell;
+    return r - l;
+  }
+
+  /** 그 지점에서 위아래로 벽까지 이어지는 통행 가능 구간 (도면 px) */
+  freeSpanY(px: number, py: number): { top: number; bottom: number } {
+    if (!this.isWalkable(px, py)) return { top: py, bottom: py };
+    const maxY = this.rows * this.cell;
+    let t = py;
+    while (t - this.cell > 0 && this.isWalkable(px, t - this.cell)) t -= this.cell;
+    let b = py;
+    while (b + this.cell < maxY && this.isWalkable(px, b + this.cell)) b += this.cell;
+    return { top: t, bottom: b };
+  }
+
+  private freeSpanX(px: number, py: number): { left: number; right: number } {
+    if (!this.isWalkable(px, py)) return { left: px, right: px };
+    const maxX = this.cols * this.cell;
+    let l = px;
+    while (l - this.cell > 0 && this.isWalkable(l - this.cell, py)) l -= this.cell;
+    let r = px;
+    while (r + this.cell < maxX && this.isWalkable(r + this.cell, py)) r += this.cell;
+    return { left: l, right: r };
+  }
+
+  /**
+   * 그 지점이 속한 방의 중심·크기 (도면 px). 방 이름 라벨을 방 가운데 놓는 데 쓴다.
+   *
+   * 연결영역 flood fill 은 못 쓴다 — 문이 열려 있어 복도·다른 방까지 번진다.
+   * 통행가능 셀만의 최대 사각형도 못 쓴다 — 방 안 가구선에 걸려 얄쌍한 조각이 나온다.
+   * 그래서 앵커 주변 몇 줄의 좌우/상하 벽 위치를 재고 **가장 좁은 쪽으로 교집합**을 잡는다.
+   * 한 줄이 문틈을 지나 옆방까지 이어져도 나머지 줄이 그 폭을 되돌려 깎는다 —
+   * 라벨이 옆방을 침범하지 않는 게 조금 큰 글씨보다 중요하다.
+   */
+  roomBoxAt(
+    px: number,
+    py: number,
+    probe = 3,
+  ): { cx: number; cy: number; w: number; h: number } | null {
+    if (!this.isWalkable(px, py)) return null;
+    let l = -Infinity;
+    let r = Infinity;
+    for (let i = -probe; i <= probe; i++) {
+      const y = py + i * this.cell;
+      if (!this.isWalkable(px, y)) continue;
+      const s = this.freeSpanX(px, y);
+      l = Math.max(l, s.left);
+      r = Math.min(r, s.right);
+    }
+    let t = -Infinity;
+    let b = Infinity;
+    for (let i = -probe; i <= probe; i++) {
+      const x = px + i * this.cell;
+      if (!this.isWalkable(x, py)) continue;
+      const s = this.freeSpanY(x, py);
+      t = Math.max(t, s.top);
+      b = Math.min(b, s.bottom);
+    }
+    if (!Number.isFinite(l) || !Number.isFinite(t)) return null;
+    const x1 = r + this.cell;
+    const y1 = b + this.cell;
+    return { cx: (l + x1) / 2, cy: (t + y1) / 2, w: x1 - l, h: y1 - t };
+  }
+
   /** 두 점을 직선으로 이을 때 벽에 걸리지 않는지 (경로 단순화에 사용) */
   hasLineOfSight(x0: number, y0: number, x1: number, y1: number): boolean {
     const dist = Math.hypot(x1 - x0, y1 - y0);

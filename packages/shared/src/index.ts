@@ -23,11 +23,23 @@ export interface Zone {
   socialEnabled: boolean; // 존 채팅 허용 여부
 }
 
+/**
+ * 도면에만 표시되는 라벨 — 존이 아니다(추적 대상 없음).
+ * 도면 PDF 에 이름이 있지만 방이 아닌 것(가구·설비): 대기석, 직원PC, 서브데스크, 실외기실.
+ */
+export interface MapAnnotation {
+  text: string; // 도면 라벨 그대로
+  x: number; // 도면 이미지 픽셀 좌표
+  y: number;
+}
+
 /** 도면 배경 이미지 메타 — 프론트가 이 이미지를 깔고 tilePosition 을 그 위에 매핑 */
 export interface FloorplanMeta {
   image: string; // public/ 에 놓인 파일명
   width: number;
   height: number;
+  /** 방 이름은 Zone.name 이 단일 출처 — 여기엔 존 아닌 라벨만 둔다 */
+  annotations?: MapAnnotation[];
 }
 
 export interface Gateway {

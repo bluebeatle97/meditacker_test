@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
 import type {
   FloorplanMeta,
+  MapAnnotation,
   PositionEstimate,
   PresenceState,
   TagMetaMap,
@@ -45,6 +46,16 @@ const WALK_PX_PER_SEC = 86;
 /** 이 거리 안이면 도착으로 간주 — RSSI 노이즈로 제자리 떨림 방지 */
 const ARRIVE_EPS_PX = 12;
 
+// 방 이름 라벨 — 방 폭에 맞춰 크기를 정한다 (좁은 방은 줄여서라도 방 안에 넣는다)
+const NAME_FONT = 'sans-serif';
+const NAME_SIZE_MAX = 14;
+const NAME_SIZE_MIN = 9;
+const NAME_PAD_X = 4;
+/** 이보다 큰 영역은 '방'이 아니라 로비·복도 → 중앙 정렬하지 않고 도면 라벨 위치를 그대로 쓴다 */
+const ROOM_MAX_PX = 420;
+/** 방 중앙으로 옮길 수 있는 최대 거리 (도면 px ≈ 1m). 폭 측정이 문틈으로 샜을 때의 안전장치 */
+const NAME_MAX_SHIFT_PX = 60;
+
 class StaffMapScene extends Phaser.Scene {
   private socket!: Socket;
   private zones = new Map<string, Zone>();
@@ -58,6 +69,10 @@ class StaffMapScene extends Phaser.Scene {
   private teleport = new Set<string>();
   private pf!: Pathfinder;
   private blockedOverlay?: Phaser.GameObjects.Image;
+  /** 방 이름 라벨 묶음 — 버튼으로 통째 토글 */
+  private nameLayer?: Phaser.GameObjects.Container;
+  /** 라벨 폭 계산용 (화면에 그리지 않는 캔버스) */
+  private measureCtx = document.createElement('canvas').getContext('2d')!;
 
   private plan!: FloorplanMeta;
   private worldScale = 1;
@@ -116,12 +131,141 @@ class StaffMapScene extends Phaser.Scene {
       .setVisible(false);
     this.setupOverlayToggle();
 
+    // 방 이름 (아바타보다 먼저 만들어 아바타가 위에 그려지게)
+    this.drawNames(zones, plan.annotations ?? []);
+    this.setupNameToggle();
+
     // 자리비움 표시 (도면 밖 우상단)
     this.add
       .text(this.absentPt.x, this.absentPt.y - 16, '자리비움', { color: '#888888', fontSize: '11px' })
       .setOrigin(0.5, 1);
 
     this.connect(await resolveToken());
+  }
+
+  /**
+   * 방 이름 라벨.
+   * 표기·위치는 도면 PDF 라벨 그대로 — 방 이름은 `Zone.name`(존), 그 외 가구·설비는
+   * `floorplan.annotations` 가 출처다. 배경 PNG 에는 글자가 없으므로 여기서만 그린다.
+   */
+  private drawNames(zones: Zone[], annotations: MapAnnotation[]): void {
+    const layer = this.add.container(0, 0);
+    for (const z of zones) {
+      layer.add(this.roomName(z.tilePosition.x, z.tilePosition.y, z.name));
+    }
+    // 가구·설비 라벨은 방이 아니라 넓은 공간 안의 한 지점 → 도면 위치를 그대로 둔다
+    for (const a of annotations) {
+      layer.add(
+        this.add
+          .text(this.sx(a.x), this.sy(a.y), a.text, {
+            fontFamily: NAME_FONT,
+            fontSize: '10px',
+            color: '#5c6b7d',
+            backgroundColor: '#ffffffb0',
+            padding: { x: 3, y: 1 },
+          })
+          .setOrigin(0.5, 0.5),
+      );
+    }
+    this.nameLayer = layer;
+  }
+
+  /**
+   * 방 이름 라벨 — 방 가운데에, 방 폭에 들어가는 가장 큰 글씨로.
+   * 벽 격자로 방 크기를 실측해 크기·줄바꿈을 정하므로 좁은 방에서도 옆방을 침범하지 않는다.
+   */
+  private roomName(anchorX: number, anchorY: number, text: string): Phaser.GameObjects.Text {
+    const box = this.pf.roomBoxAt(anchorX, anchorY);
+    // 로비·복도처럼 넓은 영역은 중심이 라벨의 방을 대표하지 못한다 → 도면 라벨 위치 유지
+    const room = box && box.w <= ROOM_MAX_PX && box.h <= ROOM_MAX_PX ? box : null;
+    // 도면 라벨 위치는 이미 그 방 안이다 — 중앙 정렬은 거기서 1m 안쪽으로만 허용
+    const near = (v: number, anchor: number): number =>
+      Math.max(anchor - NAME_MAX_SHIFT_PX, Math.min(anchor + NAME_MAX_SHIFT_PX, v));
+    const cx = room ? near(room.cx, anchorX) : anchorX;
+    const cy = room ? near(room.cy, anchorY) : anchorY;
+    // 벽에 딱 붙으면 답답해 보인다 — 양쪽에 여백을 남긴다
+    const availW = room ? room.w * this.worldScale - 2 * NAME_PAD_X - 10 : Number.POSITIVE_INFINITY;
+    const availH = room ? room.h * this.worldScale - 6 : Number.POSITIVE_INFINITY;
+
+    const { lines, size } = this.fitName(text, availW, availH);
+    return this.add
+      .text(this.sx(cx), this.sy(cy), lines.join('\n'), {
+        fontFamily: NAME_FONT,
+        fontSize: `${size}px`,
+        fontStyle: 'bold',
+        color: '#0d1520',
+        backgroundColor: '#ffffffe8',
+        align: 'center',
+        padding: { x: NAME_PAD_X, y: 1 },
+      })
+      .setOrigin(0.5, 0.5);
+  }
+
+  /**
+   * 가용 폭에 맞는 표기 결정. 선호 순서:
+   *   1) 한 줄 — 가능한 가장 큰 글씨
+   *   2) 공백에서 줄바꿈 — 가능한 가장 큰 글씨
+   *   3) 그래도 안 되면 최소 글씨 한 줄 (아주 좁은 방은 조금 넘치게 둔다)
+   * 한글 낱말을 글자 단위로 쪼개면("창/고") 읽기 나쁘므로 공백에서만 끊는다.
+   */
+  private fitName(
+    text: string,
+    availW: number,
+    availH: number,
+  ): { lines: string[]; size: number } {
+    const lineH = (size: number): number => size * 1.35; // 캔버스 기본 행간 근사
+    for (let size = NAME_SIZE_MAX; size >= NAME_SIZE_MIN; size--) {
+      if (this.textWidth(text, size) <= availW && lineH(size) <= availH) {
+        return { lines: [text], size };
+      }
+    }
+    if (text.includes(' ')) {
+      for (let size = NAME_SIZE_MAX; size >= NAME_SIZE_MIN; size--) {
+        const lines = this.wrapAtSpaces(text, size, availW);
+        const widest = Math.max(...lines.map((l) => this.textWidth(l, size)));
+        if (widest <= availW && lines.length * lineH(size) <= availH) return { lines, size };
+      }
+    }
+    return { lines: [text], size: NAME_SIZE_MIN };
+  }
+
+  /** 공백 기준 그리디 줄바꿈 */
+  private wrapAtSpaces(text: string, size: number, limit: number): string[] {
+    const lines: string[] = [];
+    let cur = '';
+    for (const word of text.split(' ')) {
+      const joined = cur ? `${cur} ${word}` : word;
+      if (!cur || this.textWidth(joined, size) <= limit) {
+        cur = joined;
+        continue;
+      }
+      lines.push(cur);
+      cur = word;
+    }
+    lines.push(cur);
+    return lines;
+  }
+
+  /** Text 객체와 같은 폰트로 폭만 계산 (객체를 만들어 재기엔 후보가 많다) */
+  private textWidth(s: string, size: number): number {
+    this.measureCtx.font = `bold ${size}px ${NAME_FONT}`;
+    return this.measureCtx.measureText(s).width;
+  }
+
+  /** 방 이름 표시 버튼 연결 (기본 ON) */
+  private setupNameToggle(): void {
+    const btn = document.getElementById('name-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    const render = (): void => {
+      const on = this.nameLayer?.visible ?? false;
+      btn.textContent = on ? '🏷 이름 숨기기' : '🏷 이름 보기';
+      btn.classList.toggle('on', on);
+    };
+    btn.onclick = () => {
+      this.nameLayer?.setVisible(!this.nameLayer.visible);
+      render();
+    };
+    render();
   }
 
   /** 통제구역 표시 버튼 연결 */
