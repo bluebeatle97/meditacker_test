@@ -5,6 +5,7 @@ import { MqttIngestion } from './ingestion/mqtt-ingestion.js';
 import { GenericJsonAdapter } from './ingestion/adapters/generic-json.adapter.js';
 import { PresenceService } from './presence/presence-service.js';
 import { PositionEstimator } from './presence/position-estimator.js';
+import { WalkableMap } from './presence/walkable-map.js';
 import { openDb } from './db/index.js';
 import { createWsServer } from './ws/index.js';
 import { signToken } from './auth/jwt.js';
@@ -22,6 +23,8 @@ const engine = new ZoneEngine(buildGatewayZoneMap(gateways), ZONE_ENGINE_CONFIG)
 const presence = new PresenceService(engine, db);
 const estimator = new PositionEstimator(gateways, engine);
 const tagMeta = new TagMetaStore(db);
+// 도면 벽 정보 — 운영 화면 좌표를 벽 안쪽으로 보정 (관제는 raw 유지)
+const walkable = new WalkableMap();
 
 // 모니터 허브는 io 생성 후 초기화 (아래) — 참조만 먼저 선언
 let monitor: MonitorHub | undefined;
@@ -133,11 +136,16 @@ tagMeta.onChange((map) => {
 // TODO: 권한 매트릭스 확정 후 visibleTargets 필터 경유로 변경 (지금은 staff 전체)
 setInterval(() => {
   const positions = estimator.estimateAll();
-  if (positions.length > 0) io.of('/staff').emit('pos:update', positions);
+  if (positions.length === 0) return;
+  // 벽/샤프트에 걸린 좌표를 통행 가능 지점으로 보정 (아바타가 벽을 넘지 않도록)
+  const onFloor = positions.map((p) => ({ ...p, ...walkable.clamp(p.x, p.y) }));
+  io.of('/staff').emit('pos:update', onFloor);
 }, 500);
 
 httpServer.listen(SERVER_CONFIG.httpPort, () => {
   console.log(`[server] listening on :${SERVER_CONFIG.httpPort} (ws: /patient, /staff, /monitor)`);
   console.log(`[server] gateways: ${gateways.length}, mqtt: ${SERVER_CONFIG.mqttUrl}`);
   console.log(`[server] 관제 페이지: http://localhost:${SERVER_CONFIG.httpPort}/monitor`);
+  const ws = walkable.stats();
+  console.log(`[server] walkable: ${ws.cols}x${ws.rows} cell=${ws.cell}px, 통행가능 ${ws.walkable} 셀`);
 });
