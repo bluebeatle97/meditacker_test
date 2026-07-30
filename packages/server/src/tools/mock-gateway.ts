@@ -14,6 +14,7 @@
  */
 import mqtt from 'mqtt';
 import { loadGateways, loadZones } from '../config/index.js';
+import { WalkableMap } from '../presence/walkable-map.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
 const SPEED = Number(process.env.MOCK_SPEED ?? 1);
@@ -97,14 +98,26 @@ function positionAt(sec: number): { x: number; y: number } {
   return { x: ROUTE[0].x, y: ROUTE[0].y };
 }
 
-// ── 경로손실 모델: 거리(cm) → RSSI ──────────────────────────────────────────
+// ── 경로손실 모델: 거리(cm) + 벽 관통 감쇠 → RSSI ───────────────────────────
 const TX_AT_1M = -45; // 1m 에서의 수신세기
 const PATH_LOSS_N = 2.2; // 실내 감쇠 지수
 const RX_FLOOR = -92; // 이보다 약하면 게이트웨이가 못 들음
+/**
+ * 벽 1개 관통당 감쇠(dB). 실내 경량 칸막이·석고보드 기준 6~8dB.
+ * ⚠️ 이 항이 없으면 옆방 게이트웨이가 실제보다 훨씬 세게 잡혀
+ *    위치 추정이 벽 사이에 생기고 방↔방 순간이동처럼 보인다.
+ */
+const WALL_LOSS_DB = Number(process.env.WALL_LOSS_DB ?? 7);
 
-function rssiFor(distPx: number): number | null {
+const walkable = new WalkableMap();
+
+function rssiFor(distPx: number, walls: number): number | null {
   const meters = Math.max((distPx * CM_PER_PX) / 100, 0.3); // px → cm → m
-  const rssi = TX_AT_1M - 10 * PATH_LOSS_N * Math.log10(meters) + (Math.random() - 0.5) * 4;
+  const rssi =
+    TX_AT_1M -
+    10 * PATH_LOSS_N * Math.log10(meters) -
+    WALL_LOSS_DB * walls +
+    (Math.random() - 0.5) * 4;
   return rssi < RX_FLOOR ? null : Math.round(rssi);
 }
 
@@ -120,7 +133,9 @@ client.on('connect', () => {
       const pos = positionAt(elapsed + tag.routeOffsetSec);
       for (const gw of gateways) {
         const dist = Math.hypot(gw.tile!.x - pos.x, gw.tile!.y - pos.y);
-        const rssi = rssiFor(dist);
+        // 태그↔게이트웨이 사이의 벽을 세어 관통 감쇠 반영 (현실적 신호)
+        const walls = walkable.wallsBetween(pos.x, pos.y, gw.tile!.x, gw.tile!.y);
+        const rssi = rssiFor(dist, walls);
         if (rssi === null) continue;
         client.publish(
           `gw/${gw.gatewayId}/scan`,

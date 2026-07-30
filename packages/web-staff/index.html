@@ -14,10 +14,20 @@
         cursor: pointer; text-decoration: none;
       }
       #admin-btn:hover { background: #234; }
+      #blocked-btn {
+        position: fixed; top: 14px; right: 168px; z-index: 100;
+        padding: 8px 14px; border: 1px solid #d05050; border-radius: 6px;
+        background: #2b1c1c; color: #ff9d9d; font: 600 13px ui-monospace, monospace;
+        cursor: pointer;
+      }
+      #blocked-btn:hover { background: #3a2323; }
+      #blocked-btn.on { background: #7a2b2b; color: #fff; }
     </style>
   </head>
   <body>
     <div id="app"></div>
+    <!-- 통제구역(벽·계단·엘리베이터) 표시 토글 -->
+    <button id="blocked-btn" type="button">🚧 통제구역 보기</button>
     <!-- 관리자(관제) 모드 진입 — 서버가 서빙하는 /monitor 로 이동, back 파라미터로 복귀 경로 전달 -->
     <a id="admin-btn" href="#">⚙ 관리자 모드</a>
     <script type="module" src="/src/main.ts"></script>

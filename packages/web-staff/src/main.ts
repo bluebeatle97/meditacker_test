@@ -7,6 +7,7 @@ import type {
   TagMetaMap,
   Zone,
 } from '@meditracker/shared';
+import { Pathfinder, type WalkableGrid } from './pathfinder';
 
 /**
  * 직원용 화면 (설계서 8) — 실제 도면 배경 방식
@@ -39,6 +40,11 @@ const PAD = 6;
 
 const AVATAR_COLORS = [0xffd166, 0xef476f, 0x06d6a0, 0x118ab2, 0xf78c6b, 0x9b5de5];
 
+// 걸어가는 느낌: 도면 축척 1px ≈ 1.62cm, 성인 보행 1.4m/s → 약 86 도면px/초
+const WALK_PX_PER_SEC = 86;
+/** 이 거리 안이면 도착으로 간주 — RSSI 노이즈로 제자리 떨림 방지 */
+const ARRIVE_EPS_PX = 12;
+
 class StaffMapScene extends Phaser.Scene {
   private socket!: Socket;
   private zones = new Map<string, Zone>();
@@ -46,8 +52,12 @@ class StaffMapScene extends Phaser.Scene {
   private avatarLabels = new Map<string, Phaser.GameObjects.Text>();
   private lastPosAt = new Map<string, number>();
   private tagMeta: TagMetaMap = {};
-  /** 아바타 목표 좌표(화면) — update() 에서 매 프레임 보간 이동 (tween 누적 방지) */
-  private targets = new Map<string, { x: number; y: number }>();
+  /** 아바타별 남은 경로 (도면 좌표 waypoint) — 벽을 피해 문으로 돌아간다 */
+  private paths = new Map<string, Array<{ x: number; y: number }>>();
+  /** 즉시 배치할 태그 (최초 등장·자리비움) — 걷지 않고 순간 이동 */
+  private teleport = new Set<string>();
+  private pf!: Pathfinder;
+  private blockedOverlay?: Phaser.GameObjects.Image;
 
   private plan!: FloorplanMeta;
   private worldScale = 1;
@@ -74,13 +84,15 @@ class StaffMapScene extends Phaser.Scene {
       fontStyle: 'bold',
     });
 
-    const [plan, zones, meta] = await Promise.all([
+    const [plan, zones, meta, grid] = await Promise.all([
       fetch(`${SERVER_URL}/floorplan`).then((r) => r.json() as Promise<FloorplanMeta>),
       fetch(`${SERVER_URL}/zones`).then((r) => r.json() as Promise<Zone[]>),
       fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json() as Promise<TagMetaMap>),
+      fetch(`${SERVER_URL}/walkable`).then((r) => r.json() as Promise<WalkableGrid>),
     ]);
     this.plan = plan;
     this.tagMeta = meta;
+    this.pf = new Pathfinder(grid);
     for (const z of zones) this.zones.set(z.zoneId, z);
 
     // 도면 배경을 캔버스에 fit (비율 유지, 중앙 정렬)
@@ -94,6 +106,16 @@ class StaffMapScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setDisplaySize(plan.width * this.worldScale, plan.height * this.worldScale);
 
+    // 통제구역(벽·계단·엘리베이터 샤프트) 오버레이 — 버튼으로 토글
+    const oc = this.pf.makeOverlayCanvas();
+    this.textures.addCanvas('blocked', oc);
+    this.blockedOverlay = this.add
+      .image(this.offX, this.offY, 'blocked')
+      .setOrigin(0, 0)
+      .setDisplaySize(plan.width * this.worldScale, plan.height * this.worldScale)
+      .setVisible(false);
+    this.setupOverlayToggle();
+
     // 자리비움 표시 (도면 밖 우상단)
     this.add
       .text(this.absentPt.x, this.absentPt.y - 16, '자리비움', { color: '#888888', fontSize: '11px' })
@@ -102,15 +124,38 @@ class StaffMapScene extends Phaser.Scene {
     this.connect(await resolveToken());
   }
 
+  /** 통제구역 표시 버튼 연결 */
+  private setupOverlayToggle(): void {
+    const btn = document.getElementById('blocked-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    const render = (): void => {
+      const on = this.blockedOverlay?.visible ?? false;
+      btn.textContent = on ? '🚧 통제구역 숨기기' : '🚧 통제구역 보기';
+      btn.classList.toggle('on', on);
+    };
+    btn.onclick = () => {
+      this.blockedOverlay?.setVisible(!this.blockedOverlay.visible);
+      render();
+    };
+    render();
+  }
+
   /**
-   * 도면 이미지 등록. ⚠️ create() 안에서 this.load.start() 를 쓰면 씬이 LOADING 으로
-   * 되돌아가 update() 가 멈춘다 → Phaser 로더 대신 직접 디코드해 텍스처로 등록.
+   * 도면 이미지 등록.
+   * ⚠️ create() 안에서 this.load.start() 를 쓰면 씬이 LOADING 으로 되돌아가 update() 가 멈춘다.
+   * ⚠️ img.decode() 는 탭이 백그라운드일 때 브라우저가 디코딩을 보류해 영구 대기한다
+   *    (탭을 벗어난 뒤 새로고침하면 화면이 안 뜸) → onload 이벤트를 사용한다.
    */
-  private async loadPlanImage(file: string): Promise<void> {
-    const img = new Image();
-    img.src = `/${file}`;
-    await img.decode();
-    this.textures.addImage('plan', img);
+  private loadPlanImage(file: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        this.textures.addImage('plan', img);
+        resolve();
+      };
+      img.onerror = () => reject(new Error(`도면 이미지 로드 실패: ${file}`));
+      img.src = `/${file}`;
+    });
   }
 
   private connect(token: string): void {
@@ -135,7 +180,7 @@ class StaffMapScene extends Phaser.Scene {
           this.avatars.set(p.tagId, avatar);
         }
         this.lastPosAt.set(p.tagId, Date.now());
-        this.targets.set(p.tagId, { x: this.sx(p.x), y: this.sy(p.y) });
+        this.routeTo(p.tagId, avatar, p.x, p.y);
       }
     });
 
@@ -172,7 +217,8 @@ class StaffMapScene extends Phaser.Scene {
       avatar = this.makeAvatar(state.tagId);
       this.avatars.set(state.tagId, avatar);
     }
-    if (Date.now() - (this.lastPosAt.get(state.tagId) ?? 0) < 2000) return;
+    // 연속 위치가 흐르는 동안은 존 스냅 생략 (브로드캐스트 주기 3.5초 → 넉넉히 8초)
+    if (Date.now() - (this.lastPosAt.get(state.tagId) ?? 0) < 8000) return;
     this.moveTo(state.tagId, state.currentZone);
   }
 
@@ -191,28 +237,105 @@ class StaffMapScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0);
     this.avatarLabels.set(tagId, label);
+    this.teleport.add(tagId); // 최초 등장은 걷지 않고 바로 제자리에
     return this.add.container(this.absentPt.x, this.absentPt.y, [halo, circle, label]);
+  }
+
+  /**
+   * 목표 지점까지 벽을 피하는 경로를 계산해 저장 (도면 좌표).
+   * 직선으로 갈 수 있으면 A* 를 생략해 비용을 아낀다.
+   */
+  private routeTo(
+    tagId: string,
+    avatar: Phaser.GameObjects.Container,
+    destX: number,
+    destY: number,
+  ): void {
+    // 현재 화면 좌표 → 도면 좌표
+    const curX = (avatar.x - this.offX) / this.worldScale;
+    const curY = (avatar.y - this.offY) / this.worldScale;
+
+    if (this.teleport.has(tagId)) {
+      this.paths.set(tagId, [{ x: destX, y: destY }]);
+      return;
+    }
+    // 목표가 벽·가구 위면 통행 가능한 지점으로 보정 (그 지점까지만 걷는다)
+    const dest = this.pf.nearestWalkable(destX, destY);
+    if (this.pf.hasLineOfSight(curX, curY, dest.x, dest.y)) {
+      this.paths.set(tagId, [dest]);
+      return;
+    }
+    const path = this.pf.findPath(curX, curY, dest.x, dest.y);
+    // 경로를 못 찾으면(격리된 영역 등) 어쩔 수 없이 직선 — 최소한 멈추진 않게
+    this.paths.set(tagId, path ?? [dest]);
   }
 
   /** 존 스냅 이동 (연속 위치 없을 때) — 존 라벨 위치를 목표로 */
   private moveTo(tagId: string, zoneId: string | null): void {
     if (zoneId === null) {
-      this.targets.set(tagId, { x: this.absentPt.x, y: this.absentPt.y });
+      // 자리비움은 도면 밖이라 걸어가면 어색 → 즉시 이동
+      this.teleport.add(tagId);
+      this.paths.set(tagId, [
+        {
+          x: (this.absentPt.x - this.offX) / this.worldScale,
+          y: (this.absentPt.y - this.offY) / this.worldScale,
+        },
+      ]);
       return;
     }
     const zone = this.zones.get(zoneId);
-    if (!zone) return;
-    this.targets.set(tagId, { x: this.sx(zone.tilePosition.x), y: this.sy(zone.tilePosition.y) });
+    const avatar = this.avatars.get(tagId);
+    if (!zone || !avatar) return;
+    this.routeTo(tagId, avatar, zone.tilePosition.x, zone.tilePosition.y);
   }
 
-  /** 매 프레임 목표 좌표로 지수 보간 — 부드럽게 따라가고 tween 이 쌓이지 않음 */
+  /**
+   * 매 프레임 목표를 향해 '보행 속도'로 등속 이동 — 순간이동처럼 튀지 않는다.
+   * 서버는 3.5초마다 좌표를 주고, 그 사이를 아바타가 걸어서 좁힌다.
+   */
   update(_time: number, delta: number): void {
-    const k = 1 - Math.exp(-delta / 160);
+    const step = WALK_PX_PER_SEC * this.worldScale * (delta / 1000);
+    const eps = ARRIVE_EPS_PX * this.worldScale;
+
     for (const [tagId, avatar] of this.avatars) {
-      const t = this.targets.get(tagId);
-      if (!t) continue;
-      avatar.x += (t.x - avatar.x) * k;
-      avatar.y += (t.y - avatar.y) * k;
+      const path = this.paths.get(tagId);
+      if (!path || path.length === 0) continue;
+
+      if (this.teleport.has(tagId)) {
+        const last = path[path.length - 1];
+        avatar.x = this.sx(last.x);
+        avatar.y = this.sy(last.y);
+        this.paths.set(tagId, []);
+        this.teleport.delete(tagId);
+        continue;
+      }
+
+      // 경로 waypoint 를 순서대로 소비하며 등속 이동
+      let remaining = step;
+      while (remaining > 0 && path.length > 0) {
+        const wp = path[0];
+        const tx = this.sx(wp.x);
+        const ty = this.sy(wp.y);
+        const dx = tx - avatar.x;
+        const dy = ty - avatar.y;
+        const dist = Math.hypot(dx, dy);
+
+        // 마지막 지점에 거의 닿았으면 정지 (노이즈로 떨지 않게)
+        if (path.length === 1 && dist <= eps) {
+          path.shift();
+          break;
+        }
+        if (dist <= remaining) {
+          avatar.x = tx;
+          avatar.y = ty;
+          remaining -= dist;
+          path.shift();
+          continue;
+        }
+        avatar.x += (dx / dist) * remaining;
+        avatar.y += (dy / dist) * remaining;
+        remaining = 0;
+      }
     }
   }
 }

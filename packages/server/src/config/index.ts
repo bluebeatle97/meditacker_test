@@ -21,6 +21,15 @@ export const SERVER_CONFIG = {
   dbPath: process.env.DB_PATH ?? join(here, '../../data/meditracker.db'),
   /** 자리비움 스윕 주기 */
   absentSweepIntervalMs: 5000,
+  /**
+   * 운영 화면 위치 브로드캐스트 주기 — 사람이 걷는 속도를 감안한 갱신 간격.
+   * 너무 짧으면 RSSI 노이즈로 아바타가 떨고, 너무 길면 반응이 늦다.
+   */
+  posBroadcastMs: Number(process.env.POS_BROADCAST_MS ?? 3500),
+  /** 내부 위치 추정 주기 (이 값들을 EMA 로 평활해 브로드캐스트) */
+  posSampleMs: 500,
+  /** EMA 계수 (0~1, 클수록 최신값 비중↑) */
+  posSmoothing: 0.35,
 };
 
 export function loadZones(): Zone[] {

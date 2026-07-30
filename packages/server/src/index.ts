@@ -1,4 +1,7 @@
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildGatewayZoneMap, loadFloorplan, loadGateways, loadZones, SERVER_CONFIG, ZONE_ENGINE_CONFIG } from './config/index.js';
 import { ZoneEngine } from './zone-engine/zone-engine.js';
 import { MqttIngestion } from './ingestion/mqtt-ingestion.js';
@@ -14,6 +17,8 @@ import { monitorPageHtml } from './monitor/monitor-page.js';
 import { TagMetaStore } from './presence/tag-meta-store.js';
 
 // ── 조립: Ingestion → Zone Engine → Presence/DB → Permission → WS ──────────
+
+const configDir = join(dirname(fileURLToPath(import.meta.url)), 'config');
 
 const db = openDb(SERVER_CONFIG.dbPath);
 
@@ -58,6 +63,16 @@ const httpServer = createServer((req, res) => {
   if (req.url === '/floorplan') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(loadFloorplan()));
+    return;
+  }
+  // 통제구역(벽/샤프트) 그리드 — 프론트의 경로탐색·오버레이 표시용
+  if (req.url === '/walkable') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=3600',
+    });
+    res.end(readFileSync(join(configDir, 'walkable.json'), 'utf-8'));
     return;
   }
   // 존 레이아웃 (프론트 맵 렌더링용 — 위치 정보 아님, 정적 마스터)
@@ -134,13 +149,34 @@ tagMeta.onChange((map) => {
 
 // 연속 위치 추정 브로드캐스트 (트래킹 시각화 — 0.5초 주기)
 // TODO: 권한 매트릭스 확정 후 visibleTargets 필터 경유로 변경 (지금은 staff 전체)
+// 내부적으로 자주 추정해 EMA 로 평활 → RSSI 노이즈로 아바타가 떨지 않게
+const smoothed = new Map<string, { x: number; y: number; zone: string | null }>();
 setInterval(() => {
-  const positions = estimator.estimateAll();
-  if (positions.length === 0) return;
-  // 벽/샤프트에 걸린 좌표를 통행 가능 지점으로 보정 (아바타가 벽을 넘지 않도록)
-  const onFloor = positions.map((p) => ({ ...p, ...walkable.clamp(p.x, p.y) }));
-  io.of('/staff').emit('pos:update', onFloor);
-}, 500);
+  const a = SERVER_CONFIG.posSmoothing;
+  for (const p of estimator.estimateAll()) {
+    const c = walkable.clamp(p.x, p.y);
+    const prev = smoothed.get(p.tagId);
+    smoothed.set(
+      p.tagId,
+      prev
+        ? { x: prev.x + (c.x - prev.x) * a, y: prev.y + (c.y - prev.y) * a, zone: p.zone }
+        : { x: c.x, y: c.y, zone: p.zone },
+    );
+  }
+  // 추적 종료된 태그 정리
+  const live = new Set(estimator.estimateAll().map((p) => p.tagId));
+  for (const tagId of smoothed.keys()) if (!live.has(tagId)) smoothed.delete(tagId);
+}, SERVER_CONFIG.posSampleMs);
+
+// 운영 화면에는 평활된 좌표를 낮은 빈도로 전송 (프론트가 그 사이를 걸어서 이동)
+setInterval(() => {
+  const list = [...smoothed.entries()].map(([tagId, s]) => {
+    // EMA 결과가 벽에 걸릴 수 있으므로 다시 보정
+    const c = walkable.clamp(s.x, s.y);
+    return { tagId, x: c.x, y: c.y, zone: s.zone };
+  });
+  if (list.length > 0) io.of('/staff').emit('pos:update', list);
+}, SERVER_CONFIG.posBroadcastMs);
 
 httpServer.listen(SERVER_CONFIG.httpPort, () => {
   console.log(`[server] listening on :${SERVER_CONFIG.httpPort} (ws: /patient, /staff, /monitor)`);

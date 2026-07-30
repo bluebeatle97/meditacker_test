@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-interface WalkableFile {
+export interface WalkableFile {
   cell: number;
   cols: number;
   rows: number;
@@ -90,6 +90,35 @@ export class WalkableMap {
     const nx = near % this.cols;
     const ny = (near - nx) / this.cols;
     return { x: (nx + 0.5) * this.cell, y: (ny + 0.5) * this.cell };
+  }
+
+  /** 해당 좌표가 벽/샤프트인지 */
+  isBlocked(x: number, y: number): boolean {
+    const gx = Math.floor(x / this.cell);
+    const gy = Math.floor(y / this.cell);
+    if (gx < 0 || gy < 0 || gx >= this.cols || gy >= this.rows) return true;
+    return this.walkable[gy * this.cols + gx] === 0;
+  }
+
+  /**
+   * 두 점 사이를 직선으로 지나며 통과하는 '벽 개수'.
+   * 연속된 벽 셀은 하나의 벽으로 센다 (벽 두께가 여러 셀일 수 있으므로).
+   * BLE 신호의 벽 관통 감쇠를 현실적으로 모사하는 데 사용.
+   */
+  wallsBetween(x0: number, y0: number, x1: number, y1: number): number {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dist = Math.hypot(dx, dy);
+    const steps = Math.max(1, Math.ceil(dist / (this.cell / 2)));
+    let walls = 0;
+    let inWall = false;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const blocked = this.isBlocked(x0 + dx * t, y0 + dy * t);
+      if (blocked && !inWall) walls++;
+      inWall = blocked;
+    }
+    return walls;
   }
 
   stats(): { cols: number; rows: number; cell: number; walkable: number } {

@@ -26,6 +26,10 @@ const MAP_TOP = 150;
 const MAP_BOTTOM = 1150;
 const PAD = 12;
 
+// 걸어가는 느낌: 도면 1px ≈ 1.62cm, 보행 1.4m/s → 약 86 도면px/초
+const WALK_PX_PER_SEC = 86;
+const ARRIVE_EPS_PX = 12;
+
 class PatientScene extends Phaser.Scene {
   private socket!: Socket;
   private zones = new Map<string, Zone>();
@@ -37,8 +41,10 @@ class PatientScene extends Phaser.Scene {
   private worldScale = 1;
   private offX = 0;
   private offY = 0;
-  /** 본인 아바타 목표 좌표 — update() 에서 보간 이동 (tween 누적 방지) */
+  /** 본인 아바타 목표 좌표 — update() 에서 등속 이동 (tween 누적 방지) */
   private target: { x: number; y: number } | null = null;
+  /** 최초 표시는 걷지 않고 즉시 배치 */
+  private teleport = true;
 
   constructor() {
     super('patient');
@@ -95,12 +101,20 @@ class PatientScene extends Phaser.Scene {
     this.connect(await resolveToken());
   }
 
-  /** ⚠️ create() 안에서 load.start() 는 씬을 LOADING 으로 되돌려 update() 를 멈춘다 */
-  private async loadPlanImage(file: string): Promise<void> {
-    const img = new Image();
-    img.src = `/${file}`;
-    await img.decode();
-    this.textures.addImage('plan', img);
+  /**
+   * ⚠️ create() 안의 load.start() 는 씬을 LOADING 으로 되돌려 update() 를 멈추고,
+   *    img.decode() 는 백그라운드 탭에서 보류되어 영구 대기한다 → onload 사용.
+   */
+  private loadPlanImage(file: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        this.textures.addImage('plan', img);
+        resolve();
+      };
+      img.onerror = () => reject(new Error(`도면 이미지 로드 실패: ${file}`));
+      img.src = `/${file}`;
+    });
   }
 
   private connect(token: string): void {
@@ -119,6 +133,7 @@ class PatientScene extends Phaser.Scene {
         } else {
           this.me.setVisible(false);
           this.target = null;
+          this.teleport = true; // 다시 나타날 때는 제자리에서 시작
         }
       },
     );
@@ -157,12 +172,27 @@ class PatientScene extends Phaser.Scene {
     });
   }
 
-  /** 매 프레임 목표 좌표로 지수 보간 */
+  /** 매 프레임 목표를 향해 보행 속도로 등속 이동 (순간이동 방지) */
   update(_time: number, delta: number): void {
     if (!this.target) return;
-    const k = 1 - Math.exp(-delta / 200);
-    this.me.x += (this.target.x - this.me.x) * k;
-    this.me.y += (this.target.y - this.me.y) * k;
+    if (this.teleport) {
+      this.me.x = this.target.x;
+      this.me.y = this.target.y;
+      this.teleport = false;
+      return;
+    }
+    const step = WALK_PX_PER_SEC * this.worldScale * (delta / 1000);
+    const dx = this.target.x - this.me.x;
+    const dy = this.target.y - this.me.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= ARRIVE_EPS_PX * this.worldScale) return;
+    if (dist <= step) {
+      this.me.x = this.target.x;
+      this.me.y = this.target.y;
+      return;
+    }
+    this.me.x += (dx / dist) * step;
+    this.me.y += (dy / dist) * step;
   }
 }
 
