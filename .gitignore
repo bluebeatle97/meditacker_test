@@ -6,5 +6,6 @@ dist/
 !.env.example
 data/*.db
 data/*.db-journal
+packages/server/data/
 mosquitto/data/
 mosquitto/log/
