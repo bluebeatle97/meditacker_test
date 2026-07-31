@@ -20,6 +20,19 @@ export function registerPatientNamespace(ns: Namespace, presence: PresenceServic
     const { personId } = socket.claims;
     socketsByPerson.set(personId, socket);
 
+    // 접속 직후 현재 상태 1회 — presence.onChange 만 기다리면 존이 바뀔 때까지
+    // 화면이 '위치를 확인하는 중…' 에 머문다 (본인 존이므로 불변식 B-1 위반 아님)
+    const zone = currentZoneOf(personId);
+    if (zone) {
+      socket.join(`zone:${zone}`);
+      socket.emit('zone:actions', actionsForZone(zone));
+    }
+    socket.emit('presence:self', {
+      zone,
+      waitingRank: 0, // TODO Phase 2: 대기열 로직
+      estimatedWaitSec: 0,
+    });
+
     socket.on('reaction:send', ({ emoji }: { emoji: string }) => {
       if (!isAllowedReaction(emoji)) return;
       const zone = currentZoneOf(personId);

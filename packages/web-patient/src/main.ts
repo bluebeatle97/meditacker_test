@@ -118,6 +118,26 @@ class PatientScene extends Phaser.Scene {
     return v * MAP_SCALE;
   }
 
+  /**
+   * 에셋은 Phaser 정식 로더로 받는다.
+   * 캐릭터는 어느 것을 고를지 아직 모르니 4종을 다 받는다 (한 장 4~6KB).
+   * ⚠️ create() 안에서 load.start() 를 쓰면 씬이 LOADING 으로 되돌아가 update() 가 멈춘다 —
+   *    그래서 preload() 에서 받아야 한다.
+   */
+  preload(): void {
+    this.load.image('pixelmap', '/pixelmap.png');
+    for (const c of CHARACTERS) {
+      this.load.spritesheet(`${c.id}-idle`, `/characters/${c.id}-idle.png`, {
+        frameWidth: 16,
+        frameHeight: 32,
+      });
+      this.load.spritesheet(`${c.id}-run`, `/characters/${c.id}-run.png`, {
+        frameWidth: 16,
+        frameHeight: 32,
+      });
+    }
+  }
+
   async create(): Promise<void> {
     this.token = await resolveToken();
     const [plan, zones, grid, profile] = await Promise.all([
@@ -135,9 +155,6 @@ class PatientScene extends Phaser.Scene {
     // 첫 진입이면 캐릭터를 고르고 나서 시작
     this.profile = profile ?? (await runSetup(this.token));
 
-    await this.loadImage('pixelmap', '/pixelmap.png');
-    await this.loadSheet(`${this.profile.charId}-idle`, `/characters/${this.profile.charId}-idle.png`);
-    await this.loadSheet(`${this.profile.charId}-run`, `/characters/${this.profile.charId}-run.png`);
     this.makeAnims();
 
     // 픽셀맵은 타일 경계까지 채워져 도면 크기보다 조금 클 수 있다 → 텍스처 실측값을 쓴다
@@ -168,10 +185,12 @@ class PatientScene extends Phaser.Scene {
         .setOrigin(0.5, 0);
     }
 
-    this.cameras.main.startFollow(this.me, true, 0.12, 0.12);
     this.cameras.main.setZoom(this.followZoom());
+    this.cameras.main.startFollow(this.me, true, 0.12, 0.12);
+    this.cameras.main.centerOn(this.me.x, this.me.y); // lerp 수렴을 기다리면 첫 화면이 빈 구석이다
     // 창 크기가 바뀌면 줌을 다시 계산 (보이는 타일 수를 일정하게)
-    this.scale.on('resize', () => {
+    this.scale.on('resize', (size: Phaser.Structs.Size) => {
+      this.cameras.resize(size.width, size.height);
       if (!this.overview) this.cameras.main.setZoom(this.followZoom());
     });
     this.setupOverviewButton();
@@ -207,34 +226,6 @@ class PatientScene extends Phaser.Scene {
       btn.textContent = this.overview ? '📍 내 위치' : '🗺 전체 보기';
       btn.classList.toggle('on', this.overview);
     };
-  }
-
-  /**
-   * ⚠️ create() 안에서 this.load.start() 를 쓰면 씬이 LOADING 으로 되돌아가 update() 가 멈춘다.
-   * ⚠️ img.decode() 는 백그라운드 탭에서 영구 대기한다 → onload 이벤트를 쓴다.
-   */
-  private loadImage(key: string, url: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        this.textures.addImage(key, img);
-        resolve();
-      };
-      img.onerror = () => reject(new Error(`이미지 로드 실패: ${url}`));
-      img.src = url;
-    });
-  }
-
-  private loadSheet(key: string, url: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        this.textures.addSpriteSheet(key, img, { frameWidth: 16, frameHeight: 32 });
-        resolve();
-      };
-      img.onerror = () => reject(new Error(`스프라이트 로드 실패: ${url}`));
-      img.src = url;
-    });
   }
 
   private makeAnims(): void {
@@ -303,6 +294,8 @@ class PatientScene extends Phaser.Scene {
     const dest = this.pf.nearestWalkable(zone.tilePosition.x, zone.tilePosition.y);
     if (this.teleport) {
       this.me.setPosition(this.m(dest.x), this.m(dest.y));
+      // 카메라도 같이 붙인다 — follow lerp 로 따라오게 두면 첫 화면이 엉뚱한 곳을 본다
+      if (!this.overview) this.cameras.main.centerOn(this.me.x, this.me.y);
       this.path = [];
       this.teleport = false;
       return;
@@ -354,7 +347,12 @@ const game = new Phaser.Game({
   parent: 'app',
   backgroundColor: '#0e1420',
   pixelArt: true, // 도트 그래픽: 텍스처 필터를 nearest 로
-  scale: { mode: Phaser.Scale.RESIZE, width: '100%', height: '100%' },
+  scale: {
+    mode: Phaser.Scale.RESIZE,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  },
+  roundPixels: true,
   scene: [PatientScene],
 });
 (window as unknown as Record<string, unknown>).__game = game; // 디버깅용 (직원용과 동일)
