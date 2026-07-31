@@ -29,6 +29,8 @@ const CHAR_SCALE = 1;
 const TILES_ACROSS = 20;
 /** 줌 상한 — 더 키우면 도트가 너무 굵어져 뭉툭해 보인다 */
 const MAX_ZOOM = 4;
+/** 카메라 추종 보간 계수 (0~1). 낮으면 부드럽게 뒤따르고, 1이면 즉시 붙는다 */
+const FOLLOW_LERP = 0.08;
 const TILE = 16;
 
 // 걷는 속도: 도면 1px ≈ 1.62cm, 보행 1.4m/s → 약 86 도면px/초 → 화면은 ×MAP_SCALE
@@ -195,7 +197,11 @@ class PatientScene extends Phaser.Scene {
     this.add.image(0, 0, 'pixelmap').setOrigin(0, 0);
     this.cameras.main.setBounds(0, 0, this.mapW, this.mapH);
     this.cameras.main.setBackgroundColor('#0e1420');
-    this.cameras.main.setRoundPixels(true); // 반픽셀 위치로 흐려지지 않게
+    // ⚠️ pixelArt: true 는 게임 설정의 roundPixels 를 강제로 켠다. 그대로 두면 카메라와
+    //    스프라이트가 도면 1px(줌 4배에서 화면 4px) 단위로 스냅해 이동이 뚝뚝 끊긴다.
+    //    실제 렌더링은 **카메라의** roundPixels 를 보므로 여기서 끈다 — 줌 4배면
+    //    도면 0.25px 이동이 화면 1px 이라 이것만으로 충분히 매끄럽다.
+    this.cameras.main.setRoundPixels(false);
 
     // 시작 위치: 접수데스크 (아직 신호가 없을 때의 기본값)
     const start = this.zones.get('reception') ?? [...this.zones.values()][0];
@@ -217,7 +223,7 @@ class PatientScene extends Phaser.Scene {
     }
 
     this.cameras.main.setZoom(this.followZoom());
-    this.cameras.main.startFollow(this.me, true, 0.12, 0.12);
+    this.cameras.main.startFollow(this.me, false, FOLLOW_LERP, FOLLOW_LERP);
     this.cameras.main.centerOn(this.me.x, this.me.y); // lerp 수렴을 기다리면 첫 화면이 빈 구석이다
     // 창 크기가 바뀌면 줌을 다시 계산 (보이는 타일 수를 일정하게)
     this.scale.on('resize', (size: Phaser.Structs.Size) => {
@@ -252,7 +258,7 @@ class PatientScene extends Phaser.Scene {
         cam.centerOn(this.mapW / 2, this.mapH / 2);
       } else {
         cam.setZoom(this.followZoom());
-        cam.startFollow(this.me, true, 0.12, 0.12);
+        cam.startFollow(this.me, false, FOLLOW_LERP, FOLLOW_LERP);
       }
       btn.textContent = this.overview ? '📍 내 위치' : '🗺 전체 보기';
       btn.classList.toggle('on', this.overview);
@@ -382,13 +388,12 @@ const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'app',
   backgroundColor: '#0e1420',
-  pixelArt: true, // 도트 그래픽: 텍스처 필터를 nearest 로
+  pixelArt: true, // 도트 그래픽: 텍스처 필터를 nearest 로 (선명함은 이게 담당)
   scale: {
     mode: Phaser.Scale.RESIZE,
     width: window.innerWidth,
     height: window.innerHeight,
   },
-  roundPixels: true,
   scene: [PatientScene],
 });
 (window as unknown as Record<string, unknown>).__game = game; // 디버깅용 (직원용과 동일)

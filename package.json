@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev:all": "node tools/dev-all.mjs",
     "dev:server": "npm run dev -w @meditracker/server",
     "dev:staff": "npm run dev -w @meditracker/web-staff",
     "dev:patient": "npm run dev -w @meditracker/web-patient",
