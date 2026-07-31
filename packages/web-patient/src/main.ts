@@ -339,6 +339,11 @@ class PatientScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    // ⚠️ create() 가 async 라서 Phaser 는 초기화가 끝나기도 전에 이 루프를 돌린다.
+    //    아바타가 아직 없을 때 건드리면 매 프레임 예외가 나고 렌더 루프째로 죽는다
+    //    (= 화면이 통째로 비어 보인다. 실제로 그렇게 신고됨)
+    if (!this.me) return;
+
     let remaining = (WALK_PX_PER_SEC * delta) / 1000;
     let moved = false;
 
