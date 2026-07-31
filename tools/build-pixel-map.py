@@ -31,7 +31,7 @@ import math
 import os
 import sys
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = os.path.join(ROOT, "packages", "server", "src", "config")
@@ -57,7 +57,13 @@ FLOORS = {
     "wood":      (11, 13, 3, 2),  # 헤링본 우드 — 대기공간·접수
     "concrete":  (14, 7, 3, 2),   # 회색 콘크리트 — 직원 구역
 }
-WALL_TILE = (12, 0)   # 진한 남색 솔리드
+WALL_TILE = (12, 0)   # 진한 남색 솔리드 (색만 참고 — 벽은 타일이 아니라 아래 격자로 그린다)
+# 벽 색. 타일 격자(52cm)로 찍으면 실제 벽선이 뭉툭한 계단이 되므로
+# **통행가능 격자(4 도면px ≈ 6.5cm)** 해상도로 직접 칠한다 — 도면선을 그대로 따라간다.
+WALL_RGB = (58, 58, 80)
+WALL_TOP_RGB = (86, 88, 116)   # 위쪽 모서리 하이라이트 (평면이 아니라 입체로 보이게)
+# 막힌 셀에서 이 거리(격자 셀) 안에 통행가능 셀이 있으면 '건물 안 벽', 아니면 건물 밖(void).
+WALL_REACH = 4
 
 # 존 type → 바닥 재질. category=staff_area 는 무조건 concrete (환자 동선 아님).
 FLOOR_BY_TYPE = {
@@ -137,6 +143,18 @@ class Walk:
         return mid(L), mid(Tp), mid(R) + self.cell, mid(B) + self.cell
 
 
+
+def nearest_mat(mat_of, tx, ty, tw, th, reach=3):
+    """막힌 타일 밑에 깔 바닥 재질 — 가까운 방 재질을 가져온다 (벽이 그 위를 덮는다)"""
+    for r in range(1, reach + 1):
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                x, y = tx + dx, ty + dy
+                if 0 <= x < tw and 0 <= y < th and mat_of[y][x]:
+                    return mat_of[y][x]
+    return None
+
+
 def main():
     assets = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_ASSETS
     sheet_path = os.path.join(assets, "Interiors_free", "16x16", "Room_Builder_free_16x16.png")
@@ -214,29 +232,67 @@ def main():
     counts = {}
     for ty in range(th):
         for tx in range(tw):
+            # 바닥은 타일 격자로 (막힌 타일에도 깔아 둔다 — 위에 벽을 얇게 덮는다)
+            mat = mat_of[ty][tx] or nearest_mat(mat_of, tx, ty, tw, th) or CORRIDOR
             if floor[ty][tx]:
-                mat = mat_of[ty][tx]
                 counts[mat] = counts.get(mat, 0) + 1
-                ox, oy, pw, ph = FLOORS[mat]
-                img.alpha_composite(tile(ox + tx % pw, oy + ty % ph), (tx * T, ty * T))
-            elif any(
-                0 <= tx + dx < tw and 0 <= ty + dy < th and floor[ty + dy][tx + dx]
-                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1))
-            ):
-                img.alpha_composite(tile(*WALL_TILE), (tx * T, ty * T))
-            # 그 외(건물 밖·샤프트)는 VOID 배경 그대로
+            ox, oy, pw, ph = FLOORS[mat]
+            img.alpha_composite(tile(ox + tx % pw, oy + ty % ph), (tx * T, ty * T))
 
-    # ── 4. 벽 아래 그림자 — 평면이 아니라 입체로 보이게 ──────────────────────
+    # ── 4. 벽 — 통행가능 격자 해상도로 직접 칠한다 (타일 계단 현상 제거) ─────
+    #     막힌 셀 중 건물 안쪽(근처에 통행가능 셀이 있는 것)만 벽으로 본다.
+    cell_px = int(walk.cell * MAP_SCALE)     # 격자 한 셀이 출력에서 몇 px 인가 (2)
+    draw = ImageDraw.Draw(img)
+    reach = WALL_REACH
+    inside = [[False] * walk.cols for _ in range(walk.rows)]
+    for gy in range(walk.rows):
+        for gx in range(walk.cols):
+            if walk.grid[gy][gx] == "1":
+                continue
+            near = False
+            for dy in range(-reach, reach + 1):
+                for dx in range(-reach, reach + 1):
+                    y, x = gy + dy, gx + dx
+                    if 0 <= x < walk.cols and 0 <= y < walk.rows and walk.grid[y][x] == "1":
+                        near = True
+                        break
+                if near:
+                    break
+            inside[gy][gx] = near
+
+    void_cells = 0
+    for gy in range(walk.rows):
+        for gx in range(walk.cols):
+            if walk.grid[gy][gx] == "1":
+                continue
+            x0 = gx * cell_px
+            y0 = gy * cell_px
+            if inside[gy][gx]:
+                # 위쪽이 벽이 아니면 그 줄만 밝게 — 벽 윗면처럼 보이게
+                top = gy == 0 or not inside[gy - 1][gx] or walk.grid[gy - 1][gx] == "1"
+                draw.rectangle([x0, y0, x0 + cell_px - 1, y0 + cell_px - 1], fill=WALL_RGB)
+                if top:
+                    draw.rectangle([x0, y0, x0 + cell_px - 1, y0], fill=WALL_TOP_RGB)
+            else:
+                void_cells += 1
+                draw.rectangle([x0, y0, x0 + cell_px - 1, y0 + cell_px - 1], fill=VOID_RGB)
+
+    # 벽 아래 그림자 — 바닥으로 내려가는 두 줄을 어둡게
     px = img.load()
-    for ty in range(th - 1):
-        for tx in range(tw):
-            if not floor[ty][tx] and floor[ty + 1][tx]:
-                for i in range(T):
-                    for d in range(4):
-                        x, y = tx * T + i, (ty + 1) * T + d
-                        r, g, b, a = px[x, y]
-                        f = 0.5 + d * 0.12
-                        px[x, y] = (int(r * f), int(g * f), int(b * f), a)
+    for gy in range(walk.rows - 1):
+        for gx in range(walk.cols):
+            if walk.grid[gy][gx] == "1" or not inside[gy][gx]:
+                continue
+            if walk.grid[gy + 1][gx] != "1":
+                continue
+            for i in range(cell_px):
+                for d in range(cell_px):
+                    x, y = gx * cell_px + i, (gy + 1) * cell_px + d
+                    if x >= img.width or y >= img.height:
+                        continue
+                    r, g, b, a = px[x, y]
+                    f = 0.55 + d * 0.15
+                    px[x, y] = (int(r * f), int(g * f), int(b * f), a)
 
     # 타일 격자 크기 그대로 저장한다 (도면 크기로 자르면 마지막 타일이 잘린다)
     img.save(OUT)

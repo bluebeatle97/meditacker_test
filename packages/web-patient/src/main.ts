@@ -26,7 +26,9 @@ const MAP_SCALE = 0.5;
 /** 스프라이트는 맵과 같은 축척이므로 확대하지 않는다 — 확대는 카메라 줌이 담당 */
 const CHAR_SCALE = 1;
 /** 화면 가로에 타일이 대략 이 개수 보이도록 줌을 정한다 (포켓몬 골드류 타일 탑뷰) */
-const TILES_ACROSS = 14;
+const TILES_ACROSS = 20;
+/** 줌 상한 — 더 키우면 도트가 너무 굵어져 뭉툭해 보인다 */
+const MAX_ZOOM = 4;
 const TILE = 16;
 
 // 걷는 속도: 도면 1px ≈ 1.62cm, 보행 1.4m/s → 약 86 도면px/초 → 화면은 ×MAP_SCALE
@@ -205,7 +207,7 @@ class PatientScene extends Phaser.Scene {
    */
   private followZoom(): number {
     const z = Math.round(this.scale.width / (TILES_ACROSS * TILE));
-    return Math.max(2, Math.min(6, z));
+    return Math.max(2, Math.min(MAX_ZOOM, z));
   }
 
   /** 전체 보기 ↔ 따라가기 */
