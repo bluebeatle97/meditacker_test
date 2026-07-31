@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
+import { ZoneDwellFilter, ZONE_DWELL_MS } from '@meditracker/shared';
 import type { FloorplanMeta, PatientProfile, Zone, ZoneAction } from '@meditracker/shared';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 
@@ -130,6 +131,17 @@ class PatientScene extends Phaser.Scene {
   private facing: Dir = 'down';
   private teleport = true;
   private overview = false;
+  /**
+   * 상단 안내의 '현재 위치' 안정화 — 복도를 지나가며 스치는 방까지 바로 띄우면
+   * 글자가 계속 바뀌어 읽을 수 없다. 캐릭터·카메라는 그대로 즉시 따라간다.
+   */
+  private zoneDwell = new ZoneDwellFilter(ZONE_DWELL_MS);
+  private lastSelf?: { zone: string | null; waitingRank: number; estimatedWaitSec: number };
+  /**
+   * 같은 구역에 있는 **다른 손님**(익명). 서버는 좌표를 주지 않고 인원수만 준다(불변식 B-1)
+   * → 방 안에 그 수만큼 세워 둔다. 실제 위치가 아니라 '이 방에 몇 명 있다'는 표현이다.
+   */
+  private others: Phaser.GameObjects.Sprite[] = [];
 
   constructor() {
     super('patient');
@@ -232,6 +244,14 @@ class PatientScene extends Phaser.Scene {
     });
     this.setupOverviewButton();
     this.setHud(null);
+    // 머문 시간이 차면 안내 문구를 바꾼다 (이벤트가 안 와도 갱신되도록 주기 확인)
+    this.time.addEvent({
+      delay: 500,
+      loop: true,
+      callback: () => {
+        if (this.lastSelf) this.setHud(this.lastSelf);
+      },
+    });
 
     this.connect();
   }
@@ -266,6 +286,13 @@ class PatientScene extends Phaser.Scene {
   }
 
   private makeAnims(): void {
+    // 다른 손님(익명)용 — 정면 idle 하나만 (누구인지 드러나지 않게 한 종류로 통일)
+    this.anims.create({
+      key: 'other-idle',
+      frames: this.anims.generateFrameNumbers('adam-idle', { start: 18, end: 23 }),
+      frameRate: 5,
+      repeat: -1,
+    });
     for (const [dir, row] of Object.entries(DIR_ROW)) {
       for (const kind of ['idle', 'run'] as const) {
         this.anims.create({
@@ -287,15 +314,19 @@ class PatientScene extends Phaser.Scene {
     this.socket.on(
       'presence:self',
       (p: { zone: string | null; waitingRank: number; estimatedWaitSec: number }) => {
+        this.lastSelf = p;
         this.setHud(p);
-        if (p.zone) this.walkToZone(p.zone);
+        if (p.zone) this.walkToZone(p.zone); // 이동은 즉시, 글자만 늦게 바뀐다
       },
     );
 
     this.socket.on('zone:occupancy', (p: { zoneId: string; anonymousCount: number }) => {
+      // 표시 중인 구역의 인원수만 (스쳐간 방 인원수가 떠도 혼란스럽다)
+      if (this.zoneDwell.peek('me') !== p.zoneId) return;
       const zone = this.zones.get(p.zoneId);
       const el = document.getElementById('hud-sub');
-      if (el && zone) el.textContent = `${zone.name}에 ${p.anonymousCount}명 대기 중`;
+      if (el && zone) el.textContent = `${zone.name}에 ${p.anonymousCount}명`;
+      this.showOthers(p.zoneId, p.anonymousCount - 1); // 본인 제외
     });
 
     this.socket.on('zone:actions', (_actions: ZoneAction[]) => {
@@ -316,12 +347,54 @@ class PatientScene extends Phaser.Scene {
       where.textContent = '위치를 확인하는 중…';
       return;
     }
-    const zone = p.zone ? this.zones.get(p.zone) : null;
+    // 표시는 '머문 것이 확인된' 구역 기준
+    const settled = this.zoneDwell.update('me', p.zone);
+    const zone = settled ? this.zones.get(settled) : null;
     where.textContent = zone ? zone.name : '추적 구역 밖';
-    sub.textContent =
-      p.waitingRank > 0
-        ? `대기 순번 ${p.waitingRank}번 · 예상 ${Math.round(p.estimatedWaitSec / 60)}분`
-        : '';
+    // 대기 순번이 있을 때만 이 줄을 쓴다 — 없으면 zone:occupancy 가 채운 인원수를 남긴다
+    if (p.waitingRank > 0) {
+      sub.textContent = `대기 순번 ${p.waitingRank}번 · 예상 ${Math.round(p.estimatedWaitSec / 60)}분`;
+    }
+  }
+
+  /**
+   * 같은 방의 다른 손님을 인원수만큼 세운다.
+   * 좌표를 받은 게 아니라 **인원수로 만든 표현**이므로, 방 안쪽 통행 가능한 자리에
+   * 정해진 순서대로 배치한다 (매번 자리가 바뀌면 사람이 순간이동하는 것처럼 보인다).
+   */
+  private showOthers(zoneId: string, count: number): void {
+    const zone = this.zones.get(zoneId);
+    const n = Math.max(0, Math.min(count, 6)); // 너무 많으면 방이 가득 차 보인다
+    if (!zone) return;
+
+    while (this.others.length > n) this.others.pop()?.destroy();
+    while (this.others.length < n) {
+      const i = this.others.length;
+      // 황금각으로 흩뿌려 같은 자리에 겹치지 않게
+      const angle = i * 2.399;
+      const radius = 40 + i * 14;
+      const spot = this.pf.nearestWalkable(
+        zone.tilePosition.x + Math.cos(angle) * radius,
+        zone.tilePosition.y + Math.sin(angle) * radius,
+      );
+      const sprite = this.add
+        .sprite(this.m(spot.x), this.m(spot.y), 'adam-idle')
+        .setOrigin(0.5, 0.85)
+        .setAlpha(0.85);
+      sprite.play('other-idle');
+      sprite.setDepth(-1); // 본인 캐릭터보다 뒤에
+      this.others.push(sprite);
+    }
+    // 방이 바뀌면 자리도 옮긴다
+    this.others.forEach((sprite, i) => {
+      const angle = i * 2.399;
+      const radius = 40 + i * 14;
+      const spot = this.pf.nearestWalkable(
+        zone.tilePosition.x + Math.cos(angle) * radius,
+        zone.tilePosition.y + Math.sin(angle) * radius,
+      );
+      sprite.setPosition(this.m(spot.x), this.m(spot.y));
+    });
   }
 
   /** 존 라벨 위치까지 벽을 피해 걸어간다 */

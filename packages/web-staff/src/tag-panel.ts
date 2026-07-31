@@ -15,14 +15,22 @@ import type { TagGroup } from '@meditracker/shared';
  * ⚠️ 불변식 B-5: 브라우저 스토리지 사용 금지 — 편집값은 서버(/tag-meta)로만 보낸다.
  */
 
-/** 표시 순서 = 버튼 순서. 화면 라벨은 프론트가 소유한다 (타입만 shared) */
-export const GROUPS: ReadonlyArray<{ id: TagGroup; label: string }> = [
-  { id: 'doctor', label: '의사' },
-  { id: 'nurse', label: '간호사' },
-  { id: 'interpreter', label: '통역' },
-  { id: 'patient', label: '환자' },
-  { id: 'unassigned', label: '미지정' },
+/**
+ * 표시 순서 = 버튼 순서. 화면 라벨·색은 프론트가 소유한다 (타입만 shared).
+ * 색은 그룹에 못 박아 맵 위 점 · 목록 아이콘 · 그룹 버튼이 모두 같은 색을 쓴다.
+ */
+export const GROUPS: ReadonlyArray<{ id: TagGroup; label: string; color: number }> = [
+  { id: 'doctor', label: '의사', color: 0x4aa3ff },
+  { id: 'nurse', label: '간호사', color: 0x06d6a0 },
+  { id: 'interpreter', label: '통역', color: 0xb98ce0 },
+  { id: 'patient', label: '환자', color: 0xffd166 },
+  { id: 'unassigned', label: '미지정', color: 0x8b98a8 },
 ];
+
+/** 그룹 색 (모르는 값은 미지정 회색) */
+export function groupColor(group: TagGroup | undefined): number {
+  return GROUPS.find((g) => g.id === group)?.color ?? 0x8b98a8;
+}
 
 export interface TagRow {
   tagId: string;
@@ -169,7 +177,9 @@ export class TagPanel {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'group-btn';
-      btn.innerHTML = `<span class="chev">▸</span><span class="lbl">${g.label}</span><span class="n">0</span>`;
+      btn.innerHTML =
+        `<span class="chev">▸</span><i class="swatch" style="background:${hex(g.color)}"></i>` +
+        `<span class="lbl">${g.label}</span><span class="n">0</span>`;
       btn.addEventListener('click', () => {
         this.openGroup = this.openGroup === g.id ? null : g.id;
         this.renderOpenState();

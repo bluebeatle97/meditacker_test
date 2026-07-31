@@ -54,6 +54,21 @@ presence.onChange((c) =>
 // 자리비움 스윕 (ABSENT_TIMEOUT 판정)
 setInterval(() => engine.sweepAbsent(), SERVER_CONFIG.absentSweepIntervalMs);
 
+/**
+ * 개발용 환자 토큰이 가리킬 사람 — **태그가 실제로 배정된** 환자를 고른다.
+ * 고정 id 를 쓰면 시드가 바뀔 때 추적 대상 없는 사람을 가리켜, 환자 화면이
+ * 직원 화면과 딴 세상처럼 보인다(실제로 그렇게 신고됨).
+ */
+function firstTrackedPatient(): string {
+  const row = db
+    .prepare(
+      `SELECT t.person_id AS personId FROM tags t JOIN persons p ON p.person_id = t.person_id
+       WHERE t.active = 1 AND p.type = 'patient' ORDER BY t.tag_id LIMIT 1`,
+    )
+    .get() as { personId: string } | undefined;
+  return row?.personId ?? 'patient-001';
+}
+
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -177,7 +192,7 @@ const httpServer = createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const claims =
       url.searchParams.get('type') === 'patient'
-        ? ({ personId: 'patient-001', type: 'patient' } as const)
+        ? ({ personId: firstTrackedPatient(), type: 'patient' } as const)
         : ({ personId: 'staff-doc-1', type: 'staff', role: 'doctor', dept: 'derma' } as const);
     res.writeHead(200, {
       'Content-Type': 'application/json',

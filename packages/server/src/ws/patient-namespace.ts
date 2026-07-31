@@ -26,6 +26,11 @@ export function registerPatientNamespace(ns: Namespace, presence: PresenceServic
     if (zone) {
       socket.join(`zone:${zone}`);
       socket.emit('zone:actions', actionsForZone(zone));
+      // 같은 구역 인원수(익명) — 좌표가 아니라 '몇 명'만 나간다 (불변식 B-1)
+      socket.emit('zone:occupancy', {
+        zoneId: zone,
+        anonymousCount: anonymousOccupancy(zone, presence.getAllStates()),
+      });
     }
     socket.emit('presence:self', {
       zone,

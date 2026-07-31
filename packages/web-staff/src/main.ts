@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
+import { ZoneDwellFilter, ZONE_DWELL_MS } from '@meditracker/shared';
 import type {
   FloorplanMeta,
   MapAnnotation,
@@ -10,7 +11,7 @@ import type {
   Zone,
 } from '@meditracker/shared';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
-import { TagPanel, type TagRow } from './tag-panel';
+import { groupColor, TagPanel, type TagRow } from './tag-panel';
 
 /**
  * 직원용 화면 (설계서 8) — 실제 도면 배경 방식
@@ -46,7 +47,7 @@ const CH = 1120;
 const TOP = 40; // 상단 제목 여백
 const PAD = 6;
 
-const AVATAR_COLORS = [0xffd166, 0xef476f, 0x06d6a0, 0x118ab2, 0xf78c6b, 0x9b5de5];
+// 그룹 색은 tag-panel.ts 가 단일 출처 — 맵 위 점·목록 아이콘·그룹 버튼이 같은 색을 쓴다
 
 // 걸어가는 느낌: 도면 축척 1px ≈ 1.62cm, 성인 보행 1.4m/s → 약 86 도면px/초
 const WALK_PX_PER_SEC = 86;
@@ -72,8 +73,8 @@ class StaffMapScene extends Phaser.Scene {
   private tagMeta: TagMetaMap = {};
   /** 왼쪽 목록에 쓸 태그별 상태 (존·체류시각·마지막 신호) */
   private states = new Map<string, PresenceState>();
-  /** 아바타 색 — 목록의 비콘 아이콘과 같은 색을 쓰려고 보관 */
-  private tagColors = new Map<string, number>();
+  /** 아바타의 색을 바꿀 수 있게 원(테두리·후광) 참조를 들고 있는다 (그룹 변경 시 recolor) */
+  private avatarDots = new Map<string, { halo: Phaser.GameObjects.Arc; dot: Phaser.GameObjects.Arc }>();
   private panel!: TagPanel;
   private pickedTag?: string;
   private pickRing?: Phaser.GameObjects.Arc;
@@ -87,6 +88,12 @@ class StaffMapScene extends Phaser.Scene {
   private nameLayer?: Phaser.GameObjects.Container;
   /** 라벨 폭 계산용 (화면에 그리지 않는 캔버스) */
   private measureCtx = document.createElement('canvas').getContext('2d')!;
+  /**
+   * 목록에 쓸 '구역' 안정화 — 복도를 지나가며 스치는 방까지 글자로 반영하면
+   * 현황이 계속 바뀌어 읽을 수 없다. 아바타 이동은 그대로 실시간이다.
+   * (관제 페이지는 원본을 봐야 하므로 여기서만 적용)
+   */
+  private zoneDwell = new ZoneDwellFilter(ZONE_DWELL_MS);
 
   private plan!: FloorplanMeta;
   private worldScale = 1;
@@ -370,6 +377,12 @@ class StaffMapScene extends Phaser.Scene {
     this.socket.on('tagmeta', (map: TagMetaMap) => {
       this.tagMeta = map;
       for (const [tagId, label] of this.avatarLabels) label.setText(this.labelFor(tagId));
+      // 그룹이 바뀌면 색도 바로 바뀌게 (목록 아이콘과 맵 점이 같은 색을 유지)
+      for (const [tagId, parts] of this.avatarDots) {
+        const c = this.colorFor(tagId);
+        parts.halo.setFillStyle(c, 0.25);
+        parts.dot.setFillStyle(c);
+      }
       this.refreshPanel();
     });
 
@@ -397,10 +410,10 @@ class StaffMapScene extends Phaser.Scene {
     if (!this.panel) return;
     const rows: TagRow[] = [...this.avatars.keys()].map((tagId) => {
       const st = this.states.get(tagId);
-      const zoneId = st?.currentZone ?? null;
+      const zoneId = this.zoneDwell.update(tagId, st?.currentZone ?? null);
       return {
         tagId,
-        color: this.tagColors.get(tagId) ?? 0xffffff,
+        color: this.colorFor(tagId),
         name: this.tagMeta[tagId]?.name ?? '',
         memo: this.tagMeta[tagId]?.memo ?? '',
         // 아직 배정 안 된 태그는 '미지정' 그룹에 모인다
@@ -442,11 +455,16 @@ class StaffMapScene extends Phaser.Scene {
     this.moveTo(state.tagId, state.currentZone);
   }
 
+  /** 태그 색 = 그룹 색. 그룹이 없으면 '미지정' 회색 */
+  private colorFor(tagId: string): number {
+    return groupColor(this.tagMeta[tagId]?.group);
+  }
+
   private makeAvatar(tagId: string): Phaser.GameObjects.Container {
-    const color = AVATAR_COLORS[this.avatars.size % AVATAR_COLORS.length];
-    this.tagColors.set(tagId, color);
+    const color = this.colorFor(tagId);
     const halo = this.add.circle(0, 0, 11, color, 0.25);
     const circle = this.add.circle(0, 0, 7, color).setStrokeStyle(2, 0xffffff, 0.95);
+    this.avatarDots.set(tagId, { halo, dot: circle });
     circle.setInteractive({ useHandCursor: true });
     // 점을 누르면 왼쪽 목록의 그 줄로 이동해 이름을 바로 고칠 수 있게
     circle.on('pointerdown', () => this.panel.focusRow(tagId));

@@ -1,3 +1,5 @@
+export { ZoneDwellFilter, ZONE_DWELL_MS } from './zone-dwell.js';
+
 // ─── 정적 데이터 (설계서 5.1) ───────────────────────────────────────────────
 
 export type ZoneType =

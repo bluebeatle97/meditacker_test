@@ -15,6 +15,7 @@
 import mqtt from 'mqtt';
 import { loadGateways, loadZones } from '../config/index.js';
 import { WalkableMap } from '../presence/walkable-map.js';
+import { MOCK_TAGS, ROUTES } from './mock-tags.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
 const SPEED = Number(process.env.MOCK_SPEED ?? 1);
@@ -33,27 +34,6 @@ interface Waypoint {
   y: number;
   pause: number;
 }
-
-// 도면 구역을 순서대로 경유 (존 중심 좌표 자동 사용)
-const ROUTE_ZONES: Array<{ zoneId: string; pause: number }> = [
-  { zoneId: 'reception', pause: 40 }, // 접수·중앙 대기
-  { zoneId: 'consult_2', pause: 30 }, // 상담실 2
-  { zoneId: 'consult_1', pause: 25 }, // 상담실 1
-  { zoneId: 'proc_2', pause: 45 }, // 시술실 2
-  { zoneId: 'surgery_1', pause: 40 }, // 수술실 1
-  { zoneId: 'vip_recovery', pause: 35 }, // VIP 회복실
-  { zoneId: 'waiting_2', pause: 20 }, // 대기공간
-];
-
-const ROUTE: Waypoint[] = ROUTE_ZONES.map(({ zoneId, pause }) => {
-  const c = zoneCenter.get(zoneId) ?? { x: 960, y: 980 }; // fallback: 도면 중앙
-  return { x: c.x, y: c.y, pause };
-});
-
-const TAGS = [
-  { mac: 'AA:BB:CC:00:00:01', routeOffsetSec: 0 },
-  { mac: 'AA:BB:CC:00:00:02', routeOffsetSec: 150 },
-];
 
 // 경로를 시간축으로 펼치기: 각 구간 (걷기 or 정지) 의 시작시각 테이블
 interface Segment {
@@ -80,12 +60,22 @@ function buildTimeline(route: Waypoint[]): { segments: Segment[]; totalSec: numb
   return { segments, totalSec: t };
 }
 
-const { segments, totalSec } = buildTimeline(ROUTE);
+/** 역할별 타임라인은 한 번만 만들어 여러 태그가 오프셋만 달리 해서 공유한다 */
+const TIMELINES = new Map<string, { segments: Segment[]; totalSec: number; first: Waypoint }>();
+for (const [name, zones] of Object.entries(ROUTES)) {
+  const route: Waypoint[] = zones.map(({ zoneId, pause }) => {
+    const c = zoneCenter.get(zoneId);
+    if (!c) throw new Error(`목 경로에 없는 존: ${zoneId}`);
+    return { x: c.x, y: c.y, pause };
+  });
+  TIMELINES.set(name, { ...buildTimeline(route), first: route[0] });
+}
 
 /** 시나리오 시각 → 현재 좌표 */
-function positionAt(sec: number): { x: number; y: number } {
-  const t = sec % totalSec;
-  for (const seg of segments) {
+function positionAt(routeName: string, sec: number): { x: number; y: number } {
+  const tl = TIMELINES.get(routeName)!;
+  const t = ((sec % tl.totalSec) + tl.totalSec) % tl.totalSec;
+  for (const seg of tl.segments) {
     if (t >= seg.startSec && t < seg.startSec + seg.durationSec) {
       if (!seg.moving) return { x: seg.from.x, y: seg.from.y };
       const p = (t - seg.startSec) / seg.durationSec;
@@ -95,7 +85,7 @@ function positionAt(sec: number): { x: number; y: number } {
       };
     }
   }
-  return { x: ROUTE[0].x, y: ROUTE[0].y };
+  return { x: tl.first.x, y: tl.first.y };
 }
 
 // ── 경로손실 모델: 거리(cm) + 벽 관통 감쇠 → RSSI ───────────────────────────
@@ -122,26 +112,37 @@ function rssiFor(distPx: number, walls: number): number | null {
 }
 
 client.on('connect', () => {
+  const laps = [...TIMELINES.entries()]
+    .map(([n, tl]) => `${n} ${Math.round(tl.totalSec / SPEED)}s`)
+    .join(', ');
   console.log(
-    `[mock-gw] connected: ${MQTT_URL} — 보행 시뮬레이션 (경로 ${Math.round(totalSec / SPEED)}초/바퀴, 스캔 ${SCAN_INTERVAL_MS}ms)`,
+    `[mock-gw] connected: ${MQTT_URL} — 태그 ${MOCK_TAGS.length}개 보행 시뮬레이션 (스캔 ${SCAN_INTERVAL_MS}ms)`,
   );
+  console.log(`[mock-gw] 경로 한 바퀴: ${laps}`);
   let elapsed = 0;
 
   setInterval(() => {
     elapsed += (SCAN_INTERVAL_MS / 1000) * SPEED;
-    for (const tag of TAGS) {
-      const pos = positionAt(elapsed + tag.routeOffsetSec);
+    // 게이트웨이별로 이번 주기에 들린 비콘을 모아 한 번에 올린다
+    // (태그마다 따로 publish 하면 태그수 x 게이트웨이수 만큼 메시지가 터진다.
+    //  실제 게이트웨이도 스캔 결과를 배열로 한 번에 업로드한다)
+    const batch = new Map<string, Array<{ mac: string; rssi: number; ts: number }>>();
+    const ts = Date.now();
+    for (const tag of MOCK_TAGS) {
+      const pos = positionAt(tag.route, elapsed + tag.offsetSec);
       for (const gw of gateways) {
         const dist = Math.hypot(gw.tile!.x - pos.x, gw.tile!.y - pos.y);
         // 태그↔게이트웨이 사이의 벽을 세어 관통 감쇠 반영 (현실적 신호)
         const walls = walkable.wallsBetween(pos.x, pos.y, gw.tile!.x, gw.tile!.y);
         const rssi = rssiFor(dist, walls);
         if (rssi === null) continue;
-        client.publish(
-          `gw/${gw.gatewayId}/scan`,
-          JSON.stringify([{ mac: tag.mac, rssi, ts: Date.now() }]),
-        );
+        const list = batch.get(gw.gatewayId) ?? [];
+        list.push({ mac: tag.mac, rssi, ts });
+        batch.set(gw.gatewayId, list);
       }
+    }
+    for (const [gatewayId, readings] of batch) {
+      client.publish(`gw/${gatewayId}/scan`, JSON.stringify(readings));
     }
   }, SCAN_INTERVAL_MS);
 });
