@@ -22,6 +22,12 @@ export const SERVER_CONFIG = {
   /** 자리비움 스윕 주기 */
   absentSweepIntervalMs: 5000,
   /**
+   * 존 판정 주기 — 수신값이 들어올 때마다가 아니라 이 간격으로 묶어 평가한다.
+   * ZONE_ENGINE_CONFIG.CONFIRM_COUNT 는 '이 주기 몇 번 연속' 이라는 뜻이 된다
+   * (200ms × 3 = 0.6초 유지되면 존 전환 확정).
+   */
+  zoneEvalIntervalMs: Number(process.env.ZONE_EVAL_MS ?? 200),
+  /**
    * 운영 화면 위치 브로드캐스트 주기 — 사람이 걷는 속도를 감안한 갱신 간격.
    * 너무 짧으면 RSSI 노이즈로 아바타가 떨고, 너무 길면 반응이 늦다.
    */

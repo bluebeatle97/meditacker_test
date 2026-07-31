@@ -35,16 +35,30 @@ const walkable = new WalkableMap();
 // 모니터 허브는 io 생성 후 초기화 (아래) — 참조만 먼저 선언
 let monitor: MonitorHub | undefined;
 
+/**
+ * 수신값은 들어오는 대로 쌓고, **존 판정은 주기로 묶어서** 돌린다.
+ * 게이트웨이 50대 × 태그 수십 개면 초당 1,000건이 넘게 들어오는데 건마다 판정하면
+ * 서버가 CPU 한 코어를 다 쓰고 HTTP 응답조차 못 한다(실측). 묶으면 부하가 태그 수에만
+ * 비례하고, CONFIRM_COUNT 도 설계 의도대로 '스캔 주기 N회' 가 된다.
+ */
+const dirtyTags = new Set<string>();
 const ingestion = new MqttIngestion(
   SERVER_CONFIG.mqttUrl,
   SERVER_CONFIG.mqttScanTopic,
   new GenericJsonAdapter(),
   (scan) => {
-    engine.ingest(scan);
+    engine.ingest(scan, false);
+    dirtyTags.add(scan.tagId);
     monitor?.recordScan(scan); // 관제 피드로 raw 스캔 탭
   },
 );
 ingestion.start();
+
+setInterval(() => {
+  if (dirtyTags.size === 0) return;
+  for (const tagId of dirtyTags) engine.evaluate(tagId);
+  dirtyTags.clear();
+}, SERVER_CONFIG.zoneEvalIntervalMs);
 
 // 존 전환을 관제 로그로 탭
 presence.onChange((c) =>

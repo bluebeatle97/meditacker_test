@@ -64,6 +64,23 @@ export const ROUTES: Record<string, Array<{ zoneId: string; pause: number }>> = 
     { zoneId: 'waiting_2', pause: 25 },
     { zoneId: 'reception', pause: 20 },
   ],
+  // 대기 중인 손님들 — 접수·대기공간을 오래 지킨다.
+  // 실제 층은 환자 70명이라 어디를 봐도 사람이 있는데, 태그가 적으면 화면이 텅 빈다.
+  waitingA: [
+    { zoneId: 'waiting_1', pause: 90 },
+    { zoneId: 'reception', pause: 40 },
+    { zoneId: 'waiting_2', pause: 70 },
+  ],
+  waitingB: [
+    { zoneId: 'waiting_2', pause: 80 },
+    { zoneId: 'waiting_3', pause: 60 },
+    { zoneId: 'reception', pause: 35 },
+  ],
+  waitingC: [
+    { zoneId: 'reception', pause: 60 },
+    { zoneId: 'waiting_1', pause: 75 },
+    { zoneId: 'consult_3', pause: 30 },
+  ],
 };
 
 /**
@@ -79,6 +96,16 @@ export const MOCK_TAGS: Array<{ mac: string; route: string; offsetSec: number }>
   { mac: 'AA:BB:CC:00:00:06', route: 'patientC', offsetSec: 100 },
   { mac: 'AA:BB:CC:00:00:07', route: 'patientD', offsetSec: 0 },
   { mac: 'AA:BB:CC:00:00:08', route: 'patientD', offsetSec: 90 },
+  // 대기 중인 손님들 (같은 경로에 오프셋만 달리해 여러 명이 함께 앉아 있게)
+  { mac: 'AA:BB:CC:00:00:09', route: 'waitingA', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:0A', route: 'waitingA', offsetSec: 60 },
+  { mac: 'AA:BB:CC:00:00:0B', route: 'waitingA', offsetSec: 130 },
+  { mac: 'AA:BB:CC:00:00:0C', route: 'waitingB', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:0D', route: 'waitingB', offsetSec: 55 },
+  { mac: 'AA:BB:CC:00:00:0E', route: 'waitingB', offsetSec: 120 },
+  { mac: 'AA:BB:CC:00:00:0F', route: 'waitingC', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:10', route: 'waitingC', offsetSec: 50 },
+  { mac: 'AA:BB:CC:00:00:11', route: 'waitingC', offsetSec: 110 },
   { mac: 'AA:BB:CC:00:00:50', route: 'doctor', offsetSec: 0 },
   { mac: 'AA:BB:CC:00:00:51', route: 'doctor', offsetSec: 70 },
   { mac: 'AA:BB:CC:00:00:52', route: 'nurse', offsetSec: 0 },

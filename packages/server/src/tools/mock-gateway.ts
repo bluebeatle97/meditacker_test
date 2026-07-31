@@ -24,6 +24,24 @@ const SCAN_INTERVAL_MS = Number(process.env.SCAN_INTERVAL_MS ?? 500);
 const CM_PER_PX = 1.62;
 const WALK_SPEED = 140 / CM_PER_PX; // px/초 (성인 보행 ≈ 1.4m/s)
 
+/**
+ * 부하 시험용 태그 증식 — `MOCK_TAGS_N=100` 이면 명단을 그 수까지 채운다.
+ * 기존 동선을 돌려쓰고 오프셋만 흩어 놓는다 (이름·그룹은 없으니 시험용으로만).
+ */
+const WANT_TAGS = Number(process.env.MOCK_TAGS_N ?? 0);
+const TAGS = [...MOCK_TAGS];
+if (WANT_TAGS > TAGS.length) {
+  const routes = Object.keys(ROUTES);
+  for (let i = TAGS.length; i < WANT_TAGS; i++) {
+    TAGS.push({
+      mac: `AA:BB:CC:FF:${String(Math.floor(i / 256)).padStart(2, '0')}:${(i % 256).toString(16).padStart(2, '0').toUpperCase()}`,
+      route: routes[i % routes.length],
+      offsetSec: (i * 37) % 200,
+    });
+  }
+  console.log(`[mock-gw] 부하시험: 태그 ${TAGS.length}개로 증식`);
+}
+
 const client = mqtt.connect(MQTT_URL);
 const gateways = loadGateways().filter((g) => g.tile);
 const zoneCenter = new Map(loadZones().map((z) => [z.zoneId, z.tilePosition]));
@@ -116,7 +134,7 @@ client.on('connect', () => {
     .map(([n, tl]) => `${n} ${Math.round(tl.totalSec / SPEED)}s`)
     .join(', ');
   console.log(
-    `[mock-gw] connected: ${MQTT_URL} — 태그 ${MOCK_TAGS.length}개 보행 시뮬레이션 (스캔 ${SCAN_INTERVAL_MS}ms)`,
+    `[mock-gw] connected: ${MQTT_URL} — 태그 ${TAGS.length}개 보행 시뮬레이션 (스캔 ${SCAN_INTERVAL_MS}ms)`,
   );
   console.log(`[mock-gw] 경로 한 바퀴: ${laps}`);
   let elapsed = 0;
@@ -128,7 +146,7 @@ client.on('connect', () => {
     //  실제 게이트웨이도 스캔 결과를 배열로 한 번에 업로드한다)
     const batch = new Map<string, Array<{ mac: string; rssi: number; ts: number }>>();
     const ts = Date.now();
-    for (const tag of MOCK_TAGS) {
+    for (const tag of TAGS) {
       const pos = positionAt(tag.route, elapsed + tag.offsetSec);
       for (const gw of gateways) {
         const dist = Math.hypot(gw.tile!.x - pos.x, gw.tile!.y - pos.y);

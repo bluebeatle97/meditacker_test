@@ -45,8 +45,16 @@ export class ZoneEngine extends EventEmitter {
     super();
   }
 
-  /** 원시 스캔 이벤트 유입 (Ingestion 어댑터가 호출) */
-  ingest(scan: ScanEvent): void {
+  /**
+   * 원시 스캔 이벤트 유입 (Ingestion 어댑터가 호출).
+   *
+   * `evaluateNow=false` 로 넣으면 수신값만 쌓고 존 판정은 하지 않는다 —
+   * 호출부가 `evaluate(tagId)` 를 주기로 묶어 부르는 용도.
+   * 게이트웨이 50대 × 태그 수십 개면 수신값이 초당 1,000건을 넘는데,
+   * 그때마다 판정을 다시 돌리면 서버가 CPU 한 코어를 다 쓴다(실측).
+   * 판정을 주기로 묶으면 CONFIRM_COUNT 도 설계 의도대로 '스캔 주기 N회' 가 된다.
+   */
+  ingest(scan: ScanEvent, evaluateNow = true): void {
     if (!this.gatewayZoneMap.has(scan.gatewayId)) return; // 미등록 게이트웨이 무시
 
     let perGateway = this.readings.get(scan.tagId);
@@ -59,7 +67,12 @@ export class ZoneEngine extends EventEmitter {
       perGateway.set(scan.gatewayId, { rssi: scan.rssi, timestamp: scan.timestamp });
     }
 
-    this.updatePresence(scan.tagId);
+    if (evaluateNow) this.updatePresence(scan.tagId);
+  }
+
+  /** 쌓인 수신값으로 존 판정 1회 (ingest(scan, false) 와 짝) */
+  evaluate(tagId: string): void {
+    this.updatePresence(tagId);
   }
 
   getState(tagId: string): PresenceState | undefined {

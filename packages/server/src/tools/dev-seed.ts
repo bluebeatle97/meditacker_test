@@ -38,11 +38,23 @@ const PROFILE: Record<string, { name: string; group: TagGroup; memo?: string }> 
 };
 
 const STAFF_GROUPS = new Set<TagGroup>(['doctor', 'nurse', 'interpreter']);
+
+/** PROFILE 에 없는 태그는 동선 이름으로 그룹을 정한다 (태그를 늘릴 때 표를 안 고쳐도 되게) */
+function groupFromRoute(route: string): TagGroup {
+  if (route.startsWith('doctor')) return 'doctor';
+  if (route.startsWith('nurse')) return 'nurse';
+  if (route.startsWith('interpreter')) return 'interpreter';
+  return 'patient';
+}
 let persons = 0;
 let firstPatient = '';
 
 for (const [i, tag] of MOCK_TAGS.entries()) {
-  const profile = PROFILE[tag.mac] ?? { name: `손님 ${i + 1}`, group: 'unassigned' as TagGroup };
+  const profile = PROFILE[tag.mac] ?? {
+    name: `손님 ${i + 1}`,
+    group: groupFromRoute(tag.route),
+    memo: undefined as string | undefined,
+  };
   const isStaff = STAFF_GROUPS.has(profile.group);
   const personId = `${isStaff ? 'staff' : 'patient'}-${tag.mac.slice(-2)}`;
   const type: PersonType = isStaff ? 'staff' : 'patient';

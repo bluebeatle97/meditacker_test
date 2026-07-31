@@ -35,9 +35,9 @@ const MAP_SCALE = 0.5;
 /** 스프라이트는 맵과 같은 축척이므로 확대하지 않는다 — 확대는 카메라 줌이 담당 */
 const CHAR_SCALE = 1;
 /** 화면 가로에 타일이 대략 이 개수 보이도록 줌을 정한다 (포켓몬 골드류 타일 탑뷰) */
-const TILES_ACROSS = 20;
-/** 줌 상한 — 더 키우면 도트가 너무 굵어져 뭉툭해 보인다 */
-const MAX_ZOOM = 4;
+const TILES_ACROSS = 16;
+/** 줌 상한 — 더 키우면 도트가 굵어지고 주변 사람이 화면에 안 들어온다 */
+const MAX_ZOOM = 6;
 /** 카메라 추종 보간 계수 (0~1). 낮으면 부드럽게 뒤따르고, 1이면 즉시 붙는다 */
 const FOLLOW_LERP = 0.08;
 const TILE = 16;
@@ -229,9 +229,9 @@ class PatientScene extends Phaser.Scene {
     this.me.play('idle-down');
     if (this.profile.nickname) {
       this.nameTag = this.add
-        .text(this.me.x, this.me.y + 6, this.profile.nickname, {
+        .text(this.me.x, this.me.y + 4, this.profile.nickname, {
           fontFamily: 'sans-serif',
-          fontSize: '13px',
+          fontSize: '12px',
           color: '#0d1520',
           backgroundColor: '#ffffffdd',
           padding: { x: 4, y: 1 },
@@ -239,13 +239,13 @@ class PatientScene extends Phaser.Scene {
         .setOrigin(0.5, 0);
     }
 
-    this.cameras.main.setZoom(this.followZoom());
+    this.applyZoom(this.followZoom());
     this.cameras.main.startFollow(this.me, false, FOLLOW_LERP, FOLLOW_LERP);
     this.cameras.main.centerOn(this.me.x, this.me.y); // lerp 수렴을 기다리면 첫 화면이 빈 구석이다
     // 창 크기가 바뀌면 줌을 다시 계산 (보이는 타일 수를 일정하게)
     this.scale.on('resize', (size: Phaser.Structs.Size) => {
       this.cameras.resize(size.width, size.height);
-      if (!this.overview) this.cameras.main.setZoom(this.followZoom());
+      if (!this.overview) this.applyZoom(this.followZoom());
     });
     // 다른 사람들 (직원용과 같은 좌표 — 도트 스킨만 다름)
     this.crowd = new Crowd({
@@ -285,6 +285,16 @@ class PatientScene extends Phaser.Scene {
     return Math.max(2, Math.min(MAX_ZOOM, z));
   }
 
+  /**
+   * 줌을 바꾸고 이름표 크기를 되돌린다.
+   * 텍스트도 카메라 줌에 같이 확대돼서, 줌 4배면 12px 글씨가 48px 로 나와
+   * 캐릭터보다 커진다 → 줌의 역수로 축소해 화면상 크기를 일정하게 유지한다.
+   */
+  private applyZoom(zoom: number): void {
+    this.cameras.main.setZoom(zoom);
+    this.nameTag?.setScale(1 / zoom);
+  }
+
   /** 전체 보기 ↔ 따라가기 */
   private setupOverviewButton(): void {
     const btn = document.getElementById('overview-btn') as HTMLButtonElement | null;
@@ -294,10 +304,10 @@ class PatientScene extends Phaser.Scene {
       const cam = this.cameras.main;
       if (this.overview) {
         cam.stopFollow();
-        cam.setZoom(Math.min(this.scale.width / this.mapW, this.scale.height / this.mapH));
+        this.applyZoom(Math.min(this.scale.width / this.mapW, this.scale.height / this.mapH));
         cam.centerOn(this.mapW / 2, this.mapH / 2);
       } else {
-        cam.setZoom(this.followZoom());
+        this.applyZoom(this.followZoom());
         cam.startFollow(this.me, false, FOLLOW_LERP, FOLLOW_LERP);
       }
       btn.textContent = this.overview ? '📍 내 위치' : '🗺 전체 보기';
