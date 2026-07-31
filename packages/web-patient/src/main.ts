@@ -271,14 +271,14 @@ class PatientScene extends Phaser.Scene {
 
     this.setupOverviewButton();
     this.setHud(null);
-    // 머문 시간이 차면 안내 문구를 바꾼다 (이벤트가 안 와도 갱신되도록 주기 확인)
-    this.time.addEvent({
-      delay: 500,
-      loop: true,
-      callback: () => {
-        if (this.lastSelf) this.setHud(this.lastSelf);
-      },
-    });
+    /**
+     * 머문 시간이 차면 안내 문구를 바꾼다 — 이벤트가 안 와도 주기적으로 재평가해야 한다.
+     * ⚠️ Phaser 시계(this.time)에 걸면 안 된다: 렌더 루프에 묶여 있어서 프레임이 멈추면
+     *    (탭 백그라운드 등) 시계도 멈추고 구역 이름이 영원히 안 바뀐다(실제로 그랬다).
+     *    HUD 는 DOM 이니 브라우저 타이머로 돌린다.
+     */
+    const hudTimer = window.setInterval(() => this.setHud(this.lastSelf ?? null), 500);
+    this.events.once('shutdown', () => window.clearInterval(hudTimer));
 
     this.connect();
   }
@@ -380,6 +380,15 @@ class PatientScene extends Phaser.Scene {
     this.socket.on('pos:self', (p: { x: number; y: number; zone: string | null }) => {
       this.lastPosAt = Date.now();
       this.walkToPoint(p.x, p.y);
+      // 이 이벤트가 현재 구역도 함께 들고 온다 (3.5초마다 반드시 온다) → 안내 문구의
+      // 기준을 이걸로 삼는다. presence:self 는 구역이 바뀔 때만 오므로 그것만 보면
+      // 머문 시간이 차도 재평가 기회가 없다.
+      this.lastSelf = {
+        zone: p.zone,
+        waitingRank: this.lastSelf?.waitingRank ?? 0,
+        estimatedWaitSec: this.lastSelf?.estimatedWaitSec ?? 0,
+      };
+      this.setHud(this.lastSelf);
     });
 
     // 다른 사람들의 위치 — 직원용과 같은 좌표. 익명 id·좌표·손님/직원 구분만 온다
