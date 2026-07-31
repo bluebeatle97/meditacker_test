@@ -50,10 +50,24 @@ export interface Gateway {
   tile?: { x: number; y: number };
 }
 
-/** 태그에 운영자가 붙인 이름/메모 (관제·직원 화면에서 tagId 대신 표시) */
+/**
+ * 비콘 묶음 — 직원 화면 왼쪽 목록의 그룹 탭. 운영자가 태그마다 지정한다.
+ * 하드웨어로 자동 구분(iBeacon UUID·MAC 프리픽스)이 붙기 전까지의 단일 출처.
+ */
+export type TagGroup = 'doctor' | 'nurse' | 'interpreter' | 'patient' | 'unassigned';
+export const TAG_GROUP_IDS: readonly TagGroup[] = [
+  'doctor',
+  'nurse',
+  'interpreter',
+  'patient',
+  'unassigned',
+];
+
+/** 태그에 운영자가 붙인 이름/메모/그룹 (관제·직원 화면에서 tagId 대신 표시) */
 export interface TagMeta {
   name?: string;
   memo?: string;
+  group?: TagGroup;
 }
 export type TagMetaMap = Record<string, TagMeta>;
 

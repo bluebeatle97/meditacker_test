@@ -1,4 +1,4 @@
-import type { TagMetaMap } from '@meditracker/shared';
+import { TAG_GROUP_IDS, type TagGroup, type TagMetaMap } from '@meditracker/shared';
 import { getAllTagMeta, upsertTagMeta, type Db } from '../db/index.js';
 
 /**
@@ -17,10 +17,18 @@ export class TagMetaStore {
     return this.map;
   }
 
-  set(tagId: string, name: string, memo: string): void {
+  /**
+   * 이름·메모·그룹 저장.
+   * `group` 을 안 보내면 기존 그룹을 유지한다 — 관제 페이지의 이름/메모 편집이
+   * 직원 화면에서 지정한 그룹을 지워버리지 않도록. (모르는 값은 버린다)
+   */
+  set(tagId: string, name: string, memo: string, group?: string): void {
     if (!tagId) return;
-    this.map[tagId] = { name: name || undefined, memo: memo || undefined };
-    upsertTagMeta(this.db, tagId, name, memo);
+    const g = TAG_GROUP_IDS.includes(group as TagGroup)
+      ? (group as TagGroup)
+      : this.map[tagId]?.group;
+    this.map[tagId] = { name: name || undefined, memo: memo || undefined, group: g };
+    upsertTagMeta(this.db, tagId, name, memo, g);
     for (const l of this.listeners) l(this.map);
   }
 

@@ -101,8 +101,13 @@ const httpServer = createServer((req, res) => {
       });
       req.on('end', () => {
         try {
-          const { tagId, name, memo } = JSON.parse(body) as { tagId: string; name?: string; memo?: string };
-          tagMeta.set(tagId, (name ?? '').trim(), (memo ?? '').trim());
+          const { tagId, name, memo, group } = JSON.parse(body) as {
+            tagId: string;
+            name?: string;
+            memo?: string;
+            group?: string;
+          };
+          tagMeta.set(tagId, (name ?? '').trim(), (memo ?? '').trim(), group);
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           res.end(JSON.stringify({ ok: true }));
         } catch {

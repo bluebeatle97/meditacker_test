@@ -5,10 +5,12 @@ import type {
   MapAnnotation,
   PositionEstimate,
   PresenceState,
+  TagGroup,
   TagMetaMap,
   Zone,
 } from '@meditracker/shared';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
+import { TagPanel, type TagRow } from './tag-panel';
 
 /**
  * 직원용 화면 (설계서 8) — 실제 도면 배경 방식
@@ -63,6 +65,13 @@ class StaffMapScene extends Phaser.Scene {
   private avatarLabels = new Map<string, Phaser.GameObjects.Text>();
   private lastPosAt = new Map<string, number>();
   private tagMeta: TagMetaMap = {};
+  /** 왼쪽 목록에 쓸 태그별 상태 (존·체류시각·마지막 신호) */
+  private states = new Map<string, PresenceState>();
+  /** 아바타 색 — 목록의 비콘 아이콘과 같은 색을 쓰려고 보관 */
+  private tagColors = new Map<string, number>();
+  private panel!: TagPanel;
+  private pickedTag?: string;
+  private pickRing?: Phaser.GameObjects.Arc;
   /** 아바타별 남은 경로 (도면 좌표 waypoint) — 벽을 피해 문으로 돌아간다 */
   private paths = new Map<string, Array<{ x: number; y: number }>>();
   /** 즉시 배치할 태그 (최초 등장·자리비움) — 걷지 않고 순간 이동 */
@@ -139,6 +148,15 @@ class StaffMapScene extends Phaser.Scene {
     this.add
       .text(this.absentPt.x, this.absentPt.y - 16, '자리비움', { color: '#888888', fontSize: '11px' })
       .setOrigin(0.5, 1);
+
+    // 왼쪽 비콘 목록 (DOM) — 이름·메모 편집은 여기서
+    this.panel = new TagPanel(
+      document.getElementById('sidebar')!,
+      (tagId, name, memo, group) => this.saveMeta(tagId, name, memo, group),
+      (tagId) => this.pickTag(tagId),
+    );
+    // 체류 시간·마지막 신호가 흐르므로 1초마다 다시 그린다
+    this.time.addEvent({ delay: 1000, loop: true, callback: () => this.refreshPanel() });
 
     this.connect(await resolveToken());
   }
@@ -306,13 +324,20 @@ class StaffMapScene extends Phaser.Scene {
     this.socket = io(`${SERVER_URL}/staff`, { auth: { token } });
 
     this.socket.on('presence:update', (states: PresenceState[]) => {
-      for (const state of states) this.upsertAvatar(state);
+      for (const state of states) {
+        this.states.set(state.tagId, state);
+        this.upsertAvatar(state);
+      }
+      this.refreshPanel();
     });
 
     this.socket.on('presence:remove', ({ tagId }: { tagId: string }) => {
       this.lastPosAt.delete(tagId);
+      const prev = this.states.get(tagId);
+      if (prev) this.states.set(tagId, { ...prev, currentZone: null });
       const avatar = this.avatars.get(tagId);
       if (avatar) this.moveTo(tagId, null);
+      this.refreshPanel();
     });
 
     // RSSI 가중평균 연속 위치 → 도면 좌표계 그대로 변환
@@ -325,12 +350,22 @@ class StaffMapScene extends Phaser.Scene {
         }
         this.lastPosAt.set(p.tagId, Date.now());
         this.routeTo(p.tagId, avatar, p.x, p.y);
+        // 존 판정과 신호 시각은 연속 위치 쪽이 더 최신이다 — 목록 상태에 반영
+        const prev = this.states.get(p.tagId);
+        this.states.set(p.tagId, {
+          tagId: p.tagId,
+          currentZone: p.zone,
+          lastSeen: Date.now(),
+          enteredAt: prev && prev.currentZone === p.zone ? prev.enteredAt : Date.now(),
+        });
       }
+      this.refreshPanel();
     });
 
     this.socket.on('tagmeta', (map: TagMetaMap) => {
       this.tagMeta = map;
       for (const [tagId, label] of this.avatarLabels) label.setText(this.labelFor(tagId));
+      this.refreshPanel();
     });
 
     this.socket.on('connect_error', (err) => {
@@ -344,15 +379,51 @@ class StaffMapScene extends Phaser.Scene {
     return m?.memo?.trim() ? `${base} 📝` : base;
   }
 
-  private editMeta(tagId: string): void {
-    const cur = this.tagMeta[tagId] ?? {};
-    const name = window.prompt(`태그 ${tagId}\n\n이름:`, cur.name ?? '');
-    if (name === null) return;
-    const memo = window.prompt('메모 (선택):', cur.memo ?? '');
+  /** 이름·메모·그룹 저장 — 서버가 되돌려주는 tagmeta 브로드캐스트로 화면이 갱신된다 */
+  private saveMeta(tagId: string, name: string, memo: string, group: TagGroup): void {
     void fetch(`${SERVER_URL}/tag-meta`, {
       method: 'POST',
-      body: JSON.stringify({ tagId, name, memo: memo ?? '' }),
+      body: JSON.stringify({ tagId, name, memo, group }),
     });
+  }
+
+  /** 왼쪽 목록 한 줄에 넣을 정보를 모아 넘긴다 */
+  private refreshPanel(): void {
+    if (!this.panel) return;
+    const rows: TagRow[] = [...this.avatars.keys()].map((tagId) => {
+      const st = this.states.get(tagId);
+      const zoneId = st?.currentZone ?? null;
+      return {
+        tagId,
+        color: this.tagColors.get(tagId) ?? 0xffffff,
+        name: this.tagMeta[tagId]?.name ?? '',
+        memo: this.tagMeta[tagId]?.memo ?? '',
+        // 아직 배정 안 된 태그는 '미지정' 그룹에 모인다
+        group: this.tagMeta[tagId]?.group ?? 'unassigned',
+        zoneName: zoneId ? this.zones.get(zoneId)?.name ?? zoneId : null,
+        enteredAt: st?.enteredAt ?? 0,
+        lastSeen: st?.lastSeen ?? 0,
+      };
+    });
+    this.panel.render(rows);
+  }
+
+  /** 목록의 비콘 아이콘을 누르면 맵에서 그 아바타를 링으로 강조 (다시 누르면 해제) */
+  private pickTag(tagId: string): void {
+    this.pickedTag = this.pickedTag === tagId ? undefined : tagId;
+    if (!this.pickRing) {
+      this.pickRing = this.add.circle(0, 0, 15).setStrokeStyle(2.5, 0xffffff, 0.95);
+      // 깜빡이는 링은 한 번만 만든다 — 매번 tween 을 추가하면 누적된다
+      this.tweens.add({
+        targets: this.pickRing,
+        scale: { from: 0.85, to: 1.5 },
+        alpha: { from: 1, to: 0.15 },
+        duration: 800,
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+    this.pickRing.setVisible(this.pickedTag !== undefined);
   }
 
   private upsertAvatar(state: PresenceState): void {
@@ -368,10 +439,12 @@ class StaffMapScene extends Phaser.Scene {
 
   private makeAvatar(tagId: string): Phaser.GameObjects.Container {
     const color = AVATAR_COLORS[this.avatars.size % AVATAR_COLORS.length];
+    this.tagColors.set(tagId, color);
     const halo = this.add.circle(0, 0, 11, color, 0.25);
     const circle = this.add.circle(0, 0, 7, color).setStrokeStyle(2, 0xffffff, 0.95);
     circle.setInteractive({ useHandCursor: true });
-    circle.on('pointerdown', () => this.editMeta(tagId));
+    // 점을 누르면 왼쪽 목록의 그 줄로 이동해 이름을 바로 고칠 수 있게
+    circle.on('pointerdown', () => this.panel.focusRow(tagId));
     const label = this.add
       .text(0, 11, this.labelFor(tagId), {
         color: '#ffffff',
@@ -480,6 +553,13 @@ class StaffMapScene extends Phaser.Scene {
         avatar.y += (dy / dist) * remaining;
         remaining = 0;
       }
+    }
+
+    // 강조 링은 아바타를 움직인 뒤에 따라붙인다 (먼저 하면 한 프레임 뒤처진다)
+    if (this.pickRing?.visible) {
+      const target = this.pickedTag ? this.avatars.get(this.pickedTag) : undefined;
+      if (target) this.pickRing.setPosition(target.x, target.y);
+      else this.pickRing.setVisible(false);
     }
   }
 }

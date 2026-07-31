@@ -33,5 +33,7 @@ CREATE TABLE IF NOT EXISTS tag_meta (
   tag_id TEXT PRIMARY KEY,
   name TEXT,
   memo TEXT,
+  -- 직원 화면 왼쪽 목록의 그룹 (doctor/nurse/interpreter/patient/unassigned)
+  tag_group TEXT,
   updated_at INTEGER
 );

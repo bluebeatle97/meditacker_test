@@ -6,40 +6,156 @@
     <title>MediTracker — 직원용</title>
     <style>
       html, body { margin: 0; height: 100%; background: #1a1a2e; }
+      body { font-family: ui-sans-serif, system-ui, "Malgun Gothic", sans-serif; }
+      /* 맵은 화면 전체를 그대로 쓴다 — 패널은 그 위에 겹친다 (접고 펴도 맵이 안 움직임) */
       #app { width: 100%; height: 100%; }
-      #admin-btn {
-        position: fixed; top: 14px; right: 16px; z-index: 100;
-        padding: 8px 14px; border: 1px solid #58a6ff; border-radius: 6px;
-        background: #1c2b45; color: #58a6ff; font: 600 13px ui-monospace, monospace;
-        cursor: pointer; text-decoration: none;
+
+      /* ── 왼쪽 비콘 목록 (맵 위에 오버레이) ──────────────────────────── */
+      #sidebar {
+        position: fixed; left: 12px; top: 12px; z-index: 90;
+        width: 282px; max-height: calc(100% - 24px);
+        display: flex; flex-direction: column;
+        background: #141a26f2; border: 1px solid #2a3448; border-radius: 10px;
+        box-shadow: 0 8px 24px #0008;
+        color: #dbe4f0; overflow: hidden;
       }
+      #panel-toggle {
+        display: flex; align-items: center; gap: 7px; width: 100%;
+        padding: 10px 12px; box-sizing: border-box; cursor: pointer;
+        background: none; border: none; border-bottom: 1px solid #253046;
+        color: #cfdcec; font: 700 13px inherit; text-align: left;
+      }
+      #panel-toggle:hover { background: #1b2434; }
+      #panel-toggle .num {
+        margin-left: auto; padding: 1px 7px; border-radius: 999px;
+        background: #1f2b40; color: #b8c8dd; font-size: 12px; font-weight: 600;
+      }
+      #panel-toggle .fold { color: #6f8099; font-size: 11px; }
+      #sidebar.collapsed #panel-body { display: none; }
+      #sidebar.collapsed #panel-toggle { border-bottom: none; }
+      #sidebar.collapsed .fold::before { content: "▸"; }
+      #sidebar:not(.collapsed) .fold::before { content: "▾"; }
+
+      #panel-body { display: flex; flex-direction: column; min-height: 0; }
+
+      /* 그룹 버튼 — 자리 고정 (그룹을 열어도 밀리지 않는다) */
+      #group-tabs { flex: none; padding: 6px; display: flex; flex-direction: column; gap: 3px; }
+      .group-btn {
+        display: flex; align-items: center; gap: 7px; width: 100%;
+        padding: 7px 9px; box-sizing: border-box; cursor: pointer;
+        background: #19212f; border: 1px solid #253046; border-radius: 7px;
+        color: #b9c8dc; font: 600 12.5px inherit; text-align: left;
+      }
+      .group-btn:hover { background: #1f2a3b; }
+      .group-btn.open { background: #22405f; border-color: #3f6f9e; color: #fff; }
+      .group-btn .chev { font-size: 10px; color: #6f8099; transition: transform .12s; }
+      .group-btn.open .chev { transform: rotate(90deg); color: #cfe3f7; }
+      .group-btn .lbl { flex: 1; }
+      .group-btn .n {
+        padding: 0 6px; border-radius: 999px; background: #101725;
+        color: #6d7d94; font-size: 11px;
+      }
+      .group-btn.has .n { color: #dbe4f0; }
+      .group-btn.open .n { background: #14263a; color: #fff; }
+
+      /* 열린 그룹의 목록 — 항상 그룹 버튼들 아래(맨밑) */
+      #group-list {
+        border-top: 1px solid #253046; min-height: 0;
+        display: flex; flex-direction: column; overflow: hidden;
+      }
+      #group-title {
+        flex: none; padding: 7px 12px 4px; font-size: 11px; font-weight: 700;
+        letter-spacing: .03em; color: #7e8ea6;
+      }
+      #tag-list { margin: 0; padding: 0 6px 6px; list-style: none; overflow-y: auto; }
+      #tag-empty { padding: 10px 12px 14px; color: #5d6b80; font-size: 11.5px; }
+
+      .tag-row { display: flex; gap: 9px; align-items: flex-start; padding: 7px 6px; border-radius: 8px; }
+      .tag-row + .tag-row { border-top: 1px solid #1e2839; }
+      .tag-row:hover { background: #18202f; }
+      .tag-row.absent { opacity: .55; }
+
+      /* 맨 왼쪽 비콘 그림 — 맵 아바타와 같은 색 */
+      .beacon { flex: none; width: 28px; height: 28px; cursor: pointer; }
+      .beacon svg {
+        width: 28px; height: 28px; display: block;
+        fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round;
+      }
+      .beacon svg circle { fill: currentColor; stroke: none; }
+      .beacon:hover svg { filter: brightness(1.35); }
+
+      .info { flex: 1; min-width: 0; }
+      .info .line { display: flex; gap: 4px; align-items: center; }
+      .info input, .info select {
+        box-sizing: border-box; background: transparent;
+        border: 1px solid transparent; border-radius: 5px; padding: 2px 4px;
+        color: inherit; font: inherit;
+      }
+      .info input { width: 100%; }
+      .info input:hover, .info select:hover { border-color: #2c3a52; }
+      .info input:focus, .info select:focus { outline: none; border-color: #58a6ff; background: #101725; }
+      .info .name { font-size: 13px; font-weight: 700; }
+      .info .name::placeholder { color: #6b7a90; font-weight: 400; }
+      .info .memo { font-size: 11px; color: #93a3b8; }
+      .info .memo::placeholder { color: #4e5b6e; }
+      .info .grp { flex: none; font-size: 10.5px; color: #8fa3bf; cursor: pointer; }
+      .info .grp option { background: #141a26; color: #dbe4f0; }
+
+      .status { display: flex; align-items: center; gap: 5px; padding: 2px 5px 3px; font-size: 11px; color: #c6d4e6; }
+      .status b { font-weight: 600; }
+      .status .dim { color: #77869b; }
+      .status .sig { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+      .status .sig.ok   { background: #3fb950; box-shadow: 0 0 5px #3fb95088; }
+      .status .sig.warn { background: #d29922; }
+      .status .sig.off  { background: #4b5666; }
+
+      /* ── 오른쪽 세로 버튼 (오른쪽 끝에 붙임) ────────────────────────── */
+      #tools {
+        position: fixed; top: 14px; right: 0; z-index: 100;
+        display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+      }
+      #tools > * {
+        padding: 8px 14px; border-radius: 6px 0 0 6px; border-right: none;
+        font: 600 13px ui-monospace, monospace; cursor: pointer;
+        text-align: left; text-decoration: none; white-space: nowrap;
+      }
+      #admin-btn { border: 1px solid #58a6ff; background: #1c2b45; color: #58a6ff; }
       #admin-btn:hover { background: #234; }
-      #blocked-btn {
-        position: fixed; top: 14px; right: 168px; z-index: 100;
-        padding: 8px 14px; border: 1px solid #d05050; border-radius: 6px;
-        background: #2b1c1c; color: #ff9d9d; font: 600 13px ui-monospace, monospace;
-        cursor: pointer;
-      }
-      #blocked-btn:hover { background: #3a2323; }
-      #blocked-btn.on { background: #7a2b2b; color: #fff; }
-      #name-btn {
-        position: fixed; top: 14px; right: 330px; z-index: 100;
-        padding: 8px 14px; border: 1px solid #4fae7f; border-radius: 6px;
-        background: #1c2b23; color: #8fe3b4; font: 600 13px ui-monospace, monospace;
-        cursor: pointer;
-      }
+      #name-btn { border: 1px solid #4fae7f; background: #1c2b23; color: #8fe3b4; }
       #name-btn:hover { background: #23372c; }
       #name-btn.on { background: #2c6b4a; color: #fff; }
+      #blocked-btn { border: 1px solid #d05050; background: #2b1c1c; color: #ff9d9d; }
+      #blocked-btn:hover { background: #3a2323; }
+      #blocked-btn.on { background: #7a2b2b; color: #fff; }
     </style>
   </head>
   <body>
     <div id="app"></div>
-    <!-- 방 이름 표시 토글 (도면 PDF 라벨 그대로) -->
-    <button id="name-btn" type="button">🏷 이름</button>
-    <!-- 통제구역(벽·계단·엘리베이터) 표시 토글 -->
-    <button id="blocked-btn" type="button">🚧 통제구역 보기</button>
-    <!-- 관리자(관제) 모드 진입 — 서버가 서빙하는 /monitor 로 이동, back 파라미터로 복귀 경로 전달 -->
-    <a id="admin-btn" href="#">⚙ 관리자 모드</a>
+
+    <!-- 비콘 목록: 그룹 버튼은 자리 고정, 열린 그룹의 목록만 아래에 펼쳐진다 -->
+    <aside id="sidebar">
+      <button id="panel-toggle" type="button">
+        📡 비콘 목록<span class="num" id="tag-count">0</span><span class="fold"></span>
+      </button>
+      <div id="panel-body">
+        <div id="group-tabs"></div>
+        <div id="group-list">
+          <div id="group-title" style="display: none"></div>
+          <ul id="tag-list"></ul>
+          <div id="tag-empty">그룹을 눌러 비콘을 펼쳐보세요.</div>
+        </div>
+      </div>
+    </aside>
+
+    <div id="tools">
+      <!-- 방 이름 표시 토글 (도면 PDF 라벨 그대로) -->
+      <button id="name-btn" type="button">🏷 이름</button>
+      <!-- 통제구역(벽·계단·엘리베이터) 표시 토글 -->
+      <button id="blocked-btn" type="button">🚧 통제구역 보기</button>
+      <!-- 관리자(관제) 모드 진입 — 서버가 서빙하는 /monitor 로 이동, back 파라미터로 복귀 경로 전달 -->
+      <a id="admin-btn" href="#">⚙ 관리자 모드</a>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

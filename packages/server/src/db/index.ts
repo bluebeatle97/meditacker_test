@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Person, TagAssignment, TagMetaMap } from '@meditracker/shared';
+import type { Person, TagAssignment, TagGroup, TagMetaMap } from '@meditracker/shared';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -14,7 +14,19 @@ export function openDb(dbPath: string): Db {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.exec(readFileSync(join(here, 'schema.sql'), 'utf-8'));
+  migrate(db);
   return db;
+}
+
+/**
+ * 이미 만들어진 DB 에 열을 추가한다.
+ * schema.sql 은 CREATE TABLE IF NOT EXISTS 라서 기존 테이블의 열은 늘려주지 않는다.
+ */
+function migrate(db: Db): void {
+  const cols = db.prepare(`PRAGMA table_info(tag_meta)`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'tag_group')) {
+    db.exec(`ALTER TABLE tag_meta ADD COLUMN tag_group TEXT`);
+  }
 }
 
 // ── 태그 ↔ 사람 매핑 (설계서 5.1 TagAssignment) ─────────────────────────────
@@ -62,19 +74,33 @@ export function closePresenceLog(db: Db, tagId: string, exitedAt: number, durati
 // ── 태그 이름/메모 (설계서 외 운영 편의 — 관제·직원 화면 라벨) ──────────────
 
 export function getAllTagMeta(db: Db): TagMetaMap {
-  const rows = db.prepare(`SELECT tag_id, name, memo FROM tag_meta`).all() as Array<{
+  const rows = db.prepare(`SELECT tag_id, name, memo, tag_group FROM tag_meta`).all() as Array<{
     tag_id: string;
     name: string | null;
     memo: string | null;
+    tag_group: string | null;
   }>;
   const map: TagMetaMap = {};
-  for (const r of rows) map[r.tag_id] = { name: r.name ?? undefined, memo: r.memo ?? undefined };
+  for (const r of rows) {
+    map[r.tag_id] = {
+      name: r.name ?? undefined,
+      memo: r.memo ?? undefined,
+      group: (r.tag_group as TagGroup | null) ?? undefined,
+    };
+  }
   return map;
 }
 
-export function upsertTagMeta(db: Db, tagId: string, name: string, memo: string): void {
+export function upsertTagMeta(
+  db: Db,
+  tagId: string,
+  name: string,
+  memo: string,
+  group: TagGroup | undefined,
+): void {
   db.prepare(
-    `INSERT INTO tag_meta (tag_id, name, memo, updated_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(tag_id) DO UPDATE SET name = excluded.name, memo = excluded.memo, updated_at = excluded.updated_at`,
-  ).run(tagId, name || null, memo || null, Date.now());
+    `INSERT INTO tag_meta (tag_id, name, memo, tag_group, updated_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(tag_id) DO UPDATE SET name = excluded.name, memo = excluded.memo,
+       tag_group = excluded.tag_group, updated_at = excluded.updated_at`,
+  ).run(tagId, name || null, memo || null, group ?? null, Date.now());
 }
