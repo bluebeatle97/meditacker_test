@@ -46,6 +46,24 @@ const CHARACTERS = [
 const DIR_ROW = { right: 0, up: 1, left: 2, down: 3 } as const;
 type Dir = keyof typeof DIR_ROW;
 
+
+/**
+ * 오류를 화면에 띄운다.
+ * 캔버스만 비어 있으면 원인을 알 수 없어서(실제로 그런 신고가 있었다) 반드시 보이게 한다.
+ */
+function fatal(what: string, err: unknown): void {
+  const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  console.error(`[patient] ${what}`, err);
+  const el = document.getElementById('fatal');
+  if (el) {
+    el.textContent = `화면을 띄우지 못했습니다 — ${what}
+${msg}`;
+    el.classList.add('show');
+  }
+}
+window.addEventListener('error', (e) => fatal('실행 오류', e.error ?? e.message));
+window.addEventListener('unhandledrejection', (e) => fatal('처리되지 않은 오류', e.reason));
+
 async function resolveToken(): Promise<string> {
   const urlToken = new URLSearchParams(window.location.search).get('token');
   if (urlToken) return urlToken;
@@ -141,6 +159,14 @@ class PatientScene extends Phaser.Scene {
   }
 
   async create(): Promise<void> {
+    try {
+      await this.boot();
+    } catch (err) {
+      fatal('초기화', err);
+    }
+  }
+
+  private async boot(): Promise<void> {
     this.token = await resolveToken();
     const [plan, zones, grid, profile] = await Promise.all([
       fetch(`${SERVER_URL}/floorplan`).then((r) => r.json() as Promise<FloorplanMeta>),
@@ -163,6 +189,9 @@ class PatientScene extends Phaser.Scene {
     const src = this.textures.get('pixelmap').getSourceImage();
     this.mapW = src.width;
     this.mapH = src.height;
+    if (!this.mapW || !this.mapH) {
+      throw new Error('pixelmap.png 을 불러오지 못했습니다 (tools/build-pixel-map.py 로 생성)');
+    }
     this.add.image(0, 0, 'pixelmap').setOrigin(0, 0);
     this.cameras.main.setBounds(0, 0, this.mapW, this.mapH);
     this.cameras.main.setBackgroundColor('#0e1420');

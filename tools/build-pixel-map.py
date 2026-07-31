@@ -57,12 +57,16 @@ FLOORS = {
     "wood":      (11, 13, 3, 2),  # 헤링본 우드 — 대기공간·접수
     "concrete":  (14, 7, 3, 2),   # 회색 콘크리트 — 직원 구역
 }
-WALL_TILE = (12, 0)   # 진한 남색 솔리드 (색만 참고 — 벽은 타일이 아니라 아래 격자로 그린다)
-# 벽 색. 타일 격자(52cm)로 찍으면 실제 벽선이 뭉툭한 계단이 되므로
-# **통행가능 격자(4 도면px ≈ 6.5cm)** 해상도로 직접 칠한다 — 도면선을 그대로 따라간다.
-WALL_RGB = (58, 58, 80)
-WALL_TOP_RGB = (86, 88, 116)   # 위쪽 모서리 하이라이트 (평면이 아니라 입체로 보이게)
-# 막힌 셀에서 이 거리(격자 셀) 안에 통행가능 셀이 있으면 '건물 안 벽', 아니면 건물 밖(void).
+# 벽은 타일도, 격자도 아니라 **도면 원본 선을 그대로 축소**해서 올린다.
+# 타일(52cm)·격자(6.5cm) 둘 다 계단처럼 각이 지는데, 도면을 LANCZOS 로 줄이면
+# 안티에일리어싱이 걸려 벽만 매끈해진다 (바닥은 도트 타일 그대로).
+PLAN_PNG = os.path.join(ROOT, "packages", "web-staff", "public", "floorplan.png")
+WALL_RGB = (52, 54, 74)
+WALL_DARK = 200      # 이보다 어두우면 완전 불투명한 벽
+WALL_LIGHT = 246     # 이보다 밝으면 벽 아님 (사이는 반투명 → 매끈한 경계)
+SHADOW_DROP = 3      # 벽 아래로 이만큼 그림자 (출력 px)
+SHADOW_ALPHA = 90
+# 막힌 셀에서 이 거리(격자 셀) 안에 통행가능 셀이 있으면 '건물 안', 아니면 건물 밖(void).
 WALL_REACH = 4
 
 # 존 type → 바닥 재질. category=staff_area 는 무조건 concrete (환자 동선 아님).
@@ -220,31 +224,48 @@ def main():
             else:
                 mat_of[ty][tx] = FLOOR_BY_TYPE.get(best["type"], CORRIDOR)
 
-    # ── 3. 타일 찍기 ────────────────────────────────────────────────────────
+    # ── 3. 바닥 찍기 ────────────────────────────────────────────────────────
+    # 재질별로 타일을 채운 레이어를 만들고, **방 사각형 마스크**로 잘라 얹는다.
+    # 타일 단위로 재질을 고르면 방 경계가 52cm 계단이 된다 — 마스크로 자르면 직선이다.
     img = Image.new("RGBA", (tw * T, th * T), VOID_RGB + (255,))
-    cache = {}
 
-    def tile(tx, ty):
-        if (tx, ty) not in cache:
-            cache[(tx, ty)] = sheet.crop((tx * T, ty * T, tx * T + T, ty * T + T))
-        return cache[(tx, ty)]
+    def tiled(mat):
+        ox, oy, pw, ph = FLOORS[mat]
+        pat = sheet.crop((ox * T, oy * T, (ox + pw) * T, (oy + ph) * T))
+        layer = Image.new("RGBA", img.size)
+        for y in range(0, img.height, pat.height):
+            for x in range(0, img.width, pat.width):
+                layer.paste(pat, (x, y))
+        return layer
 
+    layers = {m: tiled(m) for m in FLOORS}
+    img.alpha_composite(layers[CORRIDOR])       # 복도/기본 바닥
+
+    # 넓은 사각형부터 깔아 작은 방(더 구체적인 것)이 위로 오게 한다
     counts = {}
-    for ty in range(th):
-        for tx in range(tw):
-            # 바닥은 타일 격자로 (막힌 타일에도 깔아 둔다 — 위에 벽을 얇게 덮는다)
-            mat = mat_of[ty][tx] or nearest_mat(mat_of, tx, ty, tw, th) or CORRIDOR
-            if floor[ty][tx]:
-                counts[mat] = counts.get(mat, 0) + 1
-            ox, oy, pw, ph = FLOORS[mat]
-            img.alpha_composite(tile(ox + tx % pw, oy + ty % ph), (tx * T, ty * T))
+    for (x0, y0, x1, y1), _anchor, z in sorted(
+        boxes, key=lambda b: -((b[0][2] - b[0][0]) * (b[0][3] - b[0][1]))
+    ):
+        if z["category"] == "staff_area":
+            mat = "concrete"
+        elif z["zoneId"] == "elev_hall":
+            mat = "brick"
+        else:
+            mat = FLOOR_BY_TYPE.get(z["type"], CORRIDOR)
+        counts[mat] = counts.get(mat, 0) + 1
+        box = (
+            int(x0 * MAP_SCALE),
+            int(y0 * MAP_SCALE),
+            int(x1 * MAP_SCALE),
+            int(y1 * MAP_SCALE),
+        )
+        img.paste(layers[mat].crop(box), (box[0], box[1]))
 
-    # ── 4. 벽 — 통행가능 격자 해상도로 직접 칠한다 (타일 계단 현상 제거) ─────
-    #     막힌 셀 중 건물 안쪽(근처에 통행가능 셀이 있는 것)만 벽으로 본다.
-    cell_px = int(walk.cell * MAP_SCALE)     # 격자 한 셀이 출력에서 몇 px 인가 (2)
+    # ── 4. 건물 밖(void) 채우기 — 막힌 셀 중 통행가능 셀에서 먼 곳 ───────────
+    cell_px = int(walk.cell * MAP_SCALE)
     draw = ImageDraw.Draw(img)
     reach = WALL_REACH
-    inside = [[False] * walk.cols for _ in range(walk.rows)]
+    void_cells = 0
     for gy in range(walk.rows):
         for gx in range(walk.cols):
             if walk.grid[gy][gx] == "1":
@@ -258,46 +279,43 @@ def main():
                         break
                 if near:
                     break
-            inside[gy][gx] = near
-
-    void_cells = 0
-    for gy in range(walk.rows):
-        for gx in range(walk.cols):
-            if walk.grid[gy][gx] == "1":
-                continue
-            x0 = gx * cell_px
-            y0 = gy * cell_px
-            if inside[gy][gx]:
-                # 위쪽이 벽이 아니면 그 줄만 밝게 — 벽 윗면처럼 보이게
-                top = gy == 0 or not inside[gy - 1][gx] or walk.grid[gy - 1][gx] == "1"
-                draw.rectangle([x0, y0, x0 + cell_px - 1, y0 + cell_px - 1], fill=WALL_RGB)
-                if top:
-                    draw.rectangle([x0, y0, x0 + cell_px - 1, y0], fill=WALL_TOP_RGB)
-            else:
+            if not near:
                 void_cells += 1
-                draw.rectangle([x0, y0, x0 + cell_px - 1, y0 + cell_px - 1], fill=VOID_RGB)
+                draw.rectangle(
+                    [gx * cell_px, gy * cell_px, gx * cell_px + cell_px - 1, gy * cell_px + cell_px - 1],
+                    fill=VOID_RGB,
+                )
 
-    # 벽 아래 그림자 — 바닥으로 내려가는 두 줄을 어둡게
-    px = img.load()
-    for gy in range(walk.rows - 1):
-        for gx in range(walk.cols):
-            if walk.grid[gy][gx] == "1" or not inside[gy][gx]:
-                continue
-            if walk.grid[gy + 1][gx] != "1":
-                continue
-            for i in range(cell_px):
-                for d in range(cell_px):
-                    x, y = gx * cell_px + i, (gy + 1) * cell_px + d
-                    if x >= img.width or y >= img.height:
-                        continue
-                    r, g, b, a = px[x, y]
-                    f = 0.55 + d * 0.15
-                    px[x, y] = (int(r * f), int(g * f), int(b * f), a)
+    # ── 5. 벽 — 도면 원본 선을 축소해 매끈하게 올린다 (여기만 도트 아님) ──────
+    if not os.path.exists(PLAN_PNG):
+        sys.exit(f"도면 원본을 못 찾음: {PLAN_PNG}")
+    gray = Image.open(PLAN_PNG).convert("L")
+    lut = []
+    for g in range(256):
+        if g <= WALL_DARK:
+            lut.append(255)
+        elif g >= WALL_LIGHT:
+            lut.append(0)
+        else:
+            lut.append(int(255 * (WALL_LIGHT - g) / (WALL_LIGHT - WALL_DARK)))
+    mw = int(plan["width"] * MAP_SCALE)
+    mh = int(plan["height"] * MAP_SCALE)
+    # LANCZOS 축소가 경계에 반투명 픽셀을 만들어 벽이 계단이 아니라 선으로 보인다
+    alpha = gray.point(lut).resize((mw, mh), Image.LANCZOS)
+
+    shadow = Image.new("RGBA", (mw, mh), (0, 0, 0, 0))
+    shadow.putalpha(alpha.point(lambda a: a * SHADOW_ALPHA // 255))
+    img.alpha_composite(shadow, (0, SHADOW_DROP))   # 벽 아래로 살짝 흘린 그림자
+
+    wall = Image.new("RGBA", (mw, mh), WALL_RGB + (255,))
+    wall.putalpha(alpha)
+    img.alpha_composite(wall, (0, 0))
 
     # 타일 격자 크기 그대로 저장한다 (도면 크기로 자르면 마지막 타일이 잘린다)
     img.save(OUT)
     print(f"saved {OUT}  {img.size}  tiles {tw}x{th}  (도면 x{MAP_SCALE} · 타일 {TILE_FP}도면px {TILE_FP*1.62:.0f}cm)")
-    print("바닥 타일 수:", dict(sorted(counts.items(), key=lambda kv: -kv[1])))
+    print(f"건물 밖 셀: {void_cells}")
+    print("재질별 방 수:", dict(sorted(counts.items(), key=lambda kv: -kv[1])))
 
 
 if __name__ == "__main__":

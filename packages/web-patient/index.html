@@ -73,6 +73,15 @@
         border: none; background: #2f6fd0; color: #fff; font: 800 15px inherit;
       }
       #start:disabled { background: #26334a; color: #6d7d94; cursor: default; }
+
+      /* 오류가 나면 빈 화면만 남아 원인을 알 수 없다 — 화면에 그대로 띄운다 */
+      #fatal {
+        position: fixed; left: 12px; right: 12px; top: 80px; z-index: 300; display: none;
+        padding: 14px 16px; border-radius: 10px;
+        background: #3b1720; border: 1px solid #a33; color: #ffd7d7;
+        font: 500 13px ui-monospace, monospace; white-space: pre-wrap; line-height: 1.5;
+      }
+      #fatal.show { display: block; }
     </style>
   </head>
   <body>
@@ -87,6 +96,9 @@
     <div id="ctrls">
       <button id="overview-btn" type="button">🗺 전체 보기</button>
     </div>
+
+    <!-- 화면이 비어 보일 때 원인을 알 수 있게 오류를 그대로 표시 -->
+    <div id="fatal"></div>
 
     <!-- 첫 진입: 캐릭터 고르기 (서버에 저장 — 태그 반납 시 초기화) -->
     <div id="setup">
