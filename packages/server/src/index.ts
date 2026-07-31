@@ -55,11 +55,20 @@ presence.onChange((c) =>
 setInterval(() => engine.sweepAbsent(), SERVER_CONFIG.absentSweepIntervalMs);
 
 /**
- * 개발용 환자 토큰이 가리킬 사람 — **태그가 실제로 배정된** 환자를 고른다.
- * 고정 id 를 쓰면 시드가 바뀔 때 추적 대상 없는 사람을 가리켜, 환자 화면이
- * 직원 화면과 딴 세상처럼 보인다(실제로 그렇게 신고됨).
+ * 개발용 환자 토큰이 가리킬 사람.
+ *
+ * `?tag=<비콘MAC>` 을 주면 그 비콘을 든 사람으로 발급한다 — 비콘마다 QR 을 붙여
+ * "찍으면 그 비콘의 환자 화면" 으로 들어가는 구조를 그대로 흉내낸 것이다.
+ * 안 주면 **태그가 실제로 배정된** 첫 환자(손님 1). 고정 id 를 쓰면 시드가 바뀔 때
+ * 추적 대상 없는 사람을 가리켜 환자 화면이 딴 세상처럼 보인다(실제로 그렇게 신고됨).
  */
-function firstTrackedPatient(): string {
+function patientForToken(tagId: string | null): string {
+  if (tagId) {
+    const byTag = db
+      .prepare(`SELECT person_id AS personId FROM tags WHERE tag_id = ? AND active = 1`)
+      .get(tagId) as { personId: string } | undefined;
+    if (byTag) return byTag.personId;
+  }
   const row = db
     .prepare(
       `SELECT t.person_id AS personId FROM tags t JOIN persons p ON p.person_id = t.person_id
@@ -192,7 +201,7 @@ const httpServer = createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const claims =
       url.searchParams.get('type') === 'patient'
-        ? ({ personId: firstTrackedPatient(), type: 'patient' } as const)
+        ? ({ personId: patientForToken(url.searchParams.get('tag')), type: 'patient' } as const)
         : ({ personId: 'staff-doc-1', type: 'staff', role: 'doctor', dept: 'derma' } as const);
     res.writeHead(200, {
       'Content-Type': 'application/json',
@@ -205,7 +214,7 @@ const httpServer = createServer((req, res) => {
   res.end();
 });
 
-const io = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db);
+const { io, patient } = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db);
 
 // 관제 허브 (/monitor namespace) — io 준비 후 초기화
 monitor = new MonitorHub(io, engine, estimator, gateways, loadZones(), tagMeta);
@@ -244,7 +253,12 @@ setInterval(() => {
     const c = walkable.clamp(s.x, s.y);
     return { tagId, x: c.x, y: c.y, zone: s.zone };
   });
-  if (list.length > 0) io.of('/staff').emit('pos:update', list);
+  if (list.length === 0) return;
+  io.of('/staff').emit('pos:update', list);
+  // 환자 화면도 같은 좌표를 쓴다 (도트 스킨 + 확대만 다른 같은 그림).
+  // 익명화·본인 제외는 patient namespace 가 처리한다. 운영에서 끄려면
+  // PATIENT_SEES_EVERYONE=0 (설정 주석 참고 — 불변식 B-1).
+  if (SERVER_CONFIG.patientSeesEveryone) patient.crowdPositions(list);
 }, SERVER_CONFIG.posBroadcastMs);
 
 httpServer.listen(SERVER_CONFIG.httpPort, () => {

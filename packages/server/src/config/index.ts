@@ -30,6 +30,15 @@ export const SERVER_CONFIG = {
   posSampleMs: 500,
   /** EMA 계수 (0~1, 클수록 최신값 비중↑) */
   posSmoothing: 0.35,
+  /**
+   * 환자 화면에 **다른 사람들의 위치**를 보낼지 (기본 on — 시연·개발용).
+   *
+   * ⚠️ 켜면 설계서 불변식 B-1(환자 소켓으로 타인 좌표 전송 금지)을 벗어난다.
+   *    "환자용은 직원용에 도트 스킨 씌운 같은 화면" 이라는 요구 때문에 켜 뒀다.
+   *    이름·MAC 은 절대 나가지 않는다 — 익명 id + 좌표 + 손님/직원 구분만.
+   *    실제 운영에서는 `PATIENT_SEES_EVERYONE=0` 으로 끄고 인원수만 노출한다.
+   */
+  patientSeesEveryone: process.env.PATIENT_SEES_EVERYONE !== '0',
 };
 
 export function loadZones(): Zone[] {

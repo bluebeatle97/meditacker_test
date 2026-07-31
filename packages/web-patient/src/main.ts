@@ -3,6 +3,14 @@ import { io, type Socket } from 'socket.io-client';
 import { ZoneDwellFilter, ZONE_DWELL_MS } from '@meditracker/shared';
 import type { FloorplanMeta, PatientProfile, Zone, ZoneAction } from '@meditracker/shared';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
+import { Crowd, type CrowdUnit } from './crowd';
+
+/** 익명 id → 캐릭터 고르기용 (같은 사람은 늘 같은 캐릭터로 보이게) */
+function hashCode(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
 
 /**
  * 환자용 화면 (설계서 8) — **도트(픽셀아트) 방식**
@@ -137,11 +145,8 @@ class PatientScene extends Phaser.Scene {
    */
   private zoneDwell = new ZoneDwellFilter(ZONE_DWELL_MS);
   private lastSelf?: { zone: string | null; waitingRank: number; estimatedWaitSec: number };
-  /**
-   * 같은 구역에 있는 **다른 손님**(익명). 서버는 좌표를 주지 않고 인원수만 준다(불변식 B-1)
-   * → 방 안에 그 수만큼 세워 둔다. 실제 위치가 아니라 '이 방에 몇 명 있다'는 표현이다.
-   */
-  private others: Phaser.GameObjects.Sprite[] = [];
+  /** 다른 사람들 (직원용 화면과 같은 좌표를 익명으로 받아 그린다) */
+  private crowd?: Crowd;
 
   constructor() {
     super('patient');
@@ -242,6 +247,21 @@ class PatientScene extends Phaser.Scene {
       this.cameras.resize(size.width, size.height);
       if (!this.overview) this.cameras.main.setZoom(this.followZoom());
     });
+    // 다른 사람들 (직원용과 같은 좌표 — 도트 스킨만 다름)
+    this.crowd = new Crowd({
+      scene: this,
+      pf: this.pf,
+      mapScale: MAP_SCALE,
+      walkSpeed: WALK_PX_PER_SEC,
+      arriveEps: ARRIVE_EPS,
+      // 익명 id 로 캐릭터를 흩뿌린다 (직원은 늘 같은 캐릭터로 통일해 구분되게)
+      sheetFor: (u) =>
+        u.kind === 'staff'
+          ? 'bob'
+          : CHARACTERS[Math.abs(hashCode(u.id)) % CHARACTERS.length].id,
+      animFor: (sheet, moving) => `${sheet}-c-${moving ? 'walk' : 'idle'}`,
+    });
+
     this.setupOverviewButton();
     this.setHud(null);
     // 머문 시간이 차면 안내 문구를 바꾼다 (이벤트가 안 와도 갱신되도록 주기 확인)
@@ -286,13 +306,21 @@ class PatientScene extends Phaser.Scene {
   }
 
   private makeAnims(): void {
-    // 다른 손님(익명)용 — 정면 idle 하나만 (누구인지 드러나지 않게 한 종류로 통일)
-    this.anims.create({
-      key: 'other-idle',
-      frames: this.anims.generateFrameNumbers('adam-idle', { start: 18, end: 23 }),
-      frameRate: 5,
-      repeat: -1,
-    });
+    // 다른 사람들용 — 캐릭터 4종 모두. 정면 idle + 우향 걷기(왼쪽은 flipX)
+    for (const c of CHARACTERS) {
+      this.anims.create({
+        key: `${c.id}-c-idle`,
+        frames: this.anims.generateFrameNumbers(`${c.id}-idle`, { start: 18, end: 23 }),
+        frameRate: 5,
+        repeat: -1,
+      });
+      this.anims.create({
+        key: `${c.id}-c-walk`,
+        frames: this.anims.generateFrameNumbers(`${c.id}-run`, { start: 0, end: 5 }),
+        frameRate: 10,
+        repeat: -1,
+      });
+    }
     for (const [dir, row] of Object.entries(DIR_ROW)) {
       for (const kind of ['idle', 'run'] as const) {
         this.anims.create({
@@ -326,8 +354,10 @@ class PatientScene extends Phaser.Scene {
       const zone = this.zones.get(p.zoneId);
       const el = document.getElementById('hud-sub');
       if (el && zone) el.textContent = `${zone.name}에 ${p.anonymousCount}명`;
-      this.showOthers(p.zoneId, p.anonymousCount - 1); // 본인 제외
     });
+
+    // 다른 사람들의 위치 — 직원용과 같은 좌표. 익명 id·좌표·손님/직원 구분만 온다
+    this.socket.on('crowd:positions', (units: CrowdUnit[]) => this.crowd?.sync(units));
 
     this.socket.on('zone:actions', (_actions: ZoneAction[]) => {
       // TODO Phase 4: 구역 액션 버튼 (체크인 등) — 설계서 6.4
@@ -355,46 +385,6 @@ class PatientScene extends Phaser.Scene {
     if (p.waitingRank > 0) {
       sub.textContent = `대기 순번 ${p.waitingRank}번 · 예상 ${Math.round(p.estimatedWaitSec / 60)}분`;
     }
-  }
-
-  /**
-   * 같은 방의 다른 손님을 인원수만큼 세운다.
-   * 좌표를 받은 게 아니라 **인원수로 만든 표현**이므로, 방 안쪽 통행 가능한 자리에
-   * 정해진 순서대로 배치한다 (매번 자리가 바뀌면 사람이 순간이동하는 것처럼 보인다).
-   */
-  private showOthers(zoneId: string, count: number): void {
-    const zone = this.zones.get(zoneId);
-    const n = Math.max(0, Math.min(count, 6)); // 너무 많으면 방이 가득 차 보인다
-    if (!zone) return;
-
-    while (this.others.length > n) this.others.pop()?.destroy();
-    while (this.others.length < n) {
-      const i = this.others.length;
-      // 황금각으로 흩뿌려 같은 자리에 겹치지 않게
-      const angle = i * 2.399;
-      const radius = 40 + i * 14;
-      const spot = this.pf.nearestWalkable(
-        zone.tilePosition.x + Math.cos(angle) * radius,
-        zone.tilePosition.y + Math.sin(angle) * radius,
-      );
-      const sprite = this.add
-        .sprite(this.m(spot.x), this.m(spot.y), 'adam-idle')
-        .setOrigin(0.5, 0.85)
-        .setAlpha(0.85);
-      sprite.play('other-idle');
-      sprite.setDepth(-1); // 본인 캐릭터보다 뒤에
-      this.others.push(sprite);
-    }
-    // 방이 바뀌면 자리도 옮긴다
-    this.others.forEach((sprite, i) => {
-      const angle = i * 2.399;
-      const radius = 40 + i * 14;
-      const spot = this.pf.nearestWalkable(
-        zone.tilePosition.x + Math.cos(angle) * radius,
-        zone.tilePosition.y + Math.sin(angle) * radius,
-      );
-      sprite.setPosition(this.m(spot.x), this.m(spot.y));
-    });
   }
 
   /** 존 라벨 위치까지 벽을 피해 걸어간다 */
@@ -454,6 +444,7 @@ class PatientScene extends Phaser.Scene {
     const want = `${moved ? 'run' : 'idle'}-${this.facing}`;
     if (this.me.anims.currentAnim?.key !== want) this.me.play(want, true);
     this.nameTag?.setPosition(this.me.x, this.me.y + 6);
+    this.crowd?.update(delta); // 다른 사람들도 같은 보행 속도로 좁힌다
   }
 }
 
