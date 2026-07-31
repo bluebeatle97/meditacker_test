@@ -88,24 +88,18 @@ export const ROUTES: Record<string, Array<{ zoneId: string; pause: number }>> = 
  * (01~ 환자, 50~ 직원). dev-seed 가 같은 MAC 에 이름·그룹을 붙인다.
  */
 export const MOCK_TAGS: Array<{ mac: string; route: string; offsetSec: number }> = [
+  // 손님 10명 — 진료 동선 4명 + 대기 중 6명.
+  // ⚠️ 00:01 은 시연용 환자 화면이 붙는 비콘 (SERVER_CONFIG.demoPatientTag) — 빼지 말 것.
   { mac: 'AA:BB:CC:00:00:01', route: 'patientA', offsetSec: 0 },
-  { mac: 'AA:BB:CC:00:00:02', route: 'patientA', offsetSec: 150 },
-  { mac: 'AA:BB:CC:00:00:03', route: 'patientB', offsetSec: 0 },
-  { mac: 'AA:BB:CC:00:00:04', route: 'patientB', offsetSec: 120 },
-  { mac: 'AA:BB:CC:00:00:05', route: 'patientC', offsetSec: 0 },
-  { mac: 'AA:BB:CC:00:00:06', route: 'patientC', offsetSec: 100 },
-  { mac: 'AA:BB:CC:00:00:07', route: 'patientD', offsetSec: 0 },
-  { mac: 'AA:BB:CC:00:00:08', route: 'patientD', offsetSec: 90 },
-  // 대기 중인 손님들 (같은 경로에 오프셋만 달리해 여러 명이 함께 앉아 있게)
-  { mac: 'AA:BB:CC:00:00:09', route: 'waitingA', offsetSec: 0 },
-  { mac: 'AA:BB:CC:00:00:0A', route: 'waitingA', offsetSec: 60 },
-  { mac: 'AA:BB:CC:00:00:0B', route: 'waitingA', offsetSec: 130 },
-  { mac: 'AA:BB:CC:00:00:0C', route: 'waitingB', offsetSec: 0 },
-  { mac: 'AA:BB:CC:00:00:0D', route: 'waitingB', offsetSec: 55 },
-  { mac: 'AA:BB:CC:00:00:0E', route: 'waitingB', offsetSec: 120 },
-  { mac: 'AA:BB:CC:00:00:0F', route: 'waitingC', offsetSec: 0 },
-  { mac: 'AA:BB:CC:00:00:10', route: 'waitingC', offsetSec: 50 },
-  { mac: 'AA:BB:CC:00:00:11', route: 'waitingC', offsetSec: 110 },
+  { mac: 'AA:BB:CC:00:00:02', route: 'patientB', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:03', route: 'patientC', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:04', route: 'patientD', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:05', route: 'waitingA', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:06', route: 'waitingA', offsetSec: 70 },
+  { mac: 'AA:BB:CC:00:00:07', route: 'waitingB', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:08', route: 'waitingB', offsetSec: 60 },
+  { mac: 'AA:BB:CC:00:00:09', route: 'waitingC', offsetSec: 0 },
+  { mac: 'AA:BB:CC:00:00:0A', route: 'waitingC', offsetSec: 55 },
   { mac: 'AA:BB:CC:00:00:50', route: 'doctor', offsetSec: 0 },
   { mac: 'AA:BB:CC:00:00:51', route: 'doctor', offsetSec: 70 },
   { mac: 'AA:BB:CC:00:00:52', route: 'nurse', offsetSec: 0 },

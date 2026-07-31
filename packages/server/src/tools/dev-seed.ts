@@ -21,14 +21,16 @@ const db = openDb(SERVER_CONFIG.dbPath);
 
 /** 목 태그 MAC → 표시 이름·그룹·메모 */
 const PROFILE: Record<string, { name: string; group: TagGroup; memo?: string }> = {
-  'AA:BB:CC:00:00:01': { name: '손님 1', group: 'patient', memo: '상담 → 시술' },
-  'AA:BB:CC:00:00:02': { name: '손님 2', group: 'patient' },
-  'AA:BB:CC:00:00:03': { name: '손님 3', group: 'patient', memo: '레이저 예약' },
-  'AA:BB:CC:00:00:04': { name: '손님 4', group: 'patient' },
-  'AA:BB:CC:00:00:05': { name: '손님 5', group: 'patient', memo: '피부관리 코스' },
-  'AA:BB:CC:00:00:06': { name: '손님 6', group: 'patient' },
-  'AA:BB:CC:00:00:07': { name: '손님 7', group: 'patient', memo: '수술 예정' },
-  'AA:BB:CC:00:00:08': { name: '손님 8', group: 'patient' },
+  'AA:BB:CC:00:00:01': { name: '손님 1', group: 'patient', memo: '시연용 환자 화면' },
+  'AA:BB:CC:00:00:02': { name: '손님 2', group: 'patient', memo: '레이저 예약' },
+  'AA:BB:CC:00:00:03': { name: '손님 3', group: 'patient', memo: '피부관리 코스' },
+  'AA:BB:CC:00:00:04': { name: '손님 4', group: 'patient', memo: '수술 예정' },
+  'AA:BB:CC:00:00:05': { name: '손님 5', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:06': { name: '손님 6', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:07': { name: '손님 7', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:08': { name: '손님 8', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:09': { name: '손님 9', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:0A': { name: '손님 10', group: 'patient', memo: '대기 중' },
   'AA:BB:CC:00:00:50': { name: '김원장', group: 'doctor', memo: '피부과' },
   'AA:BB:CC:00:00:51': { name: '박과장', group: 'doctor', memo: '성형외과' },
   'AA:BB:CC:00:00:52': { name: '이간호사', group: 'nurse', memo: '시술실 담당' },
@@ -80,6 +82,15 @@ for (const [i, tag] of MOCK_TAGS.entries()) {
   if (!isStaff && !firstPatient) firstPatient = personId;
 }
 
+// 명단에서 빠진 태그는 반납 처리 — 안 그러면 신호 없는 옛 배정이 DB 에 남는다
+const keep = MOCK_TAGS.map((t) => t.mac);
+const dropped = db
+  .prepare(
+    `UPDATE tags SET active = 0
+     WHERE active = 1 AND tag_id NOT IN (${keep.map(() => '?').join(',')})`,
+  )
+  .run(...keep).changes;
+
 // 관제·직원 화면을 열 계정 (전체 열람 권한이 있는 의사 역할)
 db.prepare(
   `INSERT INTO persons (person_id, type, display_name, role, dept) VALUES (?, ?, ?, ?, ?)
@@ -92,6 +103,10 @@ const staffToken = signToken(
 );
 const patientToken = signToken({ personId: firstPatient, type: 'patient' }, SERVER_CONFIG.jwtSecret);
 
-console.log(`[dev-seed] 완료 — persons ${persons + 1}, tags ${MOCK_TAGS.length}\n`);
+console.log(
+  `[dev-seed] 완료 — persons ${persons + 1}, tags ${MOCK_TAGS.length}` +
+    (dropped > 0 ? ` (명단에서 빠진 옛 배정 ${dropped}건 반납 처리)` : '') +
+    '\n',
+);
 console.log(`직원용:  http://localhost:5173/?token=${staffToken}\n`);
 console.log(`환자용(${firstPatient}): http://localhost:5174/?token=${patientToken}`);
