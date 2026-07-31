@@ -5,8 +5,7 @@ import type { AuthedSocket } from './index.js';
 import { anonymousOccupancy } from '../permission/permission-filter.js';
 import { actionsForZone, isAllowedReaction } from '../social/zone-actions.js';
 import { loadZones, SERVER_CONFIG } from '../config/index.js';
-import { findPersonByTag } from '../db/index.js';
-import type { PersonType } from '@meditracker/shared';
+import type { TagMetaStore } from '../presence/tag-meta-store.js';
 
 /** index.ts 가 위치 브로드캐스트를 밀어 넣는 창구 */
 export interface PatientBroadcast {
@@ -19,19 +18,28 @@ const CROWD_INTERVAL_MS = 2000;
 /**
  * namespace: /patient (설계서 7)
  *
- * 불변식 B-1: 이 namespace 로는 타인의 **위치 좌표**가 절대 나가지 않는다.
- * 전송 허용: 본인 존 / 대기순번 / 예상시간 / 존 액션 / 존 채팅
- *   + 익명 인원수 — 같은 존(zone:occupancy)과 **환자 이용 구역 전체**(zone:crowd).
+ * 이 namespace 로 나가는 남의 정보는 **손님 비콘으로 한정**한다.
+ * 의사·간호사·통역·미지정 태그는 좌표도 인원수도 나가지 않는다 — 환자 화면에서
+ * 직원 동선을 들여다볼 수 있으면 노무 문제가 된다(설계서 12).
  *
- * zone:crowd 는 '어느 방에 몇 명'만 담는다. 신분·좌표가 없어 특정인을 따라갈 수 없고,
- * 복도를 걸으며 눈으로 보는 것과 같은 수준이다. 직원 전용 구역은 빼서
- * 직원 동선이 환자에게 드러나지 않게 한다.
+ * 전송 허용: 본인 존·좌표 / 대기순번 / 예상시간 / 존 액션 / 존 채팅
+ *   + 손님 익명 인원수(zone:occupancy, zone:crowd)
+ *   + 손님 익명 좌표(crowd:positions) — SERVER_CONFIG.patientSeesEveryone 이 켜진 동안만.
+ *     ⚠️ 이 항목이 설계서 불변식 B-1 을 벗어나는 부분이다 (스위치로 끌 수 있음).
  */
 export function registerPatientNamespace(
   ns: Namespace,
   presence: PresenceService,
   db: Db,
+  tagMeta: TagMetaStore,
 ): PatientBroadcast {
+  /**
+   * 환자 화면에 보일 수 있는 태그인가 = **손님 비콘만**.
+   * 의사·간호사·통역·미지정은 좌표도 인원수도 나가지 않는다 — 환자가 직원 동선을
+   * 들여다볼 수 있으면 노무 문제이기도 하다(설계서 12 권한 매트릭스).
+   */
+  const isGuest = (tagId: string): boolean => tagMeta.all()[tagId]?.group === 'patient';
+  const guestStates = () => presence.getAllStates().filter((s) => isGuest(s.tagId));
   // tagId → personId 역매핑은 접속 시점 조회로 단순화 (환자 수십 명 규모)
   const socketsByPerson = new Map<string, AuthedSocket>();
   /** 소켓별 본인 태그 — 남들 목록에서 자기 자신을 빼는 데 쓴다 */
@@ -46,7 +54,7 @@ export function registerPatientNamespace(
   /** 구역별 익명 인원수 (0인 구역은 생략) */
   function crowd(): Array<{ zoneId: string; count: number }> {
     const counts = new Map<string, number>();
-    for (const st of presence.getAllStates()) {
+    for (const st of guestStates()) {
       if (!st.currentZone || !publicZones.has(st.currentZone)) continue;
       counts.set(st.currentZone, (counts.get(st.currentZone) ?? 0) + 1);
     }
@@ -74,7 +82,7 @@ export function registerPatientNamespace(
       // 같은 구역 인원수(익명) — 좌표가 아니라 '몇 명'만 나간다 (불변식 B-1)
       socket.emit('zone:occupancy', {
         zoneId: zone,
-        anonymousCount: anonymousOccupancy(zone, presence.getAllStates()),
+        anonymousCount: anonymousOccupancy(zone, guestStates()),
       });
     }
     socket.emit('presence:self', {
@@ -129,7 +137,7 @@ export function registerPatientNamespace(
     if (change.toZone) {
       ns.to(`zone:${change.toZone}`).emit('zone:occupancy', {
         zoneId: change.toZone,
-        anonymousCount: anonymousOccupancy(change.toZone, presence.getAllStates()),
+        anonymousCount: anonymousOccupancy(change.toZone, guestStates()),
       });
     }
   });
@@ -157,18 +165,21 @@ export function registerPatientNamespace(
      * 환자 화면으로 위치를 보낸다.
      *
      * - `pos:self` — **본인 좌표**. 항상 보낸다 (본인 위치라 불변식 B-1 과 무관).
-     * - `crowd:positions` — 다른 사람들. `patientSeesEveryone` 이 켜졌을 때만.
-     *   나가는 것은 **익명 id + 좌표 + 손님/직원 구분**뿐 — MAC·이름·personId 는 안 나간다.
+     * - `crowd:positions` — **다른 손님들만**. `patientSeesEveryone` 이 켜졌을 때만.
+     *   나가는 것은 익명 id + 좌표뿐 — MAC·이름·personId 는 안 나간다.
      */
     positions(list: Array<{ tagId: string; x: number; y: number; zone: string | null }>): void {
       if (ns.sockets.size === 0) return;
-      const units = list.map((p) => ({
-        id: anonId(p.tagId),
-        x: p.x,
-        y: p.y,
-        kind: (findPersonByTag(db, p.tagId)?.type ?? 'patient') as PersonType,
-        tagId: p.tagId, // 소켓별 자기 자신 제외에만 쓰고 아래에서 제거한다
-      }));
+      // 손님 비콘만 내보낸다 — 직원 좌표는 환자 화면으로 나가지 않는다
+      const units = list
+        .filter((p) => isGuest(p.tagId))
+        .map((p) => ({
+          id: anonId(p.tagId),
+          x: p.x,
+          y: p.y,
+          kind: 'patient' as const,
+          tagId: p.tagId, // 소켓별 자기 자신 제외에만 쓰고 아래에서 제거한다
+        }));
       for (const [, rawSocket] of ns.sockets) {
         const socket = rawSocket as AuthedSocket;
         const mine = ownTag.get(socket.id);

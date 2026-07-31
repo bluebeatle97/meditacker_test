@@ -43,6 +43,11 @@ const TILES_ACROSS = 20;
 const MAX_ZOOM = 4;
 /** 카메라 추종 보간 계수 (0~1). 낮으면 부드럽게 뒤따르고, 1이면 즉시 붙는다 */
 const FOLLOW_LERP = 0.08;
+/** 내 캐릭터 표시색 — 도면 팔레트(회색·크림·민트·우드·벽돌)에 없는 청록 */
+const ME_MARK_COLOR = 0x22d3ee;
+/** 머리 위 화살표가 위아래로 흔들리는 폭(px)과 주기(ms) */
+const ARROW_BOB_PX = 2.5;
+const ARROW_BOB_MS = 900;
 const TILE = 16;
 
 // 걷는 속도: 도면 1px ≈ 1.62cm, 보행 1.4m/s → 약 86 도면px/초 → 화면은 ×MAP_SCALE
@@ -130,6 +135,9 @@ class PatientScene extends Phaser.Scene {
   private pf!: Pathfinder;
   private me!: Phaser.GameObjects.Sprite;
   private nameTag?: Phaser.GameObjects.Text;
+  /** 내 캐릭터 강조 — 발밑 링과 머리 위 화살표 (겹쳐도 내가 누군지 보이게) */
+  private meRing?: Phaser.GameObjects.Ellipse;
+  private meArrow?: Phaser.GameObjects.Triangle;
   private profile!: PatientProfile;
   private token!: string;
   private plan!: FloorplanMeta;
@@ -233,6 +241,18 @@ class PatientScene extends Phaser.Scene {
       .setOrigin(0.5, 0.85) // 발끝이 좌표에 오도록
       .setDepth(2); // 다른 사람(1) 위
     this.me.play('idle-down');
+
+    // 사람이 겹쳐도 내 캐릭터를 바로 찾을 수 있게 — 발밑 링 + 머리 위 화살표.
+    // 도면 팔레트(회색·크림·우드·벽돌)에 없는 청록이라 어느 바닥에서도 눈에 띈다.
+    this.meRing = this.add
+      .ellipse(this.me.x, this.me.y, 16, 7, ME_MARK_COLOR, 0.5)
+      .setStrokeStyle(1, ME_MARK_COLOR, 0.9)
+      .setDepth(1.5); // 다른 사람(1) 위, 내 캐릭터(2) 아래
+    this.meArrow = this.add
+      .triangle(this.me.x, this.me.y, 0, 0, 8, 0, 4, 7, ME_MARK_COLOR)
+      .setStrokeStyle(1, 0x0d1520, 0.6)
+      .setDepth(3);
+
     if (this.profile.nickname) {
       this.nameTag = this.add
         .text(this.me.x, this.me.y + 4, this.profile.nickname, {
@@ -483,6 +503,12 @@ class PatientScene extends Phaser.Scene {
     const want = `${moved ? 'run' : 'idle'}-${this.facing}`;
     if (this.me.anims.currentAnim?.key !== want) this.me.play(want, true);
     this.nameTag?.setPosition(this.me.x, this.me.y + 6);
+    // 강조 표시는 캐릭터를 옮긴 뒤에 따라붙인다 (먼저 하면 한 프레임 뒤처진다)
+    this.meRing?.setPosition(this.me.x, this.me.y);
+    this.meArrow?.setPosition(
+      this.me.x,
+      this.me.y - 30 + Math.sin(_time / ARROW_BOB_MS * Math.PI * 2) * ARROW_BOB_PX,
+    );
     this.crowd?.update(delta); // 다른 사람들도 같은 보행 속도로 좁힌다
   }
 }

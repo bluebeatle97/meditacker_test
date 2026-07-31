@@ -230,7 +230,7 @@ const httpServer = createServer((req, res) => {
   res.end();
 });
 
-const { io, patient } = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db);
+const { io, patient } = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db, tagMeta);
 
 // 관제 허브 (/monitor namespace) — io 준비 후 초기화
 monitor = new MonitorHub(io, engine, estimator, gateways, loadZones(), tagMeta);

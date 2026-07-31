@@ -4,6 +4,7 @@ import type { AuthClaims } from '@meditracker/shared';
 import { verifyToken } from '../auth/jwt.js';
 import type { PresenceService } from '../presence/presence-service.js';
 import type { Db } from '../db/index.js';
+import type { TagMetaStore } from '../presence/tag-meta-store.js';
 import { registerPatientNamespace, type PatientBroadcast } from './patient-namespace.js';
 import { registerStaffNamespace } from './staff-namespace.js';
 
@@ -29,12 +30,13 @@ export function createWsServer(
   jwtSecret: string,
   presence: PresenceService,
   db: Db,
+  tagMeta: TagMetaStore,
 ): { io: Server; patient: PatientBroadcast } {
   const io = new Server(httpServer, { cors: { origin: true } });
 
   const patientNs = io.of('/patient');
   patientNs.use(jwtMiddleware(jwtSecret, 'patient'));
-  const patient = registerPatientNamespace(patientNs, presence, db);
+  const patient = registerPatientNamespace(patientNs, presence, db, tagMeta);
 
   const staffNs = io.of('/staff');
   staffNs.use(jwtMiddleware(jwtSecret, 'staff'));

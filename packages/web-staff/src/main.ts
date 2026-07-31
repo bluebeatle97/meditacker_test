@@ -63,6 +63,10 @@ const NAME_PAD_X = 4;
 const ROOM_MAX_PX = 420;
 /** 방 중앙으로 옮길 수 있는 최대 거리 (도면 px ≈ 1m). 폭 측정이 문틈으로 샜을 때의 안전장치 */
 const NAME_MAX_SHIFT_PX = 60;
+/** 선택한 비콘 강조 링 색 — 흰 도면 위라 어떤 그룹 색과도 안 겹치는 빨강 */
+const PICK_RING_COLOR = 0xff2f45;
+/** 이름표 기본 위치 (아바타 중심에서 아래로) — 겹치면 여기서부터 아래로 밀어낸다 */
+const LABEL_BASE_Y = 11;
 
 class StaffMapScene extends Phaser.Scene {
   private socket!: Socket;
@@ -430,12 +434,14 @@ class StaffMapScene extends Phaser.Scene {
   private pickTag(tagId: string): void {
     this.pickedTag = this.pickedTag === tagId ? undefined : tagId;
     if (!this.pickRing) {
-      this.pickRing = this.add.circle(0, 0, 15).setStrokeStyle(2.5, 0xffffff, 0.95);
+      // 도면 배경이 흰색이라 흰 링은 아예 안 보인다 → 빨강 + 두껍게
+      this.pickRing = this.add.circle(0, 0, 16).setStrokeStyle(3.5, PICK_RING_COLOR, 1);
       // 깜빡이는 링은 한 번만 만든다 — 매번 tween 을 추가하면 누적된다
       this.tweens.add({
         targets: this.pickRing,
         scale: { from: 0.85, to: 1.5 },
-        alpha: { from: 1, to: 0.15 },
+        // 너무 옅어지면 흰 도면 위에서 사라진다 — 최저 투명도를 올려 항상 읽히게
+        alpha: { from: 1, to: 0.45 },
         duration: 800,
         yoyo: true,
         repeat: -1,
@@ -469,7 +475,7 @@ class StaffMapScene extends Phaser.Scene {
     // 점을 누르면 왼쪽 목록의 그 줄로 이동해 이름을 바로 고칠 수 있게
     circle.on('pointerdown', () => this.panel.focusRow(tagId));
     const label = this.add
-      .text(0, 11, this.labelFor(tagId), {
+      .text(0, LABEL_BASE_Y, this.labelFor(tagId), {
         color: '#ffffff',
         fontSize: '10px',
         backgroundColor: '#000000aa',
@@ -583,6 +589,47 @@ class StaffMapScene extends Phaser.Scene {
       const target = this.pickedTag ? this.avatars.get(this.pickedTag) : undefined;
       if (target) this.pickRing.setPosition(target.x, target.y);
       else this.pickRing.setVisible(false);
+    }
+
+    this.declutterAvatarLabels();
+  }
+
+  /**
+   * 같은 자리에 겹친 아바타들의 **이름표**를 위아래로 흩어 놓는다.
+   *
+   * 점(좌표)은 실제 위치라 못 옮기지만 이름표는 주석이라 옮겨도 된다 — 안 그러면
+   * 뒤에 깔린 사람 이름이 아예 안 보인다. 정렬을 고정해 매 프레임 같은 결과가 나오게
+   * 하고(자리가 떨리지 않게), 실제로 옮길 때만 좌표를 건드린다.
+   */
+  private declutterAvatarLabels(): void {
+    const entries: Array<{ label: Phaser.GameObjects.Text; cx: number; top: number }> = [];
+    for (const [tagId, label] of this.avatarLabels) {
+      const avatar = this.avatars.get(tagId);
+      if (!avatar || !label.visible) continue;
+      entries.push({ label, cx: avatar.x, top: avatar.y + LABEL_BASE_Y });
+    }
+    // 위에서 아래로, 같은 높이면 왼쪽부터 — 순서가 고정돼야 결과가 안 흔들린다
+    entries.sort((a, b) => a.top - b.top || a.cx - b.cx);
+
+    const placed: Array<{ x0: number; x1: number; y0: number; y1: number }> = [];
+    for (const e of entries) {
+      const w = e.label.width;
+      const h = e.label.height;
+      let y = e.top;
+      // 겹치면 한 줄씩 내려서 빈 자리를 찾는다 (몇 번 시도해도 안 되면 그대로 둔다)
+      for (let tries = 0; tries < 8; tries++) {
+        const rect = { x0: e.cx - w / 2, x1: e.cx + w / 2, y0: y, y1: y + h };
+        const hit = placed.find(
+          (p) => rect.x0 < p.x1 && p.x0 < rect.x1 && rect.y0 < p.y1 && p.y0 < rect.y1,
+        );
+        if (!hit) {
+          placed.push(rect);
+          break;
+        }
+        y = hit.y1 + 2;
+      }
+      const localY = y - (e.top - LABEL_BASE_Y);
+      if (Math.abs(e.label.y - localY) > 0.5) e.label.y = localY;
     }
   }
 }
