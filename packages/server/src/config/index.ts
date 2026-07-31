@@ -11,6 +11,13 @@ export const ZONE_ENGINE_CONFIG = {
   HYSTERESIS_DB: 8, // 새 존이 현재 존보다 이만큼 세야 전환 후보
   CONFIRM_COUNT: 3, // 후보존이 연속 N회 최강일 때 전환 확정
   ABSENT_TIMEOUT_MS: 15000, // 이 시간 신호 없으면 자리비움(null)
+  /**
+   * 이 시간 무신호면 상태를 **메모리에서 완전히 제거**한다 (자리비움과 다름).
+   * 자리비움은 "지금 안 보임" 이라 계속 들고 있어야 하지만, 반납된 태그·건물을 떠난
+   * 태그까지 영원히 들고 있으면 Map 이 단조 증가한다. 자리비움보다 훨씬 길게 잡아
+   * 잠깐 신호가 끊긴 사람이 목록에서 사라지지 않게 한다.
+   */
+  EVICT_AFTER_MS: 600000, // 10분
 };
 
 export const SERVER_CONFIG = {
@@ -51,6 +58,20 @@ export const SERVER_CONFIG = {
    * 그때까지는 이 태그 하나에 고정한다 (정렬 순서에 기대면 시드가 바뀔 때 딴 사람이 잡힌다).
    */
   demoPatientTag: process.env.DEMO_PATIENT_TAG ?? 'AA:BB:CC:00:00:01',
+  /**
+   * 등록된 태그만 추적할지 (기본 **on**).
+   *
+   * 끄면 게이트웨이가 올린 모든 BLE 식별자를 추적한다 — 지나가는 폰·이어버드·워치까지.
+   * 메모리가 단조 증가하고, 동의 없는 단말 수집이 되므로 운영에서 끄면 안 된다.
+   * 디버깅용 탈출구로만 `TAG_WHITELIST=0`.
+   */
+  tagWhitelist: process.env.TAG_WHITELIST !== '0',
+  /**
+   * raw 스캔 녹화 파일 이름 (`RECORD_SCANS=walk-1` → data/recordings/walk-1.ndjson).
+   * 현장 튜닝용 — 한 번 걸어서 녹화해두면 파라미터를 바꿔가며 오프라인에서 무한 재생할 수 있다.
+   * `RECORD_SCANS=1` 처럼 아무 값이나 주면 시각 기반 이름으로 저장한다.
+   */
+  recordScans: process.env.RECORD_SCANS ?? null,
 };
 
 export function loadZones(): Zone[] {

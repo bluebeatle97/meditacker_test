@@ -3,6 +3,7 @@ import type { Gateway, ScanEvent, Zone } from '@meditracker/shared';
 import type { ZoneEngine } from '../zone-engine/zone-engine.js';
 import type { PositionEstimator } from '../presence/position-estimator.js';
 import type { TagMetaStore } from '../presence/tag-meta-store.js';
+import type { UnknownTagSighting } from '../ingestion/unknown-tag-buffer.js';
 
 export interface MonitorZoneChange {
   tagId: string;
@@ -19,6 +20,15 @@ export interface MonitorZoneChange {
  *
  * 대용량 대비: raw 스캔은 300ms 배치로 묶어 전송, 상태 스냅샷은 1초 주기.
  */
+/** 관제 헤더에 띄울 수집 통계 (화이트리스트가 얼마나 걸러내고 있는지) */
+export interface IngestStats {
+  whitelistEnabled: boolean;
+  knownTags: number;
+  acceptedScans: number;
+  uniqueUnknownIds: number;
+  droppedScans: number;
+}
+
 export class MonitorHub {
   private ns: Namespace;
   private scanBatch: ScanEvent[] = [];
@@ -35,6 +45,12 @@ export class MonitorHub {
     private gateways: Gateway[],
     private zones: Zone[],
     private tagMeta: TagMetaStore,
+    /** 수집 관문 현황 — 화이트리스트 통계 + 미등록 신호 목록 + 녹화 상태 */
+    private ingest: () => {
+      stats: IngestStats;
+      unknown: UnknownTagSighting[];
+      recording: { path: string; lines: number } | null;
+    },
     private now: () => number = Date.now,
   ) {
     this.ns = io.of('/monitor');
@@ -93,6 +109,15 @@ export class MonitorHub {
       count: this.gwCounts.get(g.gatewayId) ?? 0,
       lastSeenMs: this.gwLastSeen.has(g.gatewayId) ? now - this.gwLastSeen.get(g.gatewayId)! : null,
     }));
-    return { at: now, tags, positions: this.estimator.estimateAll(), gateways };
+    const ingest = this.ingest();
+    return {
+      at: now,
+      tags,
+      positions: this.estimator.estimateAll(),
+      gateways,
+      ingest: ingest.stats,
+      unknown: ingest.unknown,
+      recording: ingest.recording,
+    };
   }
 }

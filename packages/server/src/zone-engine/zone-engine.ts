@@ -6,6 +6,8 @@ export interface ZoneEngineConfig {
   HYSTERESIS_DB: number;
   CONFIRM_COUNT: number;
   ABSENT_TIMEOUT_MS: number;
+  /** 이 시간 무신호면 상태를 메모리에서 완전히 삭제 (자리비움보다 훨씬 길게) */
+  EVICT_AFTER_MS: number;
 }
 
 export interface ZoneChangeEvent {
@@ -88,15 +90,31 @@ export class ZoneEngine extends EventEmitter {
     return this.freshReadings(tagId, this.now());
   }
 
-  /** 주기 호출 — 무신호 태그를 자리비움(null) 처리 */
-  sweepAbsent(): void {
+  /**
+   * 주기 호출 — 무신호 태그를 자리비움(null) 처리하고, 더 오래 조용한 태그는 아예 버린다.
+   *
+   * 자리비움과 삭제는 다른 사건이다. 자리비움은 "지금 안 보임" 이라 상태를 계속 들고
+   * 있어야 하지만(돌아오면 이어서 추적), 반납된 태그·건물을 떠난 태그를 영원히 들고
+   * 있으면 Map 이 단조 증가해 판정 주기마다 그만큼 CPU 를 더 쓴다.
+   *
+   * @returns 이번 스윕에서 삭제한 태그 수 (운영 지표용)
+   */
+  sweepAbsent(): number {
     const now = this.now();
-    for (const state of this.states.values()) {
-      if (state.currentZone === null) continue;
-      if (now - state.lastSeen >= this.config.ABSENT_TIMEOUT_MS) {
+    let evicted = 0;
+    for (const state of [...this.states.values()]) {
+      const idleMs = now - state.lastSeen;
+      if (state.currentZone !== null && idleMs >= this.config.ABSENT_TIMEOUT_MS) {
         this.commitZone(state.tagId, null);
       }
+      if (idleMs >= this.config.EVICT_AFTER_MS) {
+        // commitZone(null) 은 위에서 이미 났다 (EVICT ≫ ABSENT) — 여기선 흔적만 지운다
+        this.states.delete(state.tagId);
+        this.readings.delete(state.tagId);
+        evicted++;
+      }
     }
+    return evicted;
   }
 
   // ── 내부 ──────────────────────────────────────────────────────────────

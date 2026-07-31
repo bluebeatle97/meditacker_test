@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type {
   PatientProfile,
   Person,
+  PersonType,
   TagAssignment,
   TagGroup,
   TagMetaMap,
@@ -55,6 +56,55 @@ export function releaseTag(db: Db, tagId: string): void {
   const person = findPersonByTag(db, tagId);
   db.prepare(`UPDATE tags SET active = 0 WHERE tag_id = ?`).run(tagId);
   if (person) clearPatientProfile(db, person.personId);
+}
+
+/** 화이트리스트 원본 — 배정되어 살아 있는 태그 ID 전부 */
+export function getActiveTagIds(db: Db): string[] {
+  const rows = db.prepare(`SELECT tag_id FROM tags WHERE active = 1`).all() as Array<{
+    tag_id: string;
+  }>;
+  return rows.map((r) => r.tag_id);
+}
+
+/**
+ * 비콘을 재고에 올린다 (관제 페이지 "미등록 신호" → 등록).
+ *
+ * persons 와 tags 를 한 트랜잭션으로 묶는다 — 하나만 들어가면 화이트리스트는 통과하는데
+ * 주인이 없는 태그가 생긴다. 표시 이름(tag_meta)은 인메모리 캐시 일관성 때문에
+ * 호출부가 `TagMetaStore.set()` 으로 따로 쓴다 (여기서 직접 쓰면 캐시가 어긋난다).
+ *
+ * personId 는 tagId 에서 결정론적으로 만든다. 같은 비콘을 다시 등록하면 같은 사람에
+ * 붙는다 — 여기서 하는 건 "이 비콘이 우리 재고다" 이지 "이 비콘이 오늘 누구 것이다" 가
+ * 아니기 때문. 접수 때 환자에게 지급/반납하는 건 별도 워크플로우다.
+ */
+export function registerTag(
+  db: Db,
+  { tagId, name, group }: { tagId: string; name: string; group: TagGroup },
+): { personId: string } {
+  const isStaff = group === 'doctor' || group === 'nurse' || group === 'interpreter';
+  const type: PersonType = isStaff ? 'staff' : 'patient';
+  // MAC 이든 UUID 합성키든 안전한 슬러그로 (구분자 제거 후 뒤 8자)
+  const slug = tagId.replace(/[^A-Za-z0-9]/g, '').slice(-8).toLowerCase();
+  const personId = `${type}-${slug}`;
+  const role = group === 'doctor' ? 'doctor' : group === 'nurse' ? 'nurse' : null;
+
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO persons (person_id, type, display_name, role, dept) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(person_id) DO UPDATE SET display_name = excluded.display_name,
+         type = excluded.type, role = excluded.role`,
+    ).run(personId, type, name || tagId, role, isStaff ? 'derma' : null);
+
+    assignTag(db, {
+      tagId,
+      assignedTo: personId,
+      personType: type,
+      assignedAt: Date.now(),
+      active: true,
+    });
+  })();
+
+  return { personId };
 }
 
 export function findPersonByTag(db: Db, tagId: string): Person | undefined {

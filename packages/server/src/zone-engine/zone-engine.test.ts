@@ -7,6 +7,7 @@ const CONFIG: ZoneEngineConfig = {
   HYSTERESIS_DB: 8,
   CONFIRM_COUNT: 3,
   ABSENT_TIMEOUT_MS: 15000,
+  EVICT_AFTER_MS: 600000,
 };
 
 const GW_MAP = new Map([
@@ -153,6 +154,44 @@ describe('ZoneEngine', () => {
 
     engine.ingest(scan('GW-CON1', 'tag1', -70));
     expect(engine.getState('tag1')?.currentZone).toBe('consult_1');
+  });
+
+  it('EVICT_AFTER_MS 초과 무신호 태그는 메모리에서 완전히 삭제', () => {
+    const { engine, clock, scan } = setup();
+    engine.ingest(scan('GW-WAIT', 'tag1', -60));
+
+    clock.tick(CONFIG.EVICT_AFTER_MS + 1000);
+    const evicted = engine.sweepAbsent();
+
+    expect(evicted).toBe(1);
+    expect(engine.getState('tag1')).toBeUndefined();
+    expect(engine.getAllStates()).toHaveLength(0);
+    expect(engine.readingsOf('tag1')).toHaveLength(0); // 수신값 Map 도 같이 비워야 누수가 안 남
+  });
+
+  it('자리비움 상태여도 EVICT_AFTER_MS 전이면 상태를 유지 (잠깐 끊긴 사람이 사라지면 안 됨)', () => {
+    const { engine, clock, scan } = setup();
+    engine.ingest(scan('GW-WAIT', 'tag1', -60));
+
+    clock.tick(CONFIG.ABSENT_TIMEOUT_MS + 1000);
+    expect(engine.sweepAbsent()).toBe(0); // 자리비움은 됐지만 삭제는 아직
+    expect(engine.getState('tag1')?.currentZone).toBeNull();
+
+    engine.ingest(scan('GW-CON1', 'tag1', -70)); // 돌아오면 이어서 추적
+    expect(engine.getState('tag1')?.currentZone).toBe('consult_1');
+  });
+
+  it('삭제된 태그가 다시 나타나면 새 상태로 최초 진입 처리', () => {
+    const { engine, clock, changes, scan } = setup();
+    engine.ingest(scan('GW-WAIT', 'tag1', -60));
+    clock.tick(CONFIG.EVICT_AFTER_MS + 1000);
+    engine.sweepAbsent();
+
+    changes.length = 0;
+    engine.ingest(scan('GW-CON1', 'tag1', -60));
+
+    expect(engine.getState('tag1')?.currentZone).toBe('consult_1');
+    expect(changes.at(-1)).toMatchObject({ fromZone: null, toZone: 'consult_1' });
   });
 
   it('미등록 게이트웨이 스캔은 무시', () => {

@@ -59,6 +59,20 @@ export function monitorPageHtml(): string {
     background: #1c2b45; color: var(--accent); font: 600 13px var(--mono); cursor: pointer; text-decoration: none;
   }
   #back-btn:hover { background: #234; }
+  .bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .bar select, .bar input {
+    background: #0d1117; border: 1px solid var(--border); color: var(--text);
+    border-radius: 4px; font: 12px var(--mono); padding: 3px 6px;
+  }
+  .btn {
+    background: #1c2b45; border: 1px solid var(--accent); color: var(--accent);
+    border-radius: 4px; cursor: pointer; font: 600 11px var(--mono); padding: 2px 9px;
+  }
+  .btn:hover { background: #234; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.warn { border-color: var(--warn); color: var(--warn); background: #2b2410; }
+  #unknown-body { max-height: 30vh; overflow-y: auto; }
+  .panel.alert > h2 { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -68,12 +82,33 @@ export function monitorPageHtml(): string {
   <span class="stat">게이트웨이 <b id="s-gw">0</b>/<b id="s-gwtotal">0</b> 온라인</span>
   <span class="stat">스캔 <b id="s-rate">0</b>/s</span>
   <span class="stat">누적 <b id="s-total">0</b></span>
+  <span class="stat" id="s-block-wrap">미등록 차단 <b id="s-blocked">0</b></span>
   <span class="stat" style="margin-left:auto">가동 <b id="s-uptime">0s</b></span>
   <a id="back-btn" href="#">← 직원용 패널로</a>
 </header>
 
 <div class="grid">
   <div>
+    <div class="panel" id="unknown-panel">
+      <h2>미등록 신호 <span id="unknown-count" class="muted"></span></h2>
+      <div class="body">
+        <div class="bar">
+          <span class="muted">등록 설정</span>
+          <select id="reg-group">
+            <option value="patient">환자</option>
+            <option value="doctor">의사</option>
+            <option value="nurse">간호사</option>
+            <option value="interpreter">통역</option>
+            <option value="unassigned">미지정</option>
+          </select>
+          <input id="reg-prefix" value="비콘" style="width:80px" />
+          <input id="reg-next" type="number" value="1" style="width:56px" />
+          <span class="muted">이름 = 접두어 + 번호 (등록할 때마다 자동 증가)</span>
+        </div>
+        <div id="unknown-body"><div class="empty">미등록 신호 없음</div></div>
+      </div>
+    </div>
+    <div style="height:12px"></div>
     <div class="panel">
       <h2>게이트웨이 (스캔 수신 상태)</h2>
       <div class="body"><table id="gw-table"><tbody></tbody></table></div>
@@ -85,6 +120,18 @@ export function monitorPageHtml(): string {
     </div>
   </div>
   <div>
+    <div class="panel alert" id="rec-panel" style="display:none">
+      <h2>● 녹화 중 — 정답 마크</h2>
+      <div class="body">
+        <div class="bar">
+          <select id="mark-zone"></select>
+          <button class="btn" id="mark-btn">지금 이 방에 들어옴</button>
+          <button class="btn warn" id="mark-out">추적구역 이탈</button>
+        </div>
+        <div class="muted" id="rec-info"></div>
+      </div>
+    </div>
+    <div id="rec-gap" style="height:12px;display:none"></div>
     <div class="panel">
       <h2>실시간 스캔 피드</h2>
       <div class="body feed" id="scan-feed"><div class="empty">스캔 대기 중…</div></div>
@@ -134,6 +181,10 @@ export function monitorPageHtml(): string {
     gateways = d.gateways || [];
     (d.zones || []).forEach(function(z){ zoneName[z.zoneId] = z.name; });
     meta = d.tagMeta || {};
+    // 정답 마크용 존 목록 (녹화 중일 때만 쓰이지만 미리 채워둔다)
+    document.getElementById('mark-zone').innerHTML = (d.zones || []).map(function(z){
+      return '<option value="' + esc(z.zoneId) + '">' + esc(z.name || z.zoneId) + '</option>';
+    }).join('');
     document.getElementById('s-gwtotal').textContent = gateways.length;
     if (d.startedAt) startedAt = d.startedAt;
     (d.recentScans || []).forEach(pushScan);
@@ -154,6 +205,85 @@ export function monitorPageHtml(): string {
     var btn = e.target.closest('.edit');
     if (btn) editMeta(btn.getAttribute('data-tag'));
   });
+
+  // ── 미등록 신호 → 태그 등록 ──────────────────────────────────────────────
+  // 비콘을 게이트웨이 코앞에 대면 RSSI 가 세져서 맨 위로 올라온다. 클릭 한 번에
+  // 등록 → 다음 스캔부터 화이트리스트 통과. 이름은 접두어+번호가 자동 증가하므로
+  // 100개를 연달아 올릴 때 타이핑이 없다.
+  function renderUnknown(list, ing){
+    var body = document.getElementById('unknown-body');
+    var countEl = document.getElementById('unknown-count');
+    if (ing && !ing.whitelistEnabled) {
+      countEl.textContent = '(화이트리스트 OFF)';
+      body.innerHTML = '<div class="empty">화이트리스트가 꺼져 있어 주변 BLE 를 전부 추적 중입니다 — 디버깅 전용 설정</div>';
+      return;
+    }
+    countEl.textContent = ing ? '(고유 ' + ing.uniqueUnknownIds + ' · 등록 ' + ing.knownTags + ')' : '';
+    if (!list || list.length === 0) {
+      body.innerHTML = '<div class="empty">미등록 신호 없음</div>';
+      return;
+    }
+    body.innerHTML = '<table><tbody>' + list.map(function(u){
+      return '<tr>'
+        + '<td style="width:50px;text-align:right">' + u.rssi + '</td>'
+        + '<td style="width:110px"><span class="rssi-bar" style="width:' + rssiWidth(u.rssi) + 'px;background:' + rssiColor(u.rssi) + '"></span></td>'
+        + '<td class="tag">' + esc(u.tagId) + '</td>'
+        + '<td class="gw">' + esc(u.gatewayId) + '</td>'
+        + '<td class="muted" style="text-align:right">' + u.count + '회</td>'
+        + '<td style="text-align:right"><button class="btn reg" data-tag="' + esc(u.tagId) + '">등록</button></td>'
+        + '</tr>';
+    }).join('') + '</tbody></table>';
+  }
+
+  document.getElementById('unknown-body').addEventListener('click', function(e){
+    var btn = e.target.closest('.reg');
+    if (!btn) return;
+    var tagId = btn.getAttribute('data-tag');
+    var nextEl = document.getElementById('reg-next');
+    var prefix = document.getElementById('reg-prefix').value.trim();
+    var name = (prefix ? prefix + ' ' : '') + nextEl.value;
+    btn.disabled = true;
+    btn.textContent = '…';
+    fetch('/register-tag', { method: 'POST', body: JSON.stringify({
+      tagId: tagId, name: name, group: document.getElementById('reg-group').value
+    }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) { nextEl.value = String(Number(nextEl.value) + 1); return; }
+        btn.disabled = false; btn.textContent = '등록';
+        alert('등록 실패: ' + (d.error || '알 수 없는 오류'));
+      })
+      .catch(function(err){
+        btn.disabled = false; btn.textContent = '등록';
+        alert('등록 실패: ' + err.message);
+      });
+  });
+
+  // ── 녹화 정답 마크 ───────────────────────────────────────────────────────
+  // 걸으면서 방을 바꿀 때마다 찍는다. 이 마크가 replay 채점의 기준이 된다.
+  function renderRecording(rec){
+    var panel = document.getElementById('rec-panel');
+    var gap = document.getElementById('rec-gap');
+    if (!rec) { panel.style.display = 'none'; gap.style.display = 'none'; return; }
+    panel.style.display = '';
+    gap.style.display = '';
+    var file = rec.path.split(/[\\\\/]/).pop();
+    document.getElementById('rec-info').textContent = file + ' · ' + rec.lines + '줄' + lastMark;
+  }
+  var lastMark = '';
+  function sendMark(zoneId){
+    fetch('/record/mark', { method: 'POST', body: JSON.stringify({ zoneId: zoneId }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        lastMark = d.ok
+          ? '  ✓ 마크: ' + (zoneId ? (zoneName[zoneId] || zoneId) : '이탈') + ' @ ' + new Date().toTimeString().slice(0,8)
+          : '  ✗ ' + (d.error || '실패');
+      });
+  }
+  document.getElementById('mark-btn').addEventListener('click', function(){
+    sendMark(document.getElementById('mark-zone').value);
+  });
+  document.getElementById('mark-out').addEventListener('click', function(){ sendMark(null); });
 
   // ── 스캔 피드 (배치 수신) ──
   var feed = document.getElementById('scan-feed');
@@ -197,6 +327,11 @@ export function monitorPageHtml(): string {
 
   function renderState(st){
     document.getElementById('s-tags').textContent = st.tags.length;
+    // 아래 태그 카드 렌더에는 early return 이 있다 — 등록 패널은 그보다 먼저 그린다.
+    // 화이트리스트를 켠 직후엔 추적 태그가 0인데, 그때야말로 이 패널이 필요하다.
+    renderUnknown(st.unknown, st.ingest);
+    renderRecording(st.recording);
+    if (st.ingest) document.getElementById('s-blocked').textContent = st.ingest.droppedScans;
 
     // 게이트웨이 테이블
     var online = 0, total = 0;

@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,13 +9,17 @@ import { GenericJsonAdapter } from './ingestion/adapters/generic-json.adapter.js
 import { PresenceService } from './presence/presence-service.js';
 import { PositionEstimator } from './presence/position-estimator.js';
 import { WalkableMap } from './presence/walkable-map.js';
-import { getPatientProfile, openDb, upsertPatientProfile } from './db/index.js';
+import { getPatientProfile, openDb, registerTag, upsertPatientProfile } from './db/index.js';
 import { createWsServer } from './ws/index.js';
 import { signToken, verifyToken } from './auth/jwt.js';
 import { MonitorHub } from './monitor/monitor-hub.js';
 import { monitorPageHtml } from './monitor/monitor-page.js';
 import { TagMetaStore } from './presence/tag-meta-store.js';
-import { PATIENT_CHARACTERS, type PatientCharacter } from '@meditracker/shared';
+import { KnownTagStore } from './presence/known-tag-store.js';
+import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
+import { ScanRouter } from './ingestion/scan-router.js';
+import { ScanRecorder } from './recording/scan-recorder.js';
+import { PATIENT_CHARACTERS, TAG_GROUP_IDS, type PatientCharacter, type TagGroup } from '@meditracker/shared';
 
 // ── 조립: Ingestion → Zone Engine → Presence/DB → Permission → WS ──────────
 
@@ -42,15 +46,38 @@ let monitor: MonitorHub | undefined;
  * 비례하고, CONFIRM_COUNT 도 설계 의도대로 '스캔 주기 N회' 가 된다.
  */
 const dirtyTags = new Set<string>();
-const ingestion = new MqttIngestion(
-  SERVER_CONFIG.mqttUrl,
-  SERVER_CONFIG.mqttScanTopic,
-  new GenericJsonAdapter(),
+
+// 등록 태그 화이트리스트 + 미등록 신호 임시 보관함 (관제 "미등록 신호" 패널의 원천)
+const knownTags = new KnownTagStore(db);
+const unknownTags = new UnknownTagBuffer();
+
+// 현장 튜닝용 raw 스캔 녹화 (RECORD_SCANS 가 있을 때만)
+const recorder = SERVER_CONFIG.recordScans
+  ? new ScanRecorder(SERVER_CONFIG.recordScans, gateways, ZONE_ENGINE_CONFIG)
+  : null;
+
+/**
+ * 모든 스캔이 지나는 단일 관문. 등록 태그만 아래로 내려보낸다.
+ * 미등록(지나가는 폰·이어버드·워치, 15분마다 바뀌는 랜덤 MAC)은 여기서 끝 —
+ * 판정·좌표·로그·관제 피드 어디에도 안 들어가고 등록 화면에만 잠깐 뜬다.
+ */
+const scanRouter = new ScanRouter(
+  knownTags,
+  unknownTags,
   (scan) => {
     engine.ingest(scan, false);
     dirtyTags.add(scan.tagId);
     monitor?.recordScan(scan); // 관제 피드로 raw 스캔 탭
+    recorder?.record(scan); // 녹화 중이면 원본 그대로 적재
   },
+  SERVER_CONFIG.tagWhitelist,
+);
+
+const ingestion = new MqttIngestion(
+  SERVER_CONFIG.mqttUrl,
+  SERVER_CONFIG.mqttScanTopic,
+  new GenericJsonAdapter(),
+  (scan) => scanRouter.route(scan),
 );
 ingestion.start();
 
@@ -65,8 +92,29 @@ presence.onChange((c) =>
   monitor?.recordZoneChange({ tagId: c.tagId, fromZone: c.fromZone, toZone: c.toZone, at: c.at }),
 );
 
-// 자리비움 스윕 (ABSENT_TIMEOUT 판정)
-setInterval(() => engine.sweepAbsent(), SERVER_CONFIG.absentSweepIntervalMs);
+/**
+ * 화이트리스트 주기 재적재.
+ *
+ * 등록 API 는 즉시 reload 하지만, **앱 밖에서 DB 가 바뀌는 경우**가 있다 —
+ * `npm run dev:seed`, 수동 SQL, 앞으로 붙일 태그 지급/반납 도구. 그때 캐시가 낡은 채로
+ * 남으면 방금 배정한 비콘이 계속 차단되고, 원인을 찾느라 시간을 버린다(실제로 겪음).
+ * 작은 인덱스 테이블 한 번 읽는 것이라 비용은 사실상 0.
+ */
+setInterval(() => {
+  const before = knownTags.size();
+  knownTags.reload();
+  const after = knownTags.size();
+  if (before !== after) console.log(`[server] 화이트리스트 갱신: ${before} → ${after}개`);
+}, 30_000);
+
+// 자리비움 스윕 (ABSENT_TIMEOUT) + 오래 조용한 태그 메모리 정리 (EVICT_AFTER_MS)
+setInterval(() => {
+  const evicted = engine.sweepAbsent();
+  if (evicted > 0) {
+    const mins = Math.round(ZONE_ENGINE_CONFIG.EVICT_AFTER_MS / 60000);
+    console.log(`[server] 태그 상태 정리: ${evicted}건 (${mins}분 이상 무신호)`);
+  }
+}, SERVER_CONFIG.absentSweepIntervalMs);
 
 /**
  * 개발용 환자 토큰이 가리킬 사람.
@@ -94,10 +142,24 @@ function patientForToken(tagId: string | null): string {
   return row?.personId ?? 'patient-001';
 }
 
+const CORS_JSON = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+
+/** 본문 수신 + 크기 방어. content-type 을 안 붙여 preflight 없는 simple request 로 받는다. */
+function readBody(req: IncomingMessage, limit: number, done: (body: string) => void): void {
+  let body = '';
+  req.on('data', (c) => {
+    body += c;
+    if (body.length > limit) req.destroy();
+  });
+  req.on('end', () => done(body));
+}
+
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, tags: engine.getAllStates().length }));
+    res.end(
+      JSON.stringify({ ok: true, tags: engine.getAllStates().length, scans: scanRouter.stats() }),
+    );
     return;
   }
   // 도면 배경 이미지 메타 (프론트가 이미지 위에 존/아바타 매핑)
@@ -206,6 +268,76 @@ const httpServer = createServer((req, res) => {
       return;
     }
   }
+  /**
+   * 미등록 신호 목록 — 관제 "미등록 신호" 패널이 폴링한다.
+   *
+   * 여기 뜨는 ID 는 화이트리스트에서 걸러져 **판정·좌표·로그 어디에도 안 들어간**
+   * 것들이다. 등록 화면 하나만 이 목록을 본다.
+   */
+  if (req.url === '/unknown-tags') {
+    res.writeHead(200, { ...CORS_JSON, 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ stats: scanRouter.stats(), sightings: unknownTags.list() }));
+    return;
+  }
+  /**
+   * 비콘을 재고에 등록 → 그 즉시 화이트리스트를 통과해 추적이 시작된다.
+   * 장비 도착 첫날 비콘 100개를 이걸로 올린다 (게이트웨이 코앞에 대면 맨 위로 뜸).
+   *
+   * ⚠️ 인증 없음 — /tag-meta 와 같은 수준이다. 관제 인증을 붙일 때 이 세 엔드포인트
+   *    (/tag-meta, /unknown-tags, /register-tag)를 한 번에 staff 토큰 뒤로 옮길 것.
+   */
+  if (req.url === '/register-tag' && req.method === 'POST') {
+    readBody(req, 4_000, (body) => {
+      try {
+        const { tagId, name, group, memo } = JSON.parse(body) as {
+          tagId: string;
+          name?: string;
+          group?: string;
+          memo?: string;
+        };
+        const g = (TAG_GROUP_IDS.includes(group as TagGroup) ? group : 'unassigned') as TagGroup;
+        if (!tagId) throw new Error('tagId 없음');
+
+        const label = (name ?? '').trim() || tagId;
+        const { personId } = registerTag(db, { tagId, name: label, group: g });
+        // 표시 이름은 캐시 일관성 때문에 스토어를 거친다 (관제·직원 화면으로 즉시 방송됨)
+        tagMeta.set(tagId, label, (memo ?? '').trim(), g);
+        knownTags.reload(); // 다음 스캔부터 통과
+        unknownTags.forget(tagId); // 미등록 목록에서 즉시 제거
+
+        console.log(`[server] 태그 등록: ${tagId} → ${label} (${g}, ${personId})`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, personId, knownTags: knownTags.size() }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+  /**
+   * 녹화 정답 마크 — 걸으면서 "지금 이 방" 을 사람이 찍는다.
+   * 이게 없으면 재생은 되는데 채점을 못 한다 (판정이 바뀐 건 보여도 좋아졌는지 모름).
+   */
+  if (req.url === '/record/mark' && req.method === 'POST') {
+    readBody(req, 1_000, (body) => {
+      if (!recorder) {
+        res.writeHead(409, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: '녹화 중이 아님 (RECORD_SCANS 미설정)' }));
+        return;
+      }
+      try {
+        const { zoneId, tagId } = JSON.parse(body) as { zoneId: string | null; tagId?: string };
+        recorder.mark(zoneId ?? null, tagId);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, ...recorder.stats() }));
+      } catch {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false }));
+      }
+    });
+    return;
+  }
   // 실시간 관제 페이지 (하드웨어 디버깅/현장 튜닝) — 서버 자체 서빙, CDN 불필요
   if (req.url === '/monitor' || req.url?.startsWith('/monitor?')) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -233,7 +365,11 @@ const httpServer = createServer((req, res) => {
 const { io, patient } = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db, tagMeta);
 
 // 관제 허브 (/monitor namespace) — io 준비 후 초기화
-monitor = new MonitorHub(io, engine, estimator, gateways, loadZones(), tagMeta);
+monitor = new MonitorHub(io, engine, estimator, gateways, loadZones(), tagMeta, () => ({
+  stats: scanRouter.stats(),
+  unknown: unknownTags.list(),
+  recording: recorder ? recorder.stats() : null,
+}));
 
 // 태그 이름/메모 변경 → 관제·직원 화면 양쪽 실시간 반영
 tagMeta.onChange((map) => {
@@ -283,4 +419,12 @@ httpServer.listen(SERVER_CONFIG.httpPort, () => {
   console.log(`[server] 관제 페이지: http://localhost:${SERVER_CONFIG.httpPort}/monitor`);
   const ws = walkable.stats();
   console.log(`[server] walkable: ${ws.cols}x${ws.rows} cell=${ws.cell}px, 통행가능 ${ws.walkable} 셀`);
+  // 화이트리스트 상태는 반드시 부팅 로그에 남긴다 — 장비 붙였는데 아무것도 안 뜰 때
+  // 제일 먼저 볼 곳이 여기다 (등록 안 된 비콘은 설계대로 전부 차단된다)
+  console.log(
+    SERVER_CONFIG.tagWhitelist
+      ? `[server] 태그 화이트리스트 ON — 등록 ${knownTags.size()}개만 추적. 미등록 비콘은 관제 "미등록 신호" 에서 등록`
+      : `[server] ⚠️ 태그 화이트리스트 OFF — 주변 BLE 전부 추적 (디버깅 전용, 운영 금지)`,
+  );
+  if (recorder) console.log(`[server] 스캔 녹화 중 → ${recorder.path}`);
 });
