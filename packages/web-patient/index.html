@@ -5,12 +5,101 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MediTracker — 대기 안내</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #16213e; }
+      html, body { margin: 0; height: 100%; background: #0e1420; overflow: hidden; }
+      body { font-family: ui-sans-serif, system-ui, "Malgun Gothic", sans-serif; color: #e8eef7; }
       #app { width: 100%; height: 100%; }
+      /* 도트 그래픽은 보간하면 뭉개진다 — 캔버스까지 nearest 로 못 박는다 */
+      #app canvas { image-rendering: pixelated; }
+
+      /* ── 상단 안내 HUD ────────────────────────────────────────────────── */
+      #hud {
+        position: fixed; left: 0; right: 0; top: 0; z-index: 50;
+        padding: 10px 14px; box-sizing: border-box;
+        background: linear-gradient(#0e1420ee, #0e1420aa 70%, #0e142000);
+        pointer-events: none;
+      }
+      #hud .who { font-size: 13px; color: #8fd3c7; font-weight: 700; }
+      #hud .where { margin-top: 2px; font-size: 19px; font-weight: 800; letter-spacing: -.01em; }
+      #hud .sub { margin-top: 3px; font-size: 12px; color: #9fb0c6; }
+
+      /* ── 우하단 버튼 ──────────────────────────────────────────────────── */
+      #ctrls { position: fixed; right: 12px; bottom: 14px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
+      #ctrls button {
+        padding: 10px 14px; border-radius: 9px; cursor: pointer;
+        border: 1px solid #3a5a7d; background: #16233aee; color: #cfe3f7;
+        font: 700 13px inherit;
+      }
+      #ctrls button:hover { background: #1e304d; }
+      #ctrls button.on { background: #2c6b4a; border-color: #4fae7f; color: #fff; }
+
+      /* ── 첫 진입 커스터마이징 ─────────────────────────────────────────── */
+      #setup {
+        position: fixed; inset: 0; z-index: 200; display: none;
+        align-items: center; justify-content: center; padding: 20px;
+        background: #0b111ceb;
+      }
+      #setup.show { display: flex; }
+      #setup .card {
+        width: 100%; max-width: 420px; padding: 22px;
+        background: #141d2e; border: 1px solid #2b3a52;
+        border-radius: 14px; box-shadow: 0 16px 40px #000a;
+      }
+      #setup h2 { margin: 0 0 4px; font-size: 20px; }
+      #setup p { margin: 0 0 18px; font-size: 13px; color: #9fb0c6; line-height: 1.55; }
+      #chars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+      .char {
+        padding: 10px 4px 8px; border-radius: 10px; cursor: pointer;
+        background: #101827; border: 2px solid #253046; text-align: center;
+      }
+      .char:hover { background: #162033; }
+      .char.sel { border-color: #58a6ff; background: #17263c; }
+      /* 스프라이트 시트에서 '정면(아래)' 프레임 한 장만 잘라 보여준다 */
+      .char .pic {
+        width: 48px; height: 96px; margin: 0 auto 6px;
+        background-repeat: no-repeat; background-size: 1152px 96px;   /* 384x32 을 3배 */
+        background-position: -864px 0;                                /* 19번째 프레임 = 정면 */
+        image-rendering: pixelated;
+      }
+      .char .nm { font-size: 11px; color: #b9c8dc; font-weight: 700; }
+      #nick {
+        width: 100%; box-sizing: border-box; margin: 16px 0 4px; padding: 10px 12px;
+        border-radius: 9px; border: 1px solid #2b3a52; background: #0f1725;
+        color: inherit; font: 400 14px inherit;
+      }
+      #nick:focus { outline: none; border-color: #58a6ff; }
+      #setup .hint { font-size: 11px; color: #6d7d94; }
+      #start {
+        width: 100%; margin-top: 16px; padding: 12px; border-radius: 10px; cursor: pointer;
+        border: none; background: #2f6fd0; color: #fff; font: 800 15px inherit;
+      }
+      #start:disabled { background: #26334a; color: #6d7d94; cursor: default; }
     </style>
   </head>
   <body>
     <div id="app"></div>
+
+    <div id="hud">
+      <div class="who" id="hud-who"></div>
+      <div class="where" id="hud-where">위치를 확인하는 중…</div>
+      <div class="sub" id="hud-sub"></div>
+    </div>
+
+    <div id="ctrls">
+      <button id="overview-btn" type="button">🗺 전체 보기</button>
+    </div>
+
+    <!-- 첫 진입: 캐릭터 고르기 (서버에 저장 — 태그 반납 시 초기화) -->
+    <div id="setup">
+      <div class="card">
+        <h2>내 캐릭터 고르기</h2>
+        <p>대기 화면에서 나를 나타낼 캐릭터입니다.<br />별칭은 다른 환자에게 보이지 않습니다.</p>
+        <div id="chars"></div>
+        <input id="nick" type="text" maxlength="12" placeholder="별칭 (선택)" spellcheck="false" />
+        <div class="hint">진료가 끝나고 비콘을 반납하면 초기화됩니다.</div>
+        <button id="start" type="button" disabled>시작하기</button>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

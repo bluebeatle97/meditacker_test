@@ -71,6 +71,19 @@ export interface TagMeta {
 }
 export type TagMetaMap = Record<string, TagMeta>;
 
+/**
+ * 환자용 화면 캐릭터. 첫 진입 시 고르고 서버에 저장한다
+ * (⚠️ 불변식 B-5: 브라우저 스토리지 금지 — 그래서 서버 보관).
+ * 태그 반납 시 초기화되므로 다음 환자에게 남지 않는다.
+ */
+export const PATIENT_CHARACTERS = ['adam', 'alex', 'amelia', 'bob'] as const;
+export type PatientCharacter = (typeof PATIENT_CHARACTERS)[number];
+
+export interface PatientProfile {
+  charId: PatientCharacter | string;
+  nickname: string | null;
+}
+
 /** RSSI 가중평균으로 추정한 연속 위치 (타일 좌표, 트래킹 시각화용) */
 export interface PositionEstimate {
   tagId: string;

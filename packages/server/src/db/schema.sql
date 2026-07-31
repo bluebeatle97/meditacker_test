@@ -29,6 +29,15 @@ CREATE INDEX IF NOT EXISTS idx_logs_person ON presence_logs(person_id);
 CREATE INDEX IF NOT EXISTS idx_logs_zone ON presence_logs(zone_id);
 
 -- 운영자가 태그에 붙인 이름/메모 (tagId 대신 표시)
+-- 환자용 화면 캐릭터 커스터마이징 (첫 진입 시 선택)
+-- 태그 반납 시 지운다 — 다음 환자에게 이전 사람 캐릭터가 남으면 안 된다.
+CREATE TABLE IF NOT EXISTS patient_profiles (
+  person_id TEXT PRIMARY KEY,
+  char_id TEXT,
+  nickname TEXT,
+  updated_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS tag_meta (
   tag_id TEXT PRIMARY KEY,
   name TEXT,

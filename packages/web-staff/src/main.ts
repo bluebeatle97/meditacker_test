@@ -35,6 +35,11 @@ if (adminBtn) {
   adminBtn.href = `${SERVER_URL}/monitor?back=${encodeURIComponent(window.location.href)}`;
 }
 
+// 환자용 패널은 별 앱(별 포트) — 개발 기본값은 vite --port 5174
+const PATIENT_URL = import.meta.env.VITE_PATIENT_URL ?? 'http://localhost:5174';
+const patientBtn = document.getElementById('patient-btn') as HTMLAnchorElement | null;
+if (patientBtn) patientBtn.href = PATIENT_URL;
+
 // 도면이 거의 정사각형(26700×25700)이라 캔버스도 그 비율에 맞춤 (Scale.FIT 으로 창에 맞게 축소)
 const CW = 1120;
 const CH = 1120;

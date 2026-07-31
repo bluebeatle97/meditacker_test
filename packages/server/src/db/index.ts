@@ -3,7 +3,13 @@ import { readFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Person, TagAssignment, TagGroup, TagMetaMap } from '@meditracker/shared';
+import type {
+  PatientProfile,
+  Person,
+  TagAssignment,
+  TagGroup,
+  TagMetaMap,
+} from '@meditracker/shared';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -41,9 +47,14 @@ export function assignTag(db: Db, a: TagAssignment): void {
   ).run(a.tagId, a.assignedTo, a.personType, a.assignedAt);
 }
 
-/** 태그 반납 (환자 호출 후 회수 → 소독 → 재사용) */
+/**
+ * 태그 반납 (환자 호출 후 회수 → 소독 → 재사용).
+ * 캐릭터 커스터마이징도 같이 지운다 — 다음 환자가 이전 사람 캐릭터를 물려받으면 안 된다.
+ */
 export function releaseTag(db: Db, tagId: string): void {
+  const person = findPersonByTag(db, tagId);
   db.prepare(`UPDATE tags SET active = 0 WHERE tag_id = ?`).run(tagId);
+  if (person) clearPatientProfile(db, person.personId);
 }
 
 export function findPersonByTag(db: Db, tagId: string): Person | undefined {
@@ -69,6 +80,27 @@ export function closePresenceLog(db: Db, tagId: string, exitedAt: number, durati
     `UPDATE presence_logs SET exited_at = ?, duration_sec = ?
      WHERE id = (SELECT id FROM presence_logs WHERE tag_id = ? AND exited_at IS NULL ORDER BY entered_at DESC LIMIT 1)`,
   ).run(exitedAt, durationSec, tagId);
+}
+
+// ── 환자용 캐릭터 커스터마이징 (첫 진입 시 선택 → 반납 시 초기화) ───────────
+
+export function getPatientProfile(db: Db, personId: string): PatientProfile | null {
+  const row = db
+    .prepare(`SELECT char_id AS charId, nickname FROM patient_profiles WHERE person_id = ?`)
+    .get(personId) as PatientProfile | undefined;
+  return row ?? null;
+}
+
+export function upsertPatientProfile(db: Db, personId: string, charId: string, nickname: string): void {
+  db.prepare(
+    `INSERT INTO patient_profiles (person_id, char_id, nickname, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(person_id) DO UPDATE SET char_id = excluded.char_id,
+       nickname = excluded.nickname, updated_at = excluded.updated_at`,
+  ).run(personId, charId, nickname || null, Date.now());
+}
+
+export function clearPatientProfile(db: Db, personId: string): void {
+  db.prepare(`DELETE FROM patient_profiles WHERE person_id = ?`).run(personId);
 }
 
 // ── 태그 이름/메모 (설계서 외 운영 편의 — 관제·직원 화면 라벨) ──────────────

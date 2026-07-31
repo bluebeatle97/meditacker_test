@@ -9,12 +9,13 @@ import { GenericJsonAdapter } from './ingestion/adapters/generic-json.adapter.js
 import { PresenceService } from './presence/presence-service.js';
 import { PositionEstimator } from './presence/position-estimator.js';
 import { WalkableMap } from './presence/walkable-map.js';
-import { openDb } from './db/index.js';
+import { getPatientProfile, openDb, upsertPatientProfile } from './db/index.js';
 import { createWsServer } from './ws/index.js';
-import { signToken } from './auth/jwt.js';
+import { signToken, verifyToken } from './auth/jwt.js';
 import { MonitorHub } from './monitor/monitor-hub.js';
 import { monitorPageHtml } from './monitor/monitor-page.js';
 import { TagMetaStore } from './presence/tag-meta-store.js';
+import { PATIENT_CHARACTERS, type PatientCharacter } from '@meditracker/shared';
 
 // ── 조립: Ingestion → Zone Engine → Presence/DB → Permission → WS ──────────
 
@@ -112,6 +113,53 @@ const httpServer = createServer((req, res) => {
           res.end(JSON.stringify({ ok: true }));
         } catch {
           res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: false }));
+        }
+      });
+      return;
+    }
+  }
+  // 환자용 캐릭터 커스터마이징 — 첫 진입 시 GET 이 비면 선택 화면을 띄운다.
+  // 브라우저 스토리지 금지(불변식 B-5)라 서버가 personId 기준으로 보관한다.
+  if (req.url?.startsWith('/patient-profile')) {
+    const cors = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    if (req.method === 'GET') {
+      const token = new URL(req.url, 'http://localhost').searchParams.get('token') ?? '';
+      const claims = verifyToken(token, SERVER_CONFIG.jwtSecret);
+      if (!claims) {
+        res.writeHead(401, cors);
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
+      res.writeHead(200, cors);
+      res.end(JSON.stringify(getPatientProfile(db, claims.personId)));
+      return;
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => {
+        body += c;
+        if (body.length > 4_000) req.destroy();
+      });
+      req.on('end', () => {
+        try {
+          const { token, charId, nickname } = JSON.parse(body) as {
+            token: string;
+            charId: string;
+            nickname?: string;
+          };
+          const claims = verifyToken(token, SERVER_CONFIG.jwtSecret);
+          // 모르는 캐릭터 id 는 거절 (클라이언트 입력을 그대로 신뢰하지 않음)
+          if (!claims || !PATIENT_CHARACTERS.includes(charId as PatientCharacter)) {
+            res.writeHead(claims ? 400 : 401, cors);
+            res.end(JSON.stringify({ ok: false }));
+            return;
+          }
+          upsertPatientProfile(db, claims.personId, charId, (nickname ?? '').trim().slice(0, 12));
+          res.writeHead(200, cors);
+          res.end(JSON.stringify({ ok: true }));
+        } catch {
+          res.writeHead(400, cors);
           res.end(JSON.stringify({ ok: false }));
         }
       });

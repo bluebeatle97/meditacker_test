@@ -13,12 +13,14 @@
       /* ── 왼쪽 비콘 목록 (맵 위에 오버레이) ──────────────────────────── */
       #sidebar {
         position: fixed; left: 12px; top: 12px; z-index: 90;
-        width: 282px; max-height: calc(100% - 24px);
+        width: 282px; height: calc(100% - 24px);
         display: flex; flex-direction: column;
         background: #141a26f2; border: 1px solid #2a3448; border-radius: 10px;
         box-shadow: 0 8px 24px #0008;
         color: #dbe4f0; overflow: hidden;
       }
+      /* 접으면 헤더만 남는다 (맵은 그대로) */
+      #sidebar.collapsed { height: auto; }
       #panel-toggle {
         display: flex; align-items: center; gap: 7px; width: 100%;
         padding: 10px 12px; box-sizing: border-box; cursor: pointer;
@@ -36,10 +38,15 @@
       #sidebar.collapsed .fold::before { content: "▸"; }
       #sidebar:not(.collapsed) .fold::before { content: "▾"; }
 
-      #panel-body { display: flex; flex-direction: column; min-height: 0; }
+      /* 비콘 현황이 위(넓게), 그룹 버튼은 맨 아래 */
+      #panel-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
-      /* 그룹 버튼 — 자리 고정 (그룹을 열어도 밀리지 않는다) */
-      #group-tabs { flex: none; padding: 6px; display: flex; flex-direction: column; gap: 3px; }
+      /* 그룹 버튼 — 패널 맨 아래, 자리 고정 (그룹을 열어도 밀리지 않는다) */
+      #group-tabs {
+        flex: none; margin-top: auto; padding: 6px;
+        border-top: 1px solid #2f3d55; background: #101725cc;
+        display: flex; flex-direction: column; gap: 3px;
+      }
       .group-btn {
         display: flex; align-items: center; gap: 7px; width: 100%;
         padding: 7px 9px; box-sizing: border-box; cursor: pointer;
@@ -58,16 +65,16 @@
       .group-btn.has .n { color: #dbe4f0; }
       .group-btn.open .n { background: #14263a; color: #fff; }
 
-      /* 열린 그룹의 목록 — 항상 그룹 버튼들 아래(맨밑) */
+      /* 열린 그룹의 비콘 현황 — 헤더 바로 아래, 남는 높이를 다 쓴다 */
       #group-list {
-        border-top: 1px solid #253046; min-height: 0;
+        flex: 1; min-height: 0;
         display: flex; flex-direction: column; overflow: hidden;
       }
       #group-title {
-        flex: none; padding: 7px 12px 4px; font-size: 11px; font-weight: 700;
-        letter-spacing: .03em; color: #7e8ea6;
+        flex: none; padding: 8px 12px 5px; font-size: 11px; font-weight: 700;
+        letter-spacing: .03em; color: #8fa3bf;
       }
-      #tag-list { margin: 0; padding: 0 6px 6px; list-style: none; overflow-y: auto; }
+      #tag-list { margin: 0; padding: 0 6px 8px; list-style: none; overflow-y: auto; }
       #tag-empty { padding: 10px 12px 14px; color: #5d6b80; font-size: 11.5px; }
 
       .tag-row { display: flex; gap: 9px; align-items: flex-start; padding: 7px 6px; border-radius: 8px; }
@@ -101,8 +108,14 @@
       .info .grp { flex: none; font-size: 10.5px; color: #8fa3bf; cursor: pointer; }
       .info .grp option { background: #141a26; color: #dbe4f0; }
 
-      .status { display: flex; align-items: center; gap: 5px; padding: 2px 5px 3px; font-size: 11px; color: #c6d4e6; }
-      .status b { font-weight: 600; }
+      /* 현황 줄이 가장 눈에 띄어야 한다 — 칩 배경 + 굵은 방 이름 */
+      .status {
+        display: flex; align-items: center; gap: 6px; margin: 2px 0;
+        padding: 3px 7px; border-radius: 6px; background: #1b2739;
+        font-size: 12px; color: #d7e3f2;
+      }
+      .status b { font-weight: 700; }
+      .tag-row.absent .status { background: #1a1f2a; color: #93a1b4; }
       .status .dim { color: #77869b; }
       .status .sig { flex: none; width: 7px; height: 7px; border-radius: 50%; }
       .status .sig.ok   { background: #3fb950; box-shadow: 0 0 5px #3fb95088; }
@@ -121,6 +134,8 @@
       }
       #admin-btn { border: 1px solid #58a6ff; background: #1c2b45; color: #58a6ff; }
       #admin-btn:hover { background: #234; }
+      #patient-btn { border: 1px solid #b98ce0; background: #271c38; color: #d6b8f5; }
+      #patient-btn:hover { background: #352348; }
       #name-btn { border: 1px solid #4fae7f; background: #1c2b23; color: #8fe3b4; }
       #name-btn:hover { background: #23372c; }
       #name-btn.on { background: #2c6b4a; color: #fff; }
@@ -138,12 +153,13 @@
         📡 비콘 목록<span class="num" id="tag-count">0</span><span class="fold"></span>
       </button>
       <div id="panel-body">
-        <div id="group-tabs"></div>
+        <!-- 비콘 현황이 위, 그룹 버튼은 맨 아래 -->
         <div id="group-list">
           <div id="group-title" style="display: none"></div>
           <ul id="tag-list"></ul>
           <div id="tag-empty">그룹을 눌러 비콘을 펼쳐보세요.</div>
         </div>
+        <div id="group-tabs"></div>
       </div>
     </aside>
 
@@ -152,6 +168,8 @@
       <button id="name-btn" type="button">🏷 이름</button>
       <!-- 통제구역(벽·계단·엘리베이터) 표시 토글 -->
       <button id="blocked-btn" type="button">🚧 통제구역 보기</button>
+      <!-- 환자용 패널(도트 그래픽) 진입 — 별 앱이라 새 탭으로 -->
+      <a id="patient-btn" href="#" target="_blank" rel="noopener">🎮 환자용 패널</a>
       <!-- 관리자(관제) 모드 진입 — 서버가 서빙하는 /monitor 로 이동, back 파라미터로 복귀 경로 전달 -->
       <a id="admin-btn" href="#">⚙ 관리자 모드</a>
     </div>
