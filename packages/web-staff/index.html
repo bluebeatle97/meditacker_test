@@ -69,6 +69,9 @@
       }
       .group-btn.has .n { color: #dbe4f0; }
       .group-btn.open .n { background: #14263a; color: #fff; }
+      /* 그룹을 접어 둬도 경고는 보여야 한다 */
+      .group-btn .bang { display: none; }
+      .group-btn.alert .bang { display: inline-flex; }
 
       /* 열린 그룹의 비콘 현황 — 헤더 바로 아래, 남는 높이를 다 쓴다 */
       #group-list {
@@ -126,6 +129,63 @@
       .status .sig.ok   { background: #3fb950; box-shadow: 0 0 5px #3fb95088; }
       .status .sig.warn { background: #d29922; }
       .status .sig.off  { background: #4b5666; }
+      .tag-row.alerted .status { background: #3d1621; color: #ffdde2; }
+
+      /* ── 장기체류 경고 표시 ──────────────────────────────────────────
+         빨간 ! 가 깜빡인다. 맵 위 비콘 배지 · 이 목록 · 경고창이 같은 표시를
+         쓰고, 애니메이션 주기도 같아서 화면 전체가 한 박자로 깜빡인다. */
+      @keyframes bang-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: .1; } }
+      .bang {
+        flex: none; display: inline-flex; align-items: center; justify-content: center;
+        width: 15px; height: 15px; border-radius: 50%;
+        background: #ff2f45; color: #fff;
+        font: 900 11px/1 ui-sans-serif, system-ui, sans-serif; font-style: normal;
+        box-shadow: 0 0 0 1px #ffffff55;
+        animation: bang-blink .84s infinite;
+      }
+      .bang.lg { width: 19px; height: 19px; font-size: 14px; }
+
+      /* ── 환자 장기체류 경고창 (화면 위 가운데) ───────────────────────── */
+      @keyframes alert-glow {
+        0%, 49%   { box-shadow: 0 10px 28px #000a, 0 0 0 3px #ff2f4566; }
+        50%, 100% { box-shadow: 0 10px 28px #000a, 0 0 0 3px #ff2f4500; }
+      }
+      #alerts {
+        position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 200;
+        width: 340px; max-height: calc(100% - 24px);
+        display: flex; flex-direction: column; overflow: hidden;
+        background: #2a1017f5; border: 1px solid #ff2f45; border-radius: 10px;
+        color: #ffe2e6; animation: alert-glow .84s infinite;
+      }
+      #alerts[hidden] { display: none; }
+      #alerts-head {
+        flex: none; display: flex; align-items: center; gap: 8px;
+        padding: 9px 11px; border-bottom: 1px solid #6d2230; background: #3b141e;
+        font: 700 13px inherit; color: #ffd7dd;
+      }
+      #alerts-head .hint { font-weight: 400; font-size: 11px; color: #d1919c; }
+      #alerts-n {
+        margin-left: auto; padding: 1px 8px; border-radius: 999px;
+        background: #ff2f45; color: #fff; font-size: 12px;
+      }
+      #alerts-list { margin: 0; padding: 4px 6px 7px; list-style: none; overflow-y: auto; }
+      .alert-row { padding: 7px 5px; border-radius: 7px; }
+      .alert-row + .alert-row { border-top: 1px solid #5a1f2a; }
+      .alert-row .top { display: flex; align-items: center; gap: 8px; }
+      .alert-row .who {
+        flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+        padding: 0; border: none; background: none; cursor: pointer;
+        color: #fff; font: 700 13px inherit; text-align: left;
+      }
+      .alert-row .who:hover { text-decoration: underline; }
+      .alert-row .ack {
+        flex: none; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+        border: 1px solid #96404e; background: #4b1a24; color: #ffc9d1;
+        font: 600 11.5px inherit;
+      }
+      .alert-row .ack:hover { background: #63222f; color: #fff; }
+      .alert-row .sub { margin: 3px 0 0 23px; font-size: 11.5px; color: #efa6b1; }
+      .alert-row .sub b { color: #fff; font-weight: 700; }
 
       /* ── 오른쪽 세로 버튼 (오른쪽 끝에 붙임) ────────────────────────── */
       #tools {
@@ -147,6 +207,25 @@
       #blocked-btn { border: 1px solid #d05050; background: #2b1c1c; color: #ff9d9d; }
       #blocked-btn:hover { background: #3a2323; }
       #blocked-btn.on { background: #7a2b2b; color: #fff; }
+
+      /* 도면 확대/축소 — 세 칸이 한 덩어리 (다른 버튼과 같은 줄에 맞춘다) */
+      #tools > #zoom-box {
+        display: flex; align-items: stretch; padding: 0; overflow: hidden;
+        border: 1px solid #6b7b93; border-right: none; border-radius: 6px 0 0 6px;
+        background: #19212f; color: #cfdcec;
+      }
+      #zoom-box .ic { padding: 7px 6px 7px 9px; font-size: 12px; opacity: .75; }
+      #zoom-box button {
+        padding: 7px 9px; border: none; background: none; cursor: pointer;
+        color: #cfdcec; font: 700 14px/1 ui-monospace, monospace;
+      }
+      #zoom-box button:hover:not(:disabled) { background: #2a3547; color: #fff; }
+      #zoom-box button:disabled { color: #4a5568; cursor: default; }
+      #zoom-box #zoom-level {
+        min-width: 52px; text-align: center; font-size: 12px; color: #9fb2ca;
+        border-left: 1px solid #2c3a52; border-right: 1px solid #2c3a52;
+      }
+      #zoom-box #zoom-level:hover { color: #fff; }
     </style>
   </head>
   <body>
@@ -168,7 +247,24 @@
       </div>
     </aside>
 
+    <!-- 환자·미지정 비콘이 10분 넘게 같은 자리에 있으면 여기에 뜬다 (줄은 JS 가 만든다) -->
+    <div id="alerts" hidden>
+      <div id="alerts-head">
+        <i class="bang lg">!</i>
+        장기 체류 <span class="hint">10분 이상 같은 자리</span>
+        <span id="alerts-n">0</span>
+      </div>
+      <ul id="alerts-list"></ul>
+    </div>
+
     <div id="tools">
+      <!-- 도면 확대/축소 — 배율을 누르면 원래 크기로. 휠·드래그로도 된다 -->
+      <div id="zoom-box">
+        <span class="ic">🔍</span>
+        <button id="zoom-out" type="button" title="도면 축소">−</button>
+        <button id="zoom-level" type="button" title="원래 크기로">100%</button>
+        <button id="zoom-in" type="button" title="도면 확대">+</button>
+      </div>
       <!-- 방 이름 표시 토글 (도면 PDF 라벨 그대로) -->
       <button id="name-btn" type="button">🏷 이름</button>
       <!-- 통제구역(벽·계단·엘리베이터) 표시 토글 -->

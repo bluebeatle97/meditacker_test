@@ -10,6 +10,7 @@ import type {
   TagMetaMap,
   Zone,
 } from '@meditracker/shared';
+import { AlertPanel, STUCK_ALERT_MS, type StuckAlert } from './alert-panel';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { groupColor, TagPanel, type TagRow } from './tag-panel';
 
@@ -68,6 +69,24 @@ const PICK_RING_COLOR = 0xff2f45;
 /** 이름표 기본 위치 (아바타 중심에서 아래로) — 겹치면 여기서부터 아래로 밀어낸다 */
 const LABEL_BASE_Y = 11;
 
+/** 도면 확대 배율 — 1 = 도면 전체가 화면에 들어오는 기본 크기 */
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 6;
+/** 버튼 한 번에 곱해지는 배율 (휠은 더 잘게) */
+const ZOOM_STEP = 1.4;
+const ZOOM_WHEEL_STEP = 1.12;
+/** 경고 ! 표 점멸 주기 (켜짐 또는 꺼짐 한 구간, ms) */
+const BLINK_MS = 420;
+/** 장기체류 경고 배지 — 강조 링과 같은 빨강 */
+const ALERT_COLOR = PICK_RING_COLOR;
+/** ! 배지 위치 — 비콘(반지름 7, 후광 11) 오른쪽 위 모서리에 걸친다 */
+const ALERT_BADGE_AT = { x: 10, y: -10, r: 7.5 };
+/**
+ * 경고를 볼 그룹 — 환자와 아직 배정 안 된 비콘만.
+ * 직원은 한 방에 오래 있는 게 정상(진료·시술)이라 경고하면 매번 울린다.
+ */
+const ALERT_GROUPS: ReadonlySet<TagGroup> = new Set<TagGroup>(['patient', 'unassigned']);
+
 class StaffMapScene extends Phaser.Scene {
   private socket!: Socket;
   private zones = new Map<string, Zone>();
@@ -80,6 +99,19 @@ class StaffMapScene extends Phaser.Scene {
   /** 아바타의 색을 바꿀 수 있게 원(테두리·후광) 참조를 들고 있는다 (그룹 변경 시 recolor) */
   private avatarDots = new Map<string, { halo: Phaser.GameObjects.Arc; dot: Phaser.GameObjects.Arc }>();
   private panel!: TagPanel;
+  private alerts!: AlertPanel;
+  /** 아바타 위에 뜨는 빨간 ! 배지 (update() 에서 다 같이 점멸시킨다) */
+  private alertBadges = new Map<string, Phaser.GameObjects.Container>();
+  /** 지금 장기체류 경고 중인 태그 */
+  private stuckTags = new Set<string>();
+  /**
+   * 표시 구역이 바뀐 시각. 목록의 '체류'와 경고가 **같은 값**을 쓰게 하려고
+   * 원본 `enteredAt` 이 아니라 안정화된 구역 기준으로 다시 잰다 — 안 그러면
+   * 복도를 스치는 채터링에 타이머가 계속 0으로 돌아가 10분이 영영 안 찬다.
+   */
+  private zoneSince = new Map<string, { zone: string | null; at: number }>();
+  /** '확인' 누른 경고 (태그 → 그때의 체류 시작 시각) — 자리를 옮기면 저절로 풀린다 */
+  private acked = new Map<string, number>();
   private pickedTag?: string;
   private pickRing?: Phaser.GameObjects.Arc;
   /** 아바타별 남은 경로 (도면 좌표 waypoint) — 벽을 피해 문으로 돌아간다 */
@@ -98,6 +130,10 @@ class StaffMapScene extends Phaser.Scene {
    * (관제 페이지는 원본을 봐야 하므로 여기서만 적용)
    */
   private zoneDwell = new ZoneDwellFilter(ZONE_DWELL_MS);
+
+  /** 확대해도 제자리·같은 크기로 남아야 하는 것(제목)만 그리는 카메라 */
+  private uiCam?: Phaser.Cameras.Scene2D.Camera;
+  private title!: Phaser.GameObjects.Text;
 
   private plan!: FloorplanMeta;
   private worldScale = 1;
@@ -118,7 +154,7 @@ class StaffMapScene extends Phaser.Scene {
   }
 
   async create(): Promise<void> {
-    this.add.text(16, 12, 'MediTracker — 직원용 (고트의원 6F)', {
+    this.title = this.add.text(16, 12, 'MediTracker — 직원용 (고트의원 6F)', {
       color: '#ffffff',
       fontSize: '18px',
       fontStyle: 'bold',
@@ -171,10 +207,99 @@ class StaffMapScene extends Phaser.Scene {
       (tagId, name, memo, group) => this.saveMeta(tagId, name, memo, group),
       (tagId) => this.pickTag(tagId),
     );
+    // 장기체류 경고창 (DOM) — 이름을 누르면 맵에서 그 비콘을 찾아 준다
+    this.alerts = new AlertPanel(
+      document.getElementById('alerts')!,
+      (tagId) => this.locate(tagId),
+      (tagId) => this.ackAlert(tagId),
+    );
     // 체류 시간·마지막 신호가 흐르므로 1초마다 다시 그린다
     this.time.addEvent({ delay: 1000, loop: true, callback: () => this.refreshPanel() });
 
+    this.setupZoom();
     this.connect(await resolveToken());
+  }
+
+  /**
+   * 도면 확대/축소.
+   *
+   * 카메라 줌만 바꾼다 — 도면·존 라벨·아바타가 통째로 같이 커지므로 좌표계가
+   * 어긋날 일이 없다(아바타를 따로 스케일하면 위치 계산을 전부 이중으로 해야 한다).
+   * 제목만 UI 카메라로 따로 그려 확대해도 제자리·같은 크기로 남는다.
+   */
+  private setupZoom(): void {
+    const cam = this.cameras.main;
+    // 도면 밖으로 밀려나지 않게 — 확대해도 화면이 캔버스 안에 머문다
+    cam.setBounds(0, 0, CW, CH);
+
+    // 이 시점의 월드 오브젝트는 UI 카메라가, 제목은 월드 카메라가 무시한다.
+    // (뒤에 생기는 아바타·강조 링은 만들 때마다 uiCam.ignore 로 추가한다)
+    this.uiCam = this.cameras.add(0, 0, CW, CH);
+    this.uiCam.ignore(this.children.list.filter((o) => o !== this.title));
+    cam.ignore(this.title);
+
+    const zoomIn = document.getElementById('zoom-in') as HTMLButtonElement | null;
+    const zoomOut = document.getElementById('zoom-out') as HTMLButtonElement | null;
+    const level = document.getElementById('zoom-level') as HTMLButtonElement | null;
+    if (zoomIn) zoomIn.onclick = () => this.zoomTo(cam.zoom * ZOOM_STEP, CW / 2, CH / 2);
+    if (zoomOut) zoomOut.onclick = () => this.zoomTo(cam.zoom / ZOOM_STEP, CW / 2, CH / 2);
+    // 배율을 누르면 원래대로
+    if (level) level.onclick = () => this.zoomTo(ZOOM_MIN, CW / 2, CH / 2);
+
+    // 휠은 커서 밑 지점을 붙잡고 확대 — 보고 있던 방이 화면 밖으로 안 나간다
+    this.input.on(
+      'wheel',
+      (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) =>
+        this.zoomTo(cam.zoom * (dy > 0 ? 1 / ZOOM_WHEEL_STEP : ZOOM_WHEEL_STEP), p.x, p.y),
+    );
+    // 확대 상태에서는 도면을 끌어서 옮긴다
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (!p.isDown || cam.zoom <= ZOOM_MIN) return;
+      cam.scrollX -= (p.x - p.prevPosition.x) / cam.zoom;
+      cam.scrollY -= (p.y - p.prevPosition.y) / cam.zoom;
+    });
+
+    this.renderZoomUi();
+  }
+
+  /** 화면의 (screenX, screenY) 밑에 있는 도면 지점을 붙잡은 채 배율만 바꾼다 */
+  private zoomTo(next: number, screenX: number, screenY: number): void {
+    const cam = this.cameras.main;
+    const z = Phaser.Math.Clamp(next, ZOOM_MIN, ZOOM_MAX);
+    if (z === cam.zoom) return;
+    // 카메라 중심 = scroll + 화면 절반, 화면 1px = 도면 1/zoom px
+    const cx = cam.width / 2;
+    const cy = cam.height / 2;
+    const wx = cam.scrollX + cx + (screenX - cx) / cam.zoom;
+    const wy = cam.scrollY + cy + (screenY - cy) / cam.zoom;
+    cam.setZoom(z);
+    cam.setScroll(wx - cx - (screenX - cx) / z, wy - cy - (screenY - cy) / z);
+    this.renderZoomUi();
+  }
+
+  /** 배율 표시·버튼 상태 (한계에 닿으면 눌리지 않게) */
+  private renderZoomUi(): void {
+    const z = this.cameras.main.zoom;
+    const level = document.getElementById('zoom-level');
+    if (level) level.textContent = `${Math.round(z * 100)}%`;
+    const setOff = (id: string, off: boolean): void => {
+      const btn = document.getElementById(id) as HTMLButtonElement | null;
+      if (btn) btn.disabled = off;
+    };
+    setOff('zoom-in', z >= ZOOM_MAX - 1e-6);
+    setOff('zoom-out', z <= ZOOM_MIN + 1e-6);
+    // 확대해 놓으면 끌어서 옮길 수 있다는 걸 커서로 알린다
+    this.input.setDefaultCursor(z > ZOOM_MIN ? 'grab' : 'default');
+  }
+
+  /** 경고창에서 이름을 눌렀을 때 — 그 비콘으로 화면을 옮기고 강조·편집줄까지 연다 */
+  private locate(tagId: string): void {
+    const avatar = this.avatars.get(tagId);
+    if (avatar && this.cameras.main.zoom > ZOOM_MIN) {
+      this.cameras.main.centerOn(avatar.x, avatar.y);
+    }
+    if (this.pickedTag !== tagId) this.pickTag(tagId);
+    this.panel.focusRow(tagId);
   }
 
   /**
@@ -395,10 +520,15 @@ class StaffMapScene extends Phaser.Scene {
     });
   }
 
+  /** 화면에 보일 이름 — 아직 지정 안 했으면 태그 뒷자리 */
+  private nameFor(tagId: string): string {
+    const name = this.tagMeta[tagId]?.name?.trim();
+    return name ? name : tagId.slice(-5);
+  }
+
   private labelFor(tagId: string): string {
-    const m = this.tagMeta[tagId];
-    const base = m?.name?.trim() ? m.name.trim() : tagId.slice(-5);
-    return m?.memo?.trim() ? `${base} 📝` : base;
+    const base = this.nameFor(tagId);
+    return this.tagMeta[tagId]?.memo?.trim() ? `${base} 📝` : base;
   }
 
   /** 이름·메모·그룹 저장 — 서버가 되돌려주는 tagmeta 브로드캐스트로 화면이 갱신된다 */
@@ -409,25 +539,62 @@ class StaffMapScene extends Phaser.Scene {
     });
   }
 
-  /** 왼쪽 목록 한 줄에 넣을 정보를 모아 넘긴다 */
+  /** 왼쪽 목록 한 줄에 넣을 정보를 모아 넘긴다 (장기체류 경고도 여기서 판정) */
   private refreshPanel(): void {
     if (!this.panel) return;
+    const now = Date.now();
+    const alerts: StuckAlert[] = [];
+
     const rows: TagRow[] = [...this.avatars.keys()].map((tagId) => {
       const st = this.states.get(tagId);
       const zoneId = this.zoneDwell.update(tagId, st?.currentZone ?? null);
+      const zoneName = zoneId ? this.zones.get(zoneId)?.name ?? zoneId : null;
+      // 아직 배정 안 된 태그는 '미지정' 그룹에 모인다
+      const group = this.tagMeta[tagId]?.group ?? 'unassigned';
+      const since = this.dwellSince(tagId, zoneId, now);
+
+      // 자리비움은 '한 자리에 머문' 게 아니라 위치를 모르는 것 → 경고 대상이 아니다
+      const stuck =
+        zoneName !== null &&
+        ALERT_GROUPS.has(group) &&
+        now - since >= STUCK_ALERT_MS &&
+        this.acked.get(tagId) !== since;
+      if (stuck) {
+        alerts.push({ tagId, label: this.nameFor(tagId), zoneName, heldMs: now - since });
+      }
+
       return {
         tagId,
         color: this.colorFor(tagId),
         name: this.tagMeta[tagId]?.name ?? '',
         memo: this.tagMeta[tagId]?.memo ?? '',
-        // 아직 배정 안 된 태그는 '미지정' 그룹에 모인다
-        group: this.tagMeta[tagId]?.group ?? 'unassigned',
-        zoneName: zoneId ? this.zones.get(zoneId)?.name ?? zoneId : null,
-        enteredAt: st?.enteredAt ?? 0,
+        group,
+        zoneName,
+        enteredAt: zoneName === null ? 0 : since,
         lastSeen: st?.lastSeen ?? 0,
+        alert: stuck,
       };
     });
+
+    alerts.sort((a, b) => b.heldMs - a.heldMs); // 오래 방치된 사람이 맨 위로
+    this.stuckTags = new Set(alerts.map((a) => a.tagId));
     this.panel.render(rows);
+    this.alerts?.render(alerts);
+  }
+
+  /** 표시 구역이 바뀐 시각 — 같은 구역이 이어지는 동안은 처음 들어온 시각을 유지한다 */
+  private dwellSince(tagId: string, zone: string | null, now: number): number {
+    const prev = this.zoneSince.get(tagId);
+    if (prev && prev.zone === zone) return prev.at;
+    this.zoneSince.set(tagId, { zone, at: now });
+    return now;
+  }
+
+  /** '확인' — 지금 머무는 자리에 대해서만 경고를 끈다. 자리를 옮기면 다시 뜬다 */
+  private ackAlert(tagId: string): void {
+    const cur = this.zoneSince.get(tagId);
+    if (cur) this.acked.set(tagId, cur.at);
+    this.refreshPanel();
   }
 
   /** 목록의 비콘 아이콘을 누르면 맵에서 그 아바타를 링으로 강조 (다시 누르면 해제) */
@@ -446,6 +613,7 @@ class StaffMapScene extends Phaser.Scene {
         yoyo: true,
         repeat: -1,
       });
+      this.uiCam?.ignore(this.pickRing);
     }
     this.pickRing.setVisible(this.pickedTag !== undefined);
   }
@@ -472,8 +640,11 @@ class StaffMapScene extends Phaser.Scene {
     const circle = this.add.circle(0, 0, 7, color).setStrokeStyle(2, 0xffffff, 0.95);
     this.avatarDots.set(tagId, { halo, dot: circle });
     circle.setInteractive({ useHandCursor: true });
-    // 점을 누르면 왼쪽 목록의 그 줄로 이동해 이름을 바로 고칠 수 있게
-    circle.on('pointerdown', () => this.panel.focusRow(tagId));
+    // 점을 누르면 왼쪽 목록의 그 줄로 이동해 이름을 바로 고칠 수 있게.
+    // 확대 상태에서 도면을 끌 때는 눌린 게 아니므로 이동 거리로 걸러 낸다.
+    circle.on('pointerup', (p: Phaser.Input.Pointer) => {
+      if (p.getDistance() < 8) this.panel.focusRow(tagId);
+    });
     const label = this.add
       .text(0, LABEL_BASE_Y, this.labelFor(tagId), {
         color: '#ffffff',
@@ -483,8 +654,30 @@ class StaffMapScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0);
     this.avatarLabels.set(tagId, label);
+    const bang = this.makeAlertBadge();
+    this.alertBadges.set(tagId, bang);
     this.teleport.add(tagId); // 최초 등장은 걷지 않고 바로 제자리에
-    return this.add.container(this.absentPt.x, this.absentPt.y, [halo, circle, label]);
+    const avatar = this.add.container(this.absentPt.x, this.absentPt.y, [
+      halo,
+      circle,
+      label,
+      bang,
+    ]);
+    this.uiCam?.ignore(avatar);
+    return avatar;
+  }
+
+  /** 비콘 오른쪽 위에 붙는 빨간 ! 배지 — 흰 도면 위에서도 튀게 흰 테두리를 두른다 */
+  private makeAlertBadge(): Phaser.GameObjects.Container {
+    const { x, y, r } = ALERT_BADGE_AT;
+    return this.add
+      .container(x, y, [
+        this.add.circle(0, 0, r, ALERT_COLOR).setStrokeStyle(1.8, 0xffffff, 0.95),
+        this.add
+          .text(0, 0, '!', { color: '#ffffff', fontSize: '11px', fontStyle: 'bold' })
+          .setOrigin(0.5, 0.55),
+      ])
+      .setVisible(false);
   }
 
   /**
@@ -539,7 +732,7 @@ class StaffMapScene extends Phaser.Scene {
    * 매 프레임 목표를 향해 '보행 속도'로 등속 이동 — 순간이동처럼 튀지 않는다.
    * 서버는 3.5초마다 좌표를 주고, 그 사이를 아바타가 걸어서 좁힌다.
    */
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     const step = WALK_PX_PER_SEC * this.worldScale * (delta / 1000);
     const eps = ARRIVE_EPS_PX * this.worldScale;
 
@@ -589,6 +782,12 @@ class StaffMapScene extends Phaser.Scene {
       const target = this.pickedTag ? this.avatars.get(this.pickedTag) : undefined;
       if (target) this.pickRing.setPosition(target.x, target.y);
       else this.pickRing.setVisible(false);
+    }
+
+    // 경고 ! 는 전부 같은 박자로 깜빡인다 — 제각각이면 오히려 눈에 안 띈다
+    const blinkOn = Math.floor(time / BLINK_MS) % 2 === 0;
+    for (const [tagId, bang] of this.alertBadges) {
+      bang.setVisible(blinkOn && this.stuckTags.has(tagId));
     }
 
     this.declutterAvatarLabels();

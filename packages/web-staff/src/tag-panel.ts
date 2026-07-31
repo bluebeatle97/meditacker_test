@@ -1,4 +1,5 @@
 import type { TagGroup } from '@meditracker/shared';
+import { agoText, escapeHtml } from './format';
 
 /**
  * 왼쪽 비콘 목록 패널 (직원용 화면).
@@ -45,6 +46,8 @@ export interface TagRow {
   enteredAt: number;
   /** 마지막 신호 수신 시각 (ms) */
   lastSeen: number;
+  /** 장기체류 경고 중 — 빨간 ! 를 깜빡인다 (맵 배지·경고창과 같은 표시) */
+  alert: boolean;
 }
 
 /** 신호가 이 시간 안이면 '정상', 그 뒤로는 '지연' → 이후는 자리비움 판정(서버 15초) */
@@ -62,14 +65,6 @@ const BEACON_SVG = `
 
 function hex(color: number): string {
   return `#${color.toString(16).padStart(6, '0')}`;
-}
-
-function agoText(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}초`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}분`;
-  return `${Math.floor(m / 60)}시간 ${m % 60}분`;
 }
 
 interface RowEls {
@@ -121,10 +116,12 @@ export class TagPanel {
     // 그룹별 개수는 항상 모두 갱신 (닫힌 그룹도 몇 개인지 보여야 한다)
     for (const g of GROUPS) {
       const tab = this.tabs.get(g.id);
-      const n = data.filter((d) => d.group === g.id).length;
+      const inGroup = data.filter((d) => d.group === g.id);
       if (tab) {
-        tab.num.textContent = String(n);
-        tab.btn.classList.toggle('has', n > 0);
+        tab.num.textContent = String(inGroup.length);
+        tab.btn.classList.toggle('has', inGroup.length > 0);
+        // 그룹을 접어 둔 채로도 경고는 알아채야 한다 — 버튼에도 ! 를 띄운다
+        tab.btn.classList.toggle('alert', inGroup.some((d) => d.alert));
       }
     }
 
@@ -179,7 +176,7 @@ export class TagPanel {
       btn.className = 'group-btn';
       btn.innerHTML =
         `<span class="chev">▸</span><i class="swatch" style="background:${hex(g.color)}"></i>` +
-        `<span class="lbl">${g.label}</span><span class="n">0</span>`;
+        `<span class="lbl">${g.label}</span><i class="bang">!</i><span class="n">0</span>`;
       btn.addEventListener('click', () => {
         this.openGroup = this.openGroup === g.id ? null : g.id;
         this.renderOpenState();
@@ -213,10 +210,12 @@ export class TagPanel {
     const level = absent || gap > STALE_MS ? 'off' : gap > FRESH_MS ? 'warn' : 'ok';
     const dwell = !absent && d.enteredAt > 0 ? ` · ${agoText(now - d.enteredAt)} 체류` : '';
     els.status.innerHTML =
+      (d.alert ? '<i class="bang">!</i>' : '') +
       `<i class="sig ${level}"></i><b>${escapeHtml(absent ? '자리비움' : d.zoneName ?? '')}</b>` +
       `<span class="dim">${escapeHtml(dwell)}</span>`;
     els.status.title = d.lastSeen > 0 ? `마지막 신호 ${agoText(gap)} 전` : '신호 없음';
     els.li.classList.toggle('absent', absent);
+    els.li.classList.toggle('alerted', d.alert);
   }
 
   private createRow(tagId: string): RowEls {
@@ -257,8 +256,4 @@ export class TagPanel {
     this.rows.set(tagId, els);
     return els;
   }
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`);
 }
