@@ -10,6 +10,9 @@ import type { Pathfinder } from './pathfinder';
  *
  * 좌표는 몇 초에 한 번 오므로, 그 사이는 직원용과 같은 방식으로 **걸어서** 좁힌다.
  */
+/** 그리기 층: 배경(0) < 다른 사람(1) < 본인(2) < 이름표(3) */
+export const DEPTH_CROWD = 1;
+
 export interface CrowdUnit {
   id: string;
   /** 도면 좌표 */
@@ -61,7 +64,9 @@ export class Crowd {
           .sprite(x, y, sheet)
           .setOrigin(0.5, 0.85)
           .setAlpha(0)
-          .setDepth(-1); // 본인 캐릭터보다 뒤에
+          // ⚠️ 음수 depth 를 쓰면 배경 픽셀맵(depth 0) 뒤로 들어가 아예 안 보인다.
+          //    배경 위·본인 캐릭터 아래 = DEPTH_CROWD (main.ts 의 depth 층 참고)
+          .setDepth(DEPTH_CROWD);
         sprite.play(this.d.animFor(sheet, false));
         this.d.scene.tweens.add({ targets: sprite, alpha: 0.92, duration: 350 });
         m = { sprite, sheet, path: [], lastSeen: now };

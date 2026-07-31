@@ -45,6 +45,12 @@ export const SERVER_CONFIG = {
    *    실제 운영에서는 `PATIENT_SEES_EVERYONE=0` 으로 끄고 인원수만 노출한다.
    */
   patientSeesEveryone: process.env.PATIENT_SEES_EVERYONE !== '0',
+  /**
+   * 시연용 환자 화면이 붙을 비콘 — 직원 화면의 '손님 1'.
+   * 비콘마다 QR 을 붙이면 `/dev-token?type=patient&tag=<MAC>` 로 각자의 화면이 열리고,
+   * 그때까지는 이 태그 하나에 고정한다 (정렬 순서에 기대면 시드가 바뀔 때 딴 사람이 잡힌다).
+   */
+  demoPatientTag: process.env.DEMO_PATIENT_TAG ?? 'AA:BB:CC:00:00:01',
 };
 
 export function loadZones(): Zone[] {

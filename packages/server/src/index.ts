@@ -77,10 +77,12 @@ setInterval(() => engine.sweepAbsent(), SERVER_CONFIG.absentSweepIntervalMs);
  * 추적 대상 없는 사람을 가리켜 환자 화면이 딴 세상처럼 보인다(실제로 그렇게 신고됨).
  */
 function patientForToken(tagId: string | null): string {
-  if (tagId) {
+  // ?tag= 우선, 없으면 시연용 고정 비콘(손님 1), 그것도 없으면 아무 환자
+  for (const candidate of [tagId, SERVER_CONFIG.demoPatientTag]) {
+    if (!candidate) continue;
     const byTag = db
       .prepare(`SELECT person_id AS personId FROM tags WHERE tag_id = ? AND active = 1`)
-      .get(tagId) as { personId: string } | undefined;
+      .get(candidate) as { personId: string } | undefined;
     if (byTag) return byTag.personId;
   }
   const row = db
@@ -270,9 +272,9 @@ setInterval(() => {
   if (list.length === 0) return;
   io.of('/staff').emit('pos:update', list);
   // 환자 화면도 같은 좌표를 쓴다 (도트 스킨 + 확대만 다른 같은 그림).
-  // 익명화·본인 제외는 patient namespace 가 처리한다. 운영에서 끄려면
-  // PATIENT_SEES_EVERYONE=0 (설정 주석 참고 — 불변식 B-1).
-  if (SERVER_CONFIG.patientSeesEveryone) patient.crowdPositions(list);
+  // 본인 좌표는 항상, 다른 사람은 patientSeesEveryone 이 켜졌을 때만 —
+  // 익명화·본인 제외 판단은 patient namespace 안에 있다 (불변식 B-1 관련).
+  patient.positions(list);
 }, SERVER_CONFIG.posBroadcastMs);
 
 httpServer.listen(SERVER_CONFIG.httpPort, () => {

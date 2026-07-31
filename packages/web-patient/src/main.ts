@@ -34,10 +34,13 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080';
 const MAP_SCALE = 0.5;
 /** 스프라이트는 맵과 같은 축척이므로 확대하지 않는다 — 확대는 카메라 줌이 담당 */
 const CHAR_SCALE = 1;
-/** 화면 가로에 타일이 대략 이 개수 보이도록 줌을 정한다 (포켓몬 골드류 타일 탑뷰) */
-const TILES_ACROSS = 16;
-/** 줌 상한 — 더 키우면 도트가 굵어지고 주변 사람이 화면에 안 들어온다 */
-const MAX_ZOOM = 6;
+/**
+ * 화면 가로에 타일이 대략 이 개수 보이도록 줌을 정한다 (포켓몬 골드류 타일 탑뷰).
+ * 줌과 시야는 상충한다 — 6배면 캐릭터는 크지만 10m×5m 만 보여 주변 사람이 한 명도
+ * 안 잡힌다. 다른 사람이 보이는 쪽을 택해 4배(약 15m×8m)로 둔다.
+ */
+const TILES_ACROSS = 20;
+const MAX_ZOOM = 4;
 /** 카메라 추종 보간 계수 (0~1). 낮으면 부드럽게 뒤따르고, 1이면 즉시 붙는다 */
 const FOLLOW_LERP = 0.08;
 const TILE = 16;
@@ -147,6 +150,8 @@ class PatientScene extends Phaser.Scene {
   private lastSelf?: { zone: string | null; waitingRank: number; estimatedWaitSec: number };
   /** 다른 사람들 (직원용 화면과 같은 좌표를 익명으로 받아 그린다) */
   private crowd?: Crowd;
+  /** 본인 실좌표를 마지막으로 받은 시각 — 이게 흐르면 존 중앙 스냅을 쓰지 않는다 */
+  private lastPosAt = 0;
 
   constructor() {
     super('patient');
@@ -211,7 +216,7 @@ class PatientScene extends Phaser.Scene {
     if (!this.mapW || !this.mapH) {
       throw new Error('pixelmap.png 을 불러오지 못했습니다 (tools/build-pixel-map.py 로 생성)');
     }
-    this.add.image(0, 0, 'pixelmap').setOrigin(0, 0);
+    this.add.image(0, 0, 'pixelmap').setOrigin(0, 0).setDepth(0); // 그리기 층: 배경 0
     this.cameras.main.setBounds(0, 0, this.mapW, this.mapH);
     this.cameras.main.setBackgroundColor('#0e1420');
     // ⚠️ pixelArt: true 는 게임 설정의 roundPixels 를 강제로 켠다. 그대로 두면 카메라와
@@ -225,7 +230,8 @@ class PatientScene extends Phaser.Scene {
     this.me = this.add
       .sprite(this.m(start.tilePosition.x), this.m(start.tilePosition.y), `${this.profile.charId}-idle`)
       .setScale(CHAR_SCALE)
-      .setOrigin(0.5, 0.85); // 발끝이 좌표에 오도록
+      .setOrigin(0.5, 0.85) // 발끝이 좌표에 오도록
+      .setDepth(2); // 다른 사람(1) 위
     this.me.play('idle-down');
     if (this.profile.nickname) {
       this.nameTag = this.add
@@ -236,7 +242,8 @@ class PatientScene extends Phaser.Scene {
           backgroundColor: '#ffffffdd',
           padding: { x: 4, y: 1 },
         })
-        .setOrigin(0.5, 0);
+        .setOrigin(0.5, 0)
+        .setDepth(3);
     }
 
     this.applyZoom(this.followZoom());
@@ -354,7 +361,9 @@ class PatientScene extends Phaser.Scene {
       (p: { zone: string | null; waitingRank: number; estimatedWaitSec: number }) => {
         this.lastSelf = p;
         this.setHud(p);
-        if (p.zone) this.walkToZone(p.zone); // 이동은 즉시, 글자만 늦게 바뀐다
+        // 실좌표(pos:self)가 흐르는 동안은 존 중앙으로 끌어당기지 않는다.
+        // 좌표가 아직 없을 때(접속 직후)만 방 위치로 우선 배치한다.
+        if (p.zone && Date.now() - this.lastPosAt > 8000) this.walkToZone(p.zone);
       },
     );
 
@@ -364,6 +373,13 @@ class PatientScene extends Phaser.Scene {
       const zone = this.zones.get(p.zoneId);
       const el = document.getElementById('hud-sub');
       if (el && zone) el.textContent = `${zone.name}에 ${p.anonymousCount}명`;
+    });
+
+    // 본인 비콘의 실좌표 — 직원용 화면의 내 점과 같은 지점으로 걸어간다.
+    // (존 중앙 스냅은 좌표가 없을 때의 대체 수단일 뿐이다)
+    this.socket.on('pos:self', (p: { x: number; y: number; zone: string | null }) => {
+      this.lastPosAt = Date.now();
+      this.walkToPoint(p.x, p.y);
     });
 
     // 다른 사람들의 위치 — 직원용과 같은 좌표. 익명 id·좌표·손님/직원 구분만 온다
@@ -397,11 +413,15 @@ class PatientScene extends Phaser.Scene {
     }
   }
 
-  /** 존 라벨 위치까지 벽을 피해 걸어간다 */
+  /** 존 라벨 위치까지 (좌표가 아직 없을 때의 대체 수단) */
   private walkToZone(zoneId: string): void {
     const zone = this.zones.get(zoneId);
-    if (!zone) return;
-    const dest = this.pf.nearestWalkable(zone.tilePosition.x, zone.tilePosition.y);
+    if (zone) this.walkToPoint(zone.tilePosition.x, zone.tilePosition.y);
+  }
+
+  /** 도면 좌표 한 점까지 벽을 피해 걸어간다 (본인 비콘 실좌표가 여기로 들어온다) */
+  private walkToPoint(fx: number, fy: number): void {
+    const dest = this.pf.nearestWalkable(fx, fy);
     if (this.teleport) {
       this.me.setPosition(this.m(dest.x), this.m(dest.y));
       // 카메라도 같이 붙인다 — follow lerp 로 따라오게 두면 첫 화면이 엉뚱한 곳을 본다

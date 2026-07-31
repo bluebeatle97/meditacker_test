@@ -4,13 +4,13 @@ import type { Db } from '../db/index.js';
 import type { AuthedSocket } from './index.js';
 import { anonymousOccupancy } from '../permission/permission-filter.js';
 import { actionsForZone, isAllowedReaction } from '../social/zone-actions.js';
-import { loadZones } from '../config/index.js';
+import { loadZones, SERVER_CONFIG } from '../config/index.js';
 import { findPersonByTag } from '../db/index.js';
 import type { PersonType } from '@meditracker/shared';
 
 /** index.ts 가 위치 브로드캐스트를 밀어 넣는 창구 */
 export interface PatientBroadcast {
-  crowdPositions(list: Array<{ tagId: string; x: number; y: number; zone: string | null }>): void;
+  positions(list: Array<{ tagId: string; x: number; y: number; zone: string | null }>): void;
 }
 
 /** 몇 초마다 구역별 인원수를 내보낼지 (좌표가 아니라 수만 — 자주 보내도 정보량이 작다) */
@@ -154,12 +154,13 @@ export function registerPatientNamespace(
 
   return {
     /**
-     * 다른 사람들의 위치를 환자 화면으로 보낸다 (SERVER_CONFIG.patientSeesEveryone 이 켜졌을 때만).
+     * 환자 화면으로 위치를 보낸다.
      *
-     * 나가는 것: **익명 id + 좌표 + 손님/직원 구분**. 태그 MAC·이름·personId 는 절대 안 나간다.
-     * 소켓마다 본인은 빼고 보낸다 — 본인 캐릭터는 presence:self 로 이미 그려져 있다.
+     * - `pos:self` — **본인 좌표**. 항상 보낸다 (본인 위치라 불변식 B-1 과 무관).
+     * - `crowd:positions` — 다른 사람들. `patientSeesEveryone` 이 켜졌을 때만.
+     *   나가는 것은 **익명 id + 좌표 + 손님/직원 구분**뿐 — MAC·이름·personId 는 안 나간다.
      */
-    crowdPositions(list: Array<{ tagId: string; x: number; y: number; zone: string | null }>): void {
+    positions(list: Array<{ tagId: string; x: number; y: number; zone: string | null }>): void {
       if (ns.sockets.size === 0) return;
       const units = list.map((p) => ({
         id: anonId(p.tagId),
@@ -171,6 +172,11 @@ export function registerPatientNamespace(
       for (const [, rawSocket] of ns.sockets) {
         const socket = rawSocket as AuthedSocket;
         const mine = ownTag.get(socket.id);
+        // 본인 좌표 — 이게 없으면 본인 캐릭터만 존 중앙에 스냅되고,
+        // 남들은 실좌표로 움직이는데 정작 나만 안 움직인다 (실제로 그랬다).
+        const self = mine ? list.find((p) => p.tagId === mine) : undefined;
+        if (self) socket.emit('pos:self', { x: self.x, y: self.y, zone: self.zone });
+        if (!SERVER_CONFIG.patientSeesEveryone) continue;
         socket.emit(
           'crowd:positions',
           units.filter((u) => u.tagId !== mine).map(({ tagId: _drop, ...u }) => u),
