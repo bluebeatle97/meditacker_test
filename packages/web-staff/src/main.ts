@@ -30,7 +30,11 @@ import { groupColor, TagPanel, type TagRow } from './tag-panel';
  * ⚠️ 불변식 B-5: 브라우저 스토리지(localStorage 등) 사용 금지.
  */
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080';
+/**
+ * 서버 주소. 끝 슬래시를 떼므로 `VITE_SERVER_URL=/` 이면 빈 문자열 = **같은 도메인**이 된다
+ * (서버가 화면까지 서빙하는 배포 구성). 개발 기본값은 별도로 뜬 서버.
+ */
+const SERVER_URL = (import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
 
 async function resolveToken(): Promise<string> {
   const urlToken = new URLSearchParams(window.location.search).get('token');

@@ -32,7 +32,22 @@ function hashCode(s: string): number {
  * - namespace: /patient
  */
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080';
+/**
+ * 서버 주소. 끝 슬래시를 떼므로 `VITE_SERVER_URL=/` 이면 빈 문자열 = **같은 도메인**이 된다
+ * (서버가 화면까지 서빙하는 배포 구성). 이 화면은 `/patient/` 아래에 얹히지만 API 는
+ * 루트 기준 절대경로(`/floorplan`)로 부르므로 base 와 무관하게 맞는다.
+ */
+const SERVER_URL = (import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
+
+/**
+ * public/ 자원(도트맵·캐릭터)의 앞머리.
+ *
+ * 이 화면은 개발 때는 루트(5174), 배포 때는 서버의 `/patient/` 아래에 얹힌다.
+ * `/pixelmap.png` 처럼 루트 절대경로로 적으면 배포에서 직원용 쪽을 뒤져 404 가 난다.
+ * Vite 가 base 를 넣어 주는 `BASE_URL` 을 붙여야 두 경우 모두 맞는다.
+ * (API 는 반대로 항상 루트 기준이라 SERVER_URL 을 쓴다 — 서로 다른 주소다.)
+ */
+const ASSETS = import.meta.env.BASE_URL;
 
 /**
  * pixelmap.png 은 도면의 몇 배인가 — build-pixel-map.py 의 MAP_SCALE 과 같아야 한다.
@@ -117,7 +132,7 @@ function runSetup(token: string): Promise<PatientProfile> {
     for (const c of CHARACTERS) {
       const el = document.createElement('div');
       el.className = 'char';
-      el.innerHTML = `<div class="pic" style="background-image:url(/characters/${c.id}-idle.png)"></div>
+      el.innerHTML = `<div class="pic" style="background-image:url(${ASSETS}characters/${c.id}-idle.png)"></div>
                       <div class="nm">${c.label}</div>`;
       el.addEventListener('click', () => {
         picked = c.id;
@@ -206,13 +221,13 @@ class PatientScene extends Phaser.Scene {
    *    그래서 preload() 에서 받아야 한다.
    */
   preload(): void {
-    this.load.image('pixelmap', '/pixelmap.png');
+    this.load.image('pixelmap', `${ASSETS}pixelmap.png`);
     for (const c of CHARACTERS) {
-      this.load.spritesheet(`${c.id}-idle`, `/characters/${c.id}-idle.png`, {
+      this.load.spritesheet(`${c.id}-idle`, `${ASSETS}characters/${c.id}-idle.png`, {
         frameWidth: 16,
         frameHeight: 32,
       });
-      this.load.spritesheet(`${c.id}-run`, `/characters/${c.id}-run.png`, {
+      this.load.spritesheet(`${c.id}-run`, `${ASSETS}characters/${c.id}-run.png`, {
         frameWidth: 16,
         frameHeight: 32,
       });

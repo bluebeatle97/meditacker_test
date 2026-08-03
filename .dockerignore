@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.github
+data
+packages/server/data
+mosquitto/data
+mosquitto/log
+*.log
+.env
+.env.local
+docs

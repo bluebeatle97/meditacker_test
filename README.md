@@ -131,6 +131,73 @@ npm run replay -w @meditracker/server -- walk-1 --grid --hys 4,6,8,12 --confirm 
 - 녹화 파일은 그대로 **회귀 테스트**가 된다. 판정 로직을 고친 뒤 같은 파일로 "정확도 87%→94%" 를
   숫자로 보일 수 있다.
 
+## 시연용 배포 (인터넷에 링크 하나로 띄우기) 🔗
+
+하드웨어 없이 **가상 환자·직원이 돌아다니는 상태**로 통째로 올려, 링크만 보내 보여주는 구성.
+
+> ⚠️ **시연 전용이다.** `/dev-token` 이 살아 있어 **링크를 아는 사람은 누구나 직원 권한으로
+> 전원의 위치를 본다** (`/monitor` 도 열려 있다). 실제 환자 데이터를 붙인 채로 공개하면 안 된다 —
+> Phase 2 로그인이 먼저다.
+
+### 구성
+
+GitHub Pages 같은 정적 호스팅은 **쓸 수 없다.** 서버(WebSocket·MQTT·DB)가 계속 떠 있어야 하는데
+정적 호스팅은 프로그램을 실행하지 못한다. 그래서 **서버 하나가 화면까지 같이 서빙**한다:
+
+| 주소 | 내용 |
+|---|---|
+| `/` | 직원용 화면 (`web-staff/dist`) |
+| `/patient/` | 환자용 화면 (`web-patient/dist`) |
+| `/monitor` | 관제 페이지 |
+| `/health`, `/zones`, `/floorplan` … | API |
+
+배포처가 한 곳이라 CORS·소켓 주소를 맞출 일이 없다. 화면은 `VITE_SERVER_URL=/` 로 빌드되어
+자기가 받아온 도메인을 그대로 API 주소로 쓴다 (`.env.production`).
+
+`start:demo` 는 한 프로세스 안에서 **브로커 → 시드 → 서버 → 목 게이트웨이** 순으로 올린다.
+무료 호스팅은 컨테이너당 프로세스·포트를 하나만 주므로 `dev:all`(프로세스 5개)을 못 쓴다.
+
+### 로컬에서 배포판 그대로 확인
+
+```bash
+npm run build:demo && npm run start:demo
+```
+
+`http://localhost:8080` (직원용) · `/patient/` (환자용) · `/monitor` (관제).
+
+### Render 에 올리기 (무료)
+
+`Dockerfile` 과 `render.yaml` 이 이미 있으므로 저장소만 연결하면 된다.
+
+1. 변경사항을 GitHub 에 push
+2. [render.com](https://render.com) → **New → Blueprint** → 이 저장소 선택
+3. `render.yaml` 을 읽어 자동 설정된다 → **Apply**
+4. 첫 빌드 5~10분 (better-sqlite3 컴파일) → `https://<이름>.onrender.com`
+
+무료 플랜은 15분간 요청이 없으면 잠들고 다음 접속에서 30초쯤 걸려 깨어난다. 시연 직전에 한 번
+열어 두면 된다. SQLite 는 재배포마다 초기화되지만 부팅할 때 시드를 다시 넣으므로 문제없다.
+
+Railway·Fly·일반 VPS 도 같은 `Dockerfile` 로 뜬다:
+
+```bash
+docker build -t meditracker-demo . && docker run -p 8080:8080 meditracker-demo
+```
+
+### 조정할 만한 환경변수
+
+| 변수 | 기본값 | 의미 |
+|---|---|---|
+| `PORT` | 8080 | 서버 포트 |
+| `JWT_SECRET` | `dev-only-change-me` | 토큰 서명 키 (배포 시 반드시 교체) |
+| `DB_PATH` | `packages/server/data/meditracker.db` | SQLite 위치 |
+| `MOCK_SPEED` | 1 | 가상 인원 이동 속도 (2 = 2배속) |
+| `MOCK_TAGS_N` | 0 | 가상 태그 증식 (부하 시험용) |
+
+### 실제 병원 설치는 이 방식이 아니다
+
+게이트웨이가 같은 LAN 의 MQTT 로 신호를 쏘는 구조라 **온프레미스**가 원래 설계다
+(`docker-compose.yml` 의 Mosquitto + 원내 PC). 인터넷 배포는 시연용으로만 쓴다.
+
 ## 테스트 (Phase 0 — Zone Engine 단위테스트)
 
 ```bash

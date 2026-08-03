@@ -4,6 +4,8 @@ dist/
 .env
 .env.*
 !.env.example
+# 배포 빌드용 프론트 설정 — 비밀값 없음(서버 주소가 '같은 도메인'이라는 표시뿐)
+!.env.production
 data/*.db
 data/*.db-journal
 packages/server/data/

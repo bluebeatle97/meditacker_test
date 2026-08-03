@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
+    "start:demo": "tsx src/tools/demo-stack.ts",
     "test": "vitest run",
     "mock:gw": "tsx src/tools/mock-gateway.ts",
     "dev:broker": "tsx src/tools/dev-broker.ts",

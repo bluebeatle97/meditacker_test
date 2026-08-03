@@ -14,6 +14,7 @@ import { createWsServer } from './ws/index.js';
 import { signToken, verifyToken } from './auth/jwt.js';
 import { MonitorHub } from './monitor/monitor-hub.js';
 import { monitorPageHtml } from './monitor/monitor-page.js';
+import { createStaticHandler } from './web/static-files.js';
 import { TagMetaStore } from './presence/tag-meta-store.js';
 import { KnownTagStore } from './presence/known-tag-store.js';
 import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
@@ -31,6 +32,16 @@ import {
 // ── 조립: Ingestion → Zone Engine → Presence/DB → Permission → WS ──────────
 
 const configDir = join(dirname(fileURLToPath(import.meta.url)), 'config');
+
+/**
+ * 빌드된 화면 서빙 (배포용). 화면을 안 빌드했으면 조용히 넘어간다 — 개발 중에는
+ * Vite 개발 서버가 화면을 맡고 여기는 API 만 준다.
+ */
+const packagesDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
+const serveStatic = createStaticHandler([
+  { prefix: '/patient/', dir: join(packagesDir, 'web-patient/dist') },
+  { prefix: '/', dir: join(packagesDir, 'web-staff/dist') },
+]);
 
 const db = openDb(SERVER_CONFIG.dbPath);
 
@@ -365,6 +376,8 @@ const httpServer = createServer((req, res) => {
     res.end(JSON.stringify({ token: signToken(claims, SERVER_CONFIG.jwtSecret) }));
     return;
   }
+  // API 라우트를 전부 지나온 뒤에 화면 파일을 찾는다 (API 경로가 항상 우선)
+  if (serveStatic(req, res)) return;
   res.writeHead(404);
   res.end();
 });

@@ -1,0 +1,23 @@
+# Render 배포 설정 (https://render.com) — 대시보드에서 이 저장소를 고르면 자동 인식한다.
+#
+# 무료 플랜은 15분 요청이 없으면 잠들고, 다음 접속 때 30초쯤 걸려 깨어난다.
+# 시연 직전에 한 번 열어 두면 된다.
+#
+# ⚠️ 시연 전용 구성이다 — /dev-token 이 살아 있어 링크를 아는 사람은 전원의 위치를 본다.
+services:
+  - type: web
+    name: meditracker-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      # 데모 토큰 서명 키 — Render 가 임의 값을 만들어 넣는다
+      - key: JWT_SECRET
+        generateValue: true
+      # SQLite 는 컨테이너 안에 둔다 (재배포 시 초기화 → 부팅할 때 시드를 다시 넣음)
+      - key: DB_PATH
+        value: /app/packages/server/data/meditracker.db
+      # 가상 인원 이동 속도 (1 = 실제 보행 속도)
+      - key: MOCK_SPEED
+        value: "1"
