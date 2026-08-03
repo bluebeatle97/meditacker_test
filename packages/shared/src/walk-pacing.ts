@@ -24,10 +24,14 @@ export const WALK_PX_PER_SEC = 86;
 export const ARRIVE_EPS_PX = 12;
 
 /**
- * 따라잡기 상한 (보행 속도의 몇 배까지). 2.5배 ≈ 3.5m/s = 뛰는 속도.
- * 더 올리면 밀린 만큼 순간이동처럼 튀고, 낮추면 한 주기에 격차를 못 지운다.
+ * 따라잡기 상한 (보행 속도의 몇 배까지).
+ *
+ * 처음엔 2.5배(≈3.5m/s)로 뒀다가 낮췄다. 서버 추정치가 두 지점 사이에서 진동할 때
+ * 아바타가 그 사이를 **전력질주로 왕복**해서 순간이동처럼 보였다(녹화로 확인).
+ * 진동 자체는 서버 속도 제한(SERVER_CONFIG.maxSpeedPxPerSec)에서 막고, 여기서는
+ * "조금 빠른 걸음" 정도만 허용해 화면이 과장되지 않게 한다.
  */
-export const MAX_CATCHUP_MULT = 2.5;
+export const MAX_CATCHUP_MULT = 1.5;
 
 /** 좌표 브로드캐스트 주기를 아직 관측하지 못했을 때의 가정치 (서버 posBroadcastMs) */
 export const DEFAULT_UPDATE_INTERVAL_MS = 1500;

@@ -60,6 +60,11 @@ const PAD = 6;
 // 보행 속도·도착 판정·따라잡기 계수는 @meditracker/shared 의 walk-pacing 이 단일 출처.
 // 환자용 패널과 **같은 값**을 써야 두 화면의 같은 사람이 같은 자리에 있다.
 
+// 겹친 아바타 흩어놓기 (화면 px) — 점 반지름 7 + 흰 테두리 2 라 9 면 서로 안 먹는다
+const SPREAD_TRIGGER_PX = 18; // 이보다 가까우면 한 무리로 본다
+const SPREAD_DOT_R = 9;
+const SPREAD_MAX_R = 22; // 너무 크게 벌리면 실제 위치에서 멀어져 오히려 거짓말이 된다
+
 // 방 이름 라벨 — 방 폭에 맞춰 크기를 정한다 (좁은 방은 줄여서라도 방 안에 넣는다)
 const NAME_FONT = 'sans-serif';
 const NAME_SIZE_MAX = 14;
@@ -133,6 +138,14 @@ class StaffMapScene extends Phaser.Scene {
   private pace = new Map<string, number>();
   /** 좌표 브로드캐스트 주기 관측 (환자용 패널과 같은 방식) */
   private posClock = new UpdateClock();
+  /**
+   * 겹친 아바타를 흩어 놓기 위한 **표시 전용** 오프셋 (컨테이너 로컬 화면 px).
+   * 컨테이너 위치(= 논리 좌표)는 건드리지 않고 안에 든 그림만 밀어낸다 —
+   * 컨테이너를 옮기면 그 값이 다음 경로 계산의 출발점으로 되먹임된다.
+   */
+  private clusterOffset = new Map<string, { dx: number; dy: number }>();
+  /** 경고 배지의 원래 높이 (오프셋 누적 방지) */
+  private alertBadgeBaseY = new Map<string, number>();
   private pf!: Pathfinder;
   private blockedOverlay?: Phaser.GameObjects.Image;
   /** 방 이름 라벨 묶음 — 버튼으로 통째 토글 */
@@ -860,7 +873,74 @@ class StaffMapScene extends Phaser.Scene {
       bang.setVisible(blinkOn && this.stuckTags.has(tagId));
     }
 
+    this.spreadOverlappingAvatars();
     this.declutterAvatarLabels();
+  }
+
+  /**
+   * 같은 자리에 겹친 아바타의 **점**을 작은 원으로 흩어 놓는다.
+   *
+   * 예전엔 "점은 실제 위치라 못 옮긴다" 며 이름표만 흩었는데, 그 판단이 틀렸다.
+   * 대기공간에 손님이 모이면 좌표가 1px 차이까지 붙어서 **뒤에 있는 점이 완전히 가려진다**
+   * — 화면에서는 비콘이 갑자기 사라진 것처럼 보인다(16개 중 2쌍이 그 상태였다).
+   * 두 사람이 있는데 점 하나만 보이는 쪽이, 몇 픽셀 밀어서 둘 다 보이는 쪽보다 부정확하다.
+   *
+   * 배치는 tagId 정렬 기준이라 프레임마다 같은 결과가 나온다 (안 그러면 자리가 떨린다).
+   */
+  private spreadOverlappingAvatars(): void {
+    const pts = [...this.avatars]
+      .filter(([, a]) => a.visible)
+      .map(([tagId, a]) => ({ tagId, x: a.x, y: a.y }));
+
+    const seen = new Set<string>();
+    for (const p of pts) {
+      if (seen.has(p.tagId)) continue;
+      // 근접한 것들을 연쇄로 묶는다 (A-B 가 가깝고 B-C 가 가까우면 셋이 한 무리)
+      const group = [p];
+      seen.add(p.tagId);
+      for (let i = 0; i < group.length; i++) {
+        for (const q of pts) {
+          if (seen.has(q.tagId)) continue;
+          if (Math.hypot(group[i].x - q.x, group[i].y - q.y) > SPREAD_TRIGGER_PX) continue;
+          seen.add(q.tagId);
+          group.push(q);
+        }
+      }
+
+      if (group.length === 1) {
+        this.applyClusterOffset(p.tagId, 0, 0);
+        continue;
+      }
+      // n 개가 서로 안 겹치려면 반지름이 이만큼 필요하다 (원둘레에 균등 배치)
+      const n = group.length;
+      const radius = Math.min(SPREAD_DOT_R / Math.sin(Math.PI / n), SPREAD_MAX_R);
+      group.sort((a, b) => (a.tagId < b.tagId ? -1 : 1));
+      for (const [i, g] of group.entries()) {
+        const angle = (Math.PI * 2 * i) / n - Math.PI / 2; // 12시 방향부터 시계방향
+        this.applyClusterOffset(g.tagId, Math.cos(angle) * radius, Math.sin(angle) * radius);
+      }
+    }
+  }
+
+  /** 오프셋을 컨테이너 안의 그림들에만 반영 (컨테이너 자체는 논리 좌표 유지) */
+  private applyClusterOffset(tagId: string, dx: number, dy: number): void {
+    const prev = this.clusterOffset.get(tagId);
+    if (prev && Math.abs(prev.dx - dx) < 0.5 && Math.abs(prev.dy - dy) < 0.5) return;
+    this.clusterOffset.set(tagId, { dx, dy });
+    const parts = this.avatarDots.get(tagId);
+    if (parts) {
+      parts.halo.setPosition(dx, dy);
+      parts.dot.setPosition(dx, dy);
+    }
+    const bang = this.alertBadges.get(tagId);
+    if (bang) {
+      // 배지의 원래 높이를 한 번만 기억해 둔다 (매번 현재 y 를 읽으면 오프셋이 누적된다)
+      const baseY = this.alertBadgeBaseY.get(tagId) ?? bang.y;
+      this.alertBadgeBaseY.set(tagId, baseY);
+      bang.setPosition(dx, baseY + dy);
+    }
+    const label = this.avatarLabels.get(tagId);
+    if (label) label.x = dx; // y 는 이름표 겹침 해소(declutter)가 정한다
   }
 
   /**
@@ -871,11 +951,23 @@ class StaffMapScene extends Phaser.Scene {
    * 하고(자리가 떨리지 않게), 실제로 옮길 때만 좌표를 건드린다.
    */
   private declutterAvatarLabels(): void {
-    const entries: Array<{ label: Phaser.GameObjects.Text; cx: number; top: number }> = [];
+    const entries: Array<{
+      label: Phaser.GameObjects.Text;
+      cx: number;
+      top: number;
+      originY: number;
+    }> = [];
     for (const [tagId, label] of this.avatarLabels) {
       const avatar = this.avatars.get(tagId);
       if (!avatar || !label.visible) continue;
-      entries.push({ label, cx: avatar.x, top: avatar.y + LABEL_BASE_Y });
+      // 겹침 해소로 점이 밀려났으면 이름표도 그 점을 기준으로 잡아야 한다
+      const off = this.clusterOffset.get(tagId) ?? { dx: 0, dy: 0 };
+      entries.push({
+        label,
+        cx: avatar.x + off.dx,
+        top: avatar.y + off.dy + LABEL_BASE_Y,
+        originY: avatar.y,
+      });
     }
     // 위에서 아래로, 같은 높이면 왼쪽부터 — 순서가 고정돼야 결과가 안 흔들린다
     entries.sort((a, b) => a.top - b.top || a.cx - b.cx);
@@ -897,7 +989,8 @@ class StaffMapScene extends Phaser.Scene {
         }
         y = hit.y1 + 2;
       }
-      const localY = y - (e.top - LABEL_BASE_Y);
+      // 이름표는 컨테이너의 자식이므로 컨테이너 원점(avatar.y) 기준 로컬 좌표로 되돌린다
+      const localY = y - e.originY;
       if (Math.abs(e.label.y - localY) > 0.5) e.label.y = localY;
     }
   }

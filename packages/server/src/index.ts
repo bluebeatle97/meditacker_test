@@ -380,18 +380,63 @@ tagMeta.onChange((map) => {
 // 연속 위치 추정 브로드캐스트 (트래킹 시각화 — 0.5초 주기)
 // TODO: 권한 매트릭스 확정 후 visibleTargets 필터 경유로 변경 (지금은 staff 전체)
 // 내부적으로 자주 추정해 EMA 로 평활 → RSSI 노이즈로 아바타가 떨지 않게
+/** 존 중심 좌표 — 추정치가 판정된 방을 벗어나지 않게 붙잡는 데 쓴다 */
+const zoneCenters = new Map(loadZones().map((z) => [z.zoneId, z.tilePosition]));
+
 const smoothed = new Map<string, { x: number; y: number; zone: string | null }>();
 setInterval(() => {
   const a = SERVER_CONFIG.posSmoothing;
+  const maxStep = (SERVER_CONFIG.maxSpeedPxPerSec * SERVER_CONFIG.posSampleMs) / 1000;
+
   for (const p of estimator.estimateAll()) {
-    const c = walkable.clamp(p.x, p.y);
+    let target = walkable.clamp(p.x, p.y);
+
+    /**
+     * **존 목줄** — 추정 좌표를 판정된 방 근처로 붙잡는다.
+     *
+     * 존 판정(히스테리시스 + 연속확인)과 좌표 추정(RSSI 가중평균)은 서로 독립이라
+     * 얼마든지 어긋난다. 그 결과가 "목록엔 시술실 2 체류 1분인데 점은 딴 데서 돌아다님"
+     * 이다(실제로 신고됨). 둘 중 **존 판정이 안정된 쪽**이므로 좌표를 거기에 맞춘다.
+     */
+    const center = p.zone ? zoneCenters.get(p.zone) : undefined;
+    if (center) {
+      const dx = target.x - center.x;
+      const dy = target.y - center.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > SERVER_CONFIG.zoneLeashPx) {
+        const k = SERVER_CONFIG.zoneLeashPx / dist;
+        target = walkable.clamp(center.x + dx * k, center.y + dy * k);
+      }
+    }
+
     const prev = smoothed.get(p.tagId);
-    smoothed.set(
-      p.tagId,
-      prev
-        ? { x: prev.x + (c.x - prev.x) * a, y: prev.y + (c.y - prev.y) * a, zone: p.zone }
-        : { x: c.x, y: c.y, zone: p.zone },
-    );
+    if (!prev) {
+      smoothed.set(p.tagId, { x: target.x, y: target.y, zone: p.zone });
+      continue;
+    }
+
+    // EMA 평활 (RSSI 노이즈로 떨지 않게)
+    let nx = prev.x + (target.x - prev.x) * a;
+    let ny = prev.y + (target.y - prev.y) * a;
+
+    /**
+     * **속도 제한** — 사람은 순간이동하지 않는다.
+     *
+     * 가중평균은 태그를 듣는 게이트웨이 집합이 바뀔 때(창 3초를 들고 나면서) 불연속으로
+     * 튄다. 그러면 화면에서 점이 방을 가로질러 날아간다(녹화로 확인). EMA 는 그걸
+     * 부드럽게 만들 뿐 **막지는 못한다** — 진동이 계속되면 두 지점 사이를 왕복한다.
+     * 사람이 낼 수 있는 속도라는 물리적 상한을 여기서 강제하면 프론트는 볼 일이 없다.
+     */
+    const stepX = nx - prev.x;
+    const stepY = ny - prev.y;
+    const step = Math.hypot(stepX, stepY);
+    if (step > maxStep) {
+      nx = prev.x + (stepX / step) * maxStep;
+      ny = prev.y + (stepY / step) * maxStep;
+    }
+
+    const c = walkable.clamp(nx, ny); // 보정 결과가 벽에 걸릴 수 있다
+    smoothed.set(p.tagId, { x: c.x, y: c.y, zone: p.zone });
   }
   // 추적 종료된 태그 정리
   const live = new Set(estimator.estimateAll().map((p) => p.tagId));
