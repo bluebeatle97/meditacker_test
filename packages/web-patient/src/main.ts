@@ -9,6 +9,7 @@ import {
   pathLengthPx,
 } from '@meditracker/shared';
 import type { FloorplanMeta, PatientProfile, Zone, ZoneAction } from '@meditracker/shared';
+import { demoSocket, localConfigUrl, markDemoUi, serverAlive } from './demo-mode';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { Crowd, type CrowdUnit } from './crowd';
 
@@ -48,6 +49,8 @@ const SERVER_URL = (import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080').
  * (API 는 반대로 항상 루트 기준이라 SERVER_URL 을 쓴다 — 서로 다른 주소다.)
  */
 const ASSETS = import.meta.env.BASE_URL;
+
+// 시연 모드(서버 없는 정적 호스팅) 지원 — 아래 DEMO 플래그로 갈린다
 
 /**
  * pixelmap.png 은 도면의 몇 배인가 — build-pixel-map.py 의 MAP_SCALE 과 같아야 한다.
@@ -113,9 +116,13 @@ ${msg}`;
 window.addEventListener('error', (e) => fatal('실행 오류', e.error ?? e.message));
 window.addEventListener('unhandledrejection', (e) => fatal('처리되지 않은 오류', e.reason));
 
+/** 서버 없이 브라우저 안에서만 도는 중 (정적 호스팅 시연) — boot() 에서 정해진다 */
+let DEMO = false;
+
 async function resolveToken(): Promise<string> {
   const urlToken = new URLSearchParams(window.location.search).get('token');
   if (urlToken) return urlToken;
+  if (DEMO) return 'demo'; // 검사할 서버가 없다 — 자리만 채운다
   const res = await fetch(`${SERVER_URL}/dev-token?type=patient`);
   return (await res.json()).token;
 }
@@ -146,11 +153,15 @@ function runSetup(token: string): Promise<PatientProfile> {
     start.addEventListener('click', async () => {
       if (!picked) return;
       start.disabled = true;
-      start.textContent = '저장 중…';
-      await fetch(`${SERVER_URL}/patient-profile`, {
-        method: 'POST',
-        body: JSON.stringify({ token, charId: picked, nickname: nick.value }),
-      });
+      // 시연 모드는 저장할 서버가 없다 — 고른 값은 이 페이지에만 남는다
+      // (⚠️ 불변식 B-5: 브라우저 스토리지 금지 → 새로고침하면 다시 고른다)
+      if (!DEMO) {
+        start.textContent = '저장 중…';
+        await fetch(`${SERVER_URL}/patient-profile`, {
+          method: 'POST',
+          body: JSON.stringify({ token, charId: picked, nickname: nick.value }),
+        });
+      }
       wrap.classList.remove('show');
       resolve({ charId: picked, nickname: nick.value.trim() || null });
     });
@@ -161,6 +172,8 @@ function runSetup(token: string): Promise<PatientProfile> {
 
 class PatientScene extends Phaser.Scene {
   private socket!: Socket;
+  /** 서버 없이 브라우저 안에서 가짜 좌표를 만들어 쓰는 중 */
+  private demo = false;
   private zones = new Map<string, Zone>();
   private pf!: Pathfinder;
   private me!: Phaser.GameObjects.Sprite;
@@ -243,14 +256,24 @@ class PatientScene extends Phaser.Scene {
   }
 
   private async boot(): Promise<void> {
+    // 서버가 없으면 시연 모드 — 도면·존·벽은 고정 파일이라 빌드에 든 사본을 쓴다
+    DEMO = !(await serverAlive(SERVER_URL));
+    if (DEMO) markDemoUi();
+    this.demo = DEMO;
+    const from = (route: string, local: string): string =>
+      DEMO ? localConfigUrl(local) : `${SERVER_URL}${route}`;
+
     this.token = await resolveToken();
     const [plan, zones, grid, profile] = await Promise.all([
-      fetch(`${SERVER_URL}/floorplan`).then((r) => r.json() as Promise<FloorplanMeta>),
-      fetch(`${SERVER_URL}/zones`).then((r) => r.json() as Promise<Zone[]>),
-      fetch(`${SERVER_URL}/walkable`).then((r) => r.json() as Promise<WalkableGrid>),
-      fetch(`${SERVER_URL}/patient-profile?token=${encodeURIComponent(this.token)}`)
-        .then((r) => r.json() as Promise<PatientProfile | null>)
-        .catch(() => null),
+      fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
+      fetch(from('/zones', 'zones')).then((r) => r.json() as Promise<Zone[]>),
+      fetch(from('/walkable', 'walkable')).then((r) => r.json() as Promise<WalkableGrid>),
+      // 저장해 둘 서버가 없으니 시연 모드는 늘 캐릭터 선택부터 시작한다
+      DEMO
+        ? Promise.resolve(null)
+        : fetch(`${SERVER_URL}/patient-profile?token=${encodeURIComponent(this.token)}`)
+            .then((r) => r.json() as Promise<PatientProfile | null>)
+            .catch(() => null),
     ]);
     this.plan = plan;
     this.pf = new Pathfinder(grid);
@@ -419,7 +442,10 @@ class PatientScene extends Phaser.Scene {
   }
 
   private connect(): void {
-    this.socket = io(`${SERVER_URL}/patient`, { auth: { token: this.token } });
+    // 시연 모드에서는 같은 모양의 가짜 소켓이 들어온다 — 아래 핸들러는 그대로 돈다
+    this.socket = this.demo
+      ? (demoSocket([...this.zones.values()]) as unknown as Socket)
+      : io(`${SERVER_URL}/patient`, { auth: { token: this.token } });
 
     // 탭이 백그라운드였다 돌아오면 걷지 말고 진실 좌표로 바로 붙인다 (직원용 패널과 동일)
     document.addEventListener('visibilitychange', () => {

@@ -1,4 +1,14 @@
 export { ZoneDwellFilter, ZONE_DWELL_MS } from './zone-dwell.js';
+export { MOCK_PROFILES, MOCK_TAGS, ROUTES, groupFromRoute, mockProfileFor } from './mock-tags.js';
+export {
+  CM_PER_PX,
+  MOCK_WALK_PX_PER_SEC,
+  buildRouteTimelines,
+  positionAt,
+  type RouteStop,
+  type RouteTimeline,
+} from './mock-walk.js';
+export { DemoSim } from './demo-sim.js';
 export {
   ARRIVE_EPS_PX,
   DEFAULT_UPDATE_INTERVAL_MS,

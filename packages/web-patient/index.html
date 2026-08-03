@@ -82,6 +82,19 @@
         font: 500 13px ui-monospace, monospace; white-space: pre-wrap; line-height: 1.5;
       }
       #fatal.show { display: block; }
+
+      /* 시연 모드 배지 — 서버 없이 도는 중임을 숨기지 않는다.
+         움직임이 진짜와 구분이 안 되므로, 표시가 없으면 실제 추적으로 오해한다. */
+      #demo-badge {
+        position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 150;
+        display: flex; flex-direction: column; align-items: center; gap: 1px;
+        padding: 6px 14px; border-radius: 8px;
+        background: #3a2c0ef0; border: 1px solid #a8801f;
+        color: #ffd97a; text-align: center; pointer-events: none;
+        font-family: ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+      }
+      #demo-badge b { font-size: 12px; }
+      #demo-badge span { font-size: 10.5px; color: #d3b878; }
     </style>
   </head>
   <body>

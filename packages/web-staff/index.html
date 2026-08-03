@@ -208,6 +208,18 @@
       #blocked-btn:hover { background: #3a2323; }
       #blocked-btn.on { background: #7a2b2b; color: #fff; }
 
+      /* 시연 모드 배지 — 서버 없이 도는 중임을 숨기지 않는다.
+         움직임이 진짜와 구분이 안 되므로, 표시가 없으면 실제 추적 정확도로 오해한다. */
+      #demo-badge {
+        position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 150;
+        display: flex; flex-direction: column; align-items: center; gap: 1px;
+        padding: 7px 16px; border-radius: 8px;
+        background: #3a2c0ef0; border: 1px solid #a8801f;
+        color: #ffd97a; text-align: center; pointer-events: none;
+      }
+      #demo-badge b { font-size: 12.5px; letter-spacing: .02em; }
+      #demo-badge span { font-size: 11px; color: #d3b878; }
+
       /* 도면 확대/축소 — 세 칸이 한 덩어리 (다른 버튼과 같은 줄에 맞춘다) */
       #tools > #zoom-box {
         display: flex; align-items: stretch; padding: 0; overflow: hidden;

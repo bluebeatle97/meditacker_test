@@ -16,14 +16,19 @@
 import mqtt from 'mqtt';
 import { loadFloorplan, loadGateways, loadZones } from '../config/index.js';
 import { WalkableMap } from '../presence/walkable-map.js';
-import { MOCK_TAGS, ROUTES } from './mock-tags.js';
+import {
+  CM_PER_PX,
+  MOCK_TAGS,
+  ROUTES,
+  buildRouteTimelines,
+  positionAt as positionOnTimeline,
+} from '@meditracker/shared';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
 const SPEED = Number(process.env.MOCK_SPEED ?? 1);
 const SCAN_INTERVAL_MS = Number(process.env.SCAN_INTERVAL_MS ?? 500);
-// 좌표계 = 도면 이미지 픽셀. 도면 폭 1650px ≈ 26700mm → 1px ≈ 1.62cm
-const CM_PER_PX = 1.62;
-const WALK_SPEED = 140 / CM_PER_PX; // px/초 (성인 보행 ≈ 1.4m/s)
+// 좌표계·보행속도는 @meditracker/shared 의 mock-walk 이 단일 출처 —
+// 브라우저 시연 모드가 같은 동선을 그려야 한다.
 
 /**
  * 부하 시험용 태그 증식 — `MOCK_TAGS_N=100` 이면 명단을 그 수까지 채운다.
@@ -47,64 +52,13 @@ const client = mqtt.connect(MQTT_URL);
 const gateways = loadGateways().filter((g) => g.tile);
 const zoneCenter = new Map(loadZones().map((z) => [z.zoneId, z.tilePosition]));
 
-// ── 경로: 존 중심(cm)을 지나는 환자 동선 + 도착 후 머무는 시간(초) ───────────
-interface Waypoint {
-  x: number;
-  y: number;
-  pause: number;
-}
-
-// 경로를 시간축으로 펼치기: 각 구간 (걷기 or 정지) 의 시작시각 테이블
-interface Segment {
-  from: Waypoint;
-  to: Waypoint;
-  startSec: number;
-  durationSec: number;
-  moving: boolean;
-}
-
-function buildTimeline(route: Waypoint[]): { segments: Segment[]; totalSec: number } {
-  const segments: Segment[] = [];
-  let t = 0;
-  for (let i = 0; i < route.length; i++) {
-    const cur = route[i];
-    const next = route[(i + 1) % route.length];
-    segments.push({ from: cur, to: cur, startSec: t, durationSec: cur.pause, moving: false });
-    t += cur.pause;
-    const dist = Math.hypot(next.x - cur.x, next.y - cur.y);
-    const walkSec = dist / WALK_SPEED;
-    segments.push({ from: cur, to: next, startSec: t, durationSec: walkSec, moving: true });
-    t += walkSec;
-  }
-  return { segments, totalSec: t };
-}
-
-/** 역할별 타임라인은 한 번만 만들어 여러 태그가 오프셋만 달리 해서 공유한다 */
-const TIMELINES = new Map<string, { segments: Segment[]; totalSec: number; first: Waypoint }>();
-for (const [name, zones] of Object.entries(ROUTES)) {
-  const route: Waypoint[] = zones.map(({ zoneId, pause }) => {
-    const c = zoneCenter.get(zoneId);
-    if (!c) throw new Error(`목 경로에 없는 존: ${zoneId}`);
-    return { x: c.x, y: c.y, pause };
-  });
-  TIMELINES.set(name, { ...buildTimeline(route), first: route[0] });
-}
+// 역할별 타임라인은 한 번만 만들어 여러 태그가 오프셋만 달리 해서 공유한다.
+// 타임라인 계산은 shared 가 단일 출처 — 브라우저 시연 모드와 같은 길을 걸어야 한다.
+const TIMELINES = buildRouteTimelines(ROUTES, zoneCenter);
 
 /** 시나리오 시각 → 현재 좌표 */
 function positionAt(routeName: string, sec: number): { x: number; y: number } {
-  const tl = TIMELINES.get(routeName)!;
-  const t = ((sec % tl.totalSec) + tl.totalSec) % tl.totalSec;
-  for (const seg of tl.segments) {
-    if (t >= seg.startSec && t < seg.startSec + seg.durationSec) {
-      if (!seg.moving) return { x: seg.from.x, y: seg.from.y };
-      const p = (t - seg.startSec) / seg.durationSec;
-      return {
-        x: seg.from.x + (seg.to.x - seg.from.x) * p,
-        y: seg.from.y + (seg.to.y - seg.from.y) * p,
-      };
-    }
-  }
-  return { x: tl.first.x, y: tl.first.y };
+  return positionOnTimeline(TIMELINES.get(routeName)!, sec);
 }
 
 // ── 경로손실 모델: 거리(cm) + 벽 관통 감쇠 → RSSI ───────────────────────────

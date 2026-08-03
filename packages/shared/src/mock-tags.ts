@@ -1,8 +1,14 @@
+import type { TagGroup } from './index.js';
+
 /**
  * 목(mock) 태그 명단과 역할별 동선 — **순수 데이터**.
  *
- * mock-gateway(신호 발생)와 dev-seed(사람·이름·그룹 시드) 양쪽이 같은 명단을 봐야 한다.
- * mock-gateway 를 직접 import 하면 MQTT 접속·타이머까지 딸려오므로 데이터만 뺐다.
+ * mock-gateway(신호 발생)·dev-seed(사람·이름·그룹 시드)·브라우저 시연 모드(demo-sim)가
+ * 모두 같은 명단을 봐야 한다. mock-gateway 를 직접 import 하면 MQTT 접속·타이머까지
+ * 딸려오므로 데이터만 뺐다.
+ *
+ * 서버가 아니라 shared 에 있는 이유: 시연 모드는 브라우저에서 도는데 서버 패키지를
+ * 끌어오면 better-sqlite3 까지 딸려온다. 명단이 두 벌이 되면 반드시 어긋난다.
  */
 
 // 도면 구역을 순서대로 경유 (존 중심 좌표 자동 사용).
@@ -111,4 +117,44 @@ export const MOCK_TAGS: Array<{ mac: string; route: string; offsetSec: number }>
   { mac: 'AA:BB:CC:00:00:54', route: 'nurse', offsetSec: 90 },
   { mac: 'AA:BB:CC:00:00:60', route: 'interpreter', offsetSec: 0 },
 ];
+
+/**
+ * 목 태그 MAC → 표시 이름·그룹·메모.
+ * dev-seed(서버 DB 시드)와 브라우저 시연 모드가 같은 이름을 보여야 해서 여기 둔다.
+ */
+export const MOCK_PROFILES: Record<string, { name: string; group: TagGroup; memo?: string }> = {
+  'AA:BB:CC:00:00:01': { name: '손님 1', group: 'patient', memo: '시연용 환자 화면' },
+  'AA:BB:CC:00:00:02': { name: '손님 2', group: 'patient', memo: '레이저 예약' },
+  'AA:BB:CC:00:00:03': { name: '손님 3', group: 'patient', memo: '피부관리 코스' },
+  'AA:BB:CC:00:00:04': { name: '손님 4', group: 'patient', memo: '수술 예정' },
+  'AA:BB:CC:00:00:05': { name: '손님 5', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:06': { name: '손님 6', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:07': { name: '손님 7', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:08': { name: '손님 8', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:09': { name: '손님 9', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:0A': { name: '손님 10', group: 'patient', memo: '대기 중' },
+  'AA:BB:CC:00:00:50': { name: '김원장', group: 'doctor', memo: '피부과' },
+  'AA:BB:CC:00:00:51': { name: '박과장', group: 'doctor', memo: '성형외과' },
+  'AA:BB:CC:00:00:52': { name: '이간호사', group: 'nurse', memo: '시술실 담당' },
+  'AA:BB:CC:00:00:53': { name: '최간호사', group: 'nurse', memo: '회복실 담당' },
+  'AA:BB:CC:00:00:54': { name: '정간호사', group: 'nurse' },
+  'AA:BB:CC:00:00:60': { name: '왕통역', group: 'interpreter', memo: '중국어' },
+};
+
+/** MOCK_PROFILES 에 없는 태그는 동선 이름으로 그룹을 정한다 (태그를 늘려도 표를 안 고치게) */
+export function groupFromRoute(route: string): TagGroup {
+  if (route.startsWith('doctor')) return 'doctor';
+  if (route.startsWith('nurse')) return 'nurse';
+  if (route.startsWith('interpreter')) return 'interpreter';
+  return 'patient';
+}
+
+/** 명단 순서대로 붙는 기본 이름·그룹 (프로필 표에 없으면 이걸 쓴다) */
+export function mockProfileFor(
+  mac: string,
+  route: string,
+  index: number,
+): { name: string; group: TagGroup; memo?: string } {
+  return MOCK_PROFILES[mac] ?? { name: `손님 ${index + 1}`, group: groupFromRoute(route) };
+}
 

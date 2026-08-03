@@ -18,6 +18,7 @@ import type {
   Zone,
 } from '@meditracker/shared';
 import { AlertPanel, STUCK_ALERT_MS, type StuckAlert } from './alert-panel';
+import { demoSocket, localConfigUrl, markDemoUi, serverAlive } from './demo-mode';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { groupColor, TagPanel, type TagRow } from './tag-panel';
 
@@ -177,6 +178,8 @@ class StaffMapScene extends Phaser.Scene {
    */
   private zoneDwell = new ZoneDwellFilter(ZONE_DWELL_MS);
 
+  /** 서버가 없어 브라우저 안에서 가짜 좌표를 만들어 쓰는 중 (정적 호스팅 시연) */
+  private demo = false;
   /** 확대해도 제자리·같은 크기로 남아야 하는 것(제목)만 그리는 카메라 */
   private uiCam?: Phaser.Cameras.Scene2D.Camera;
   private title!: Phaser.GameObjects.Text;
@@ -206,11 +209,19 @@ class StaffMapScene extends Phaser.Scene {
       fontStyle: 'bold',
     });
 
+    // 서버가 없으면 시연 모드 — 도면·존·벽은 고정 파일이라 빌드에 든 사본을 쓰고,
+    // 사람들의 좌표만 브라우저 안에서 만든다 (정적 호스팅 배포용)
+    this.demo = !(await serverAlive(SERVER_URL));
+    const from = (route: string, local: string): string =>
+      this.demo ? localConfigUrl(local) : `${SERVER_URL}${route}`;
+
     const [plan, zones, meta, grid] = await Promise.all([
-      fetch(`${SERVER_URL}/floorplan`).then((r) => r.json() as Promise<FloorplanMeta>),
-      fetch(`${SERVER_URL}/zones`).then((r) => r.json() as Promise<Zone[]>),
-      fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json() as Promise<TagMetaMap>),
-      fetch(`${SERVER_URL}/walkable`).then((r) => r.json() as Promise<WalkableGrid>),
+      fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
+      fetch(from('/zones', 'zones')).then((r) => r.json() as Promise<Zone[]>),
+      this.demo
+        ? Promise.resolve({} as TagMetaMap) // 이름·그룹은 아래 가짜 소켓이 바로 보내준다
+        : fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json() as Promise<TagMetaMap>),
+      fetch(from('/walkable', 'walkable')).then((r) => r.json() as Promise<WalkableGrid>),
     ]);
     this.plan = plan;
     this.tagMeta = meta;
@@ -263,7 +274,12 @@ class StaffMapScene extends Phaser.Scene {
     this.time.addEvent({ delay: 1000, loop: true, callback: () => this.refreshPanel() });
 
     this.setupZoom();
-    this.connect(await resolveToken());
+    if (this.demo) {
+      markDemoUi();
+      this.connect(demoSocket(zones).socket as unknown as Socket);
+    } else {
+      this.connect(io(`${SERVER_URL}/staff`, { auth: { token: await resolveToken() } }));
+    }
   }
 
   /**
@@ -503,12 +519,19 @@ class StaffMapScene extends Phaser.Scene {
         resolve();
       };
       img.onerror = () => reject(new Error(`도면 이미지 로드 실패: ${file}`));
-      img.src = `/${file}`;
+      // BASE_URL 기준 — 저장소 하위 경로(GitHub Pages)에 올려도 맞는다
+      img.src = `${import.meta.env.BASE_URL}${file}`;
     });
   }
 
-  private connect(token: string): void {
-    this.socket = io(`${SERVER_URL}/staff`, { auth: { token } });
+  /**
+   * 이벤트 핸들러를 소켓에 붙인다.
+   *
+   * 소켓을 여기서 만들지 않고 **받는** 이유: 시연 모드에서는 같은 모양의 가짜 객체가
+   * 들어온다. 그래야 아래 핸들러들이 서버가 있는지 없는지 모르는 채로 그대로 돈다.
+   */
+  private connect(socket: Socket): void {
+    this.socket = socket;
 
     /**
      * 탭이 백그라운드로 내려가면 브라우저가 rAF 를 멈춰 아바타가 그 자리에 굳는다.
@@ -575,19 +598,23 @@ class StaffMapScene extends Phaser.Scene {
 
     this.socket.on('tagmeta', (map: TagMetaMap) => {
       this.tagMeta = map;
-      for (const [tagId, label] of this.avatarLabels) label.setText(this.labelFor(tagId));
-      // 그룹이 바뀌면 색도 바로 바뀌게 (목록 아이콘과 맵 점이 같은 색을 유지)
-      for (const [tagId, parts] of this.avatarDots) {
-        const c = this.colorFor(tagId);
-        parts.halo.setFillStyle(c, 0.25);
-        parts.dot.setFillStyle(c);
-      }
+      this.recolorAvatars();
       this.refreshPanel();
     });
 
     this.socket.on('connect_error', (err) => {
       console.error('[ws] connect error:', err.message);
     });
+  }
+
+  /** 이름표와 점 색을 지금의 tagMeta 에 맞춘다 (목록 아이콘과 맵 점이 같은 색을 유지) */
+  private recolorAvatars(): void {
+    for (const [tagId, label] of this.avatarLabels) label.setText(this.labelFor(tagId));
+    for (const [tagId, parts] of this.avatarDots) {
+      const c = this.colorFor(tagId);
+      parts.halo.setFillStyle(c, 0.25);
+      parts.dot.setFillStyle(c);
+    }
   }
 
   /** 화면에 보일 이름 — 아직 지정 안 했으면 태그 뒷자리 */
@@ -603,6 +630,14 @@ class StaffMapScene extends Phaser.Scene {
 
   /** 이름·메모·그룹 저장 — 서버가 되돌려주는 tagmeta 브로드캐스트로 화면이 갱신된다 */
   private saveMeta(tagId: string, name: string, memo: string, group: TagGroup): void {
+    if (this.demo) {
+      // 시연 모드는 되돌려줄 서버가 없다 — 화면 안에서만 반영한다 (새로고침하면 원래대로).
+      // ⚠️ 불변식 B-5: 브라우저 스토리지에 저장하지 않는다.
+      this.tagMeta = { ...this.tagMeta, [tagId]: { name, memo, group } };
+      this.recolorAvatars();
+      this.refreshPanel();
+      return;
+    }
     void fetch(`${SERVER_URL}/tag-meta`, {
       method: 'POST',
       body: JSON.stringify({ tagId, name, memo, group }),

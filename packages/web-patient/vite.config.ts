@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite';
 
 /**
- * 환자용 화면은 배포 시 서버의 `/patient/` 아래에 얹힌다 (직원용은 루트).
- * base 를 안 맞추면 빌드된 HTML 이 자원을 `/assets/...` 로 찾아 직원용 것을 집는다.
+ * 환자용 화면의 배포 위치 — 직원용 아래 `/patient/` 에 얹힌다.
+ *
+ * - 서버가 화면까지 서빙하는 배포: `/patient/`
+ * - GitHub Pages: `/<저장소이름>/patient/` → `DEPLOY_BASE` 로 넘긴다
  *
  * 개발 서버(5174)는 루트로 뜨는 게 편하므로 빌드할 때만 적용한다.
+ * public/ 자원은 코드에서 `import.meta.env.BASE_URL` 을 붙여 부른다 —
+ * 루트 절대경로로 적으면 직원용 쪽을 뒤져 404 가 난다.
  */
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/patient/' : '/',
+  base: command === 'build' ? (process.env.DEPLOY_BASE ?? '/patient/') : '/',
 }));

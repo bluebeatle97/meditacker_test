@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# 빌드 때 서버 config 에서 복사해 온다 (tools/copy-demo-config.mjs) — 원본이 단일 출처
+packages/*/public/config/
 *.log
 .env
 .env.*

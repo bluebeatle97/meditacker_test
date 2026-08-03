@@ -1,0 +1,74 @@
+# GitHub Pages 배포 — 서버 없이 화면만 올리는 시연판.
+#
+# Pages 는 정적 파일만 나눠주므로 서버(WebSocket·MQTT·DB)를 못 돌린다. 그래서 화면이
+# 서버를 못 찾으면 브라우저 안에서 가상 인원을 걷게 하는 **시연 모드**로 넘어간다
+# (packages/*/src/demo-mode.ts). 배포된 화면에는 '시연용 가상 데이터' 배지가 뜬다.
+#
+# ⚠️ 여기 올라가는 건 실제 추적이 아니다. 진짜 서버를 붙여 보여주려면 README 의
+#    "시연용 배포" 절(Docker 한 컨테이너)을 쓴다.
+#
+# 결과 주소: https://<사용자>.github.io/<저장소>/          (직원용)
+#            https://<사용자>.github.io/<저장소>/patient/  (환자용)
+name: Deploy demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Actions 탭에서 손으로 돌릴 수 있게
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 배포는 한 번에 하나만. 진행 중인 건 끝내고, 대기 중인 건 최신 것만 남긴다
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # better-sqlite3(서버 의존성)까지 빌드하지 않도록 화면 빌드에 필요한 것만 받는다
+      - run: npm ci --ignore-scripts
+
+      # base 는 저장소 하위 경로여야 한다 — 루트로 두면 JS·이미지를 못 찾아 흰 화면이 된다
+      - name: Build staff panel
+        env:
+          DEPLOY_BASE: /${{ github.event.repository.name }}/
+        run: npm run build -w @meditracker/web-staff
+
+      - name: Build patient panel
+        env:
+          DEPLOY_BASE: /${{ github.event.repository.name }}/patient/
+        run: npm run build -w @meditracker/web-patient
+
+      # 직원용을 뿌리에, 환자용을 그 아래 /patient/ 로 — 서버 배포와 같은 배치
+      - name: Assemble site
+        run: |
+          mkdir -p site
+          cp -r packages/web-staff/dist/. site/
+          mkdir -p site/patient
+          cp -r packages/web-patient/dist/. site/patient/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -14,49 +14,18 @@
 import { SERVER_CONFIG } from '../config/index.js';
 import { assignTag, openDb, upsertTagMeta } from '../db/index.js';
 import { signToken } from '../auth/jwt.js';
-import { MOCK_TAGS } from './mock-tags.js';
+import { MOCK_TAGS, mockProfileFor } from '@meditracker/shared';
 import type { PersonType, TagGroup } from '@meditracker/shared';
 
 const db = openDb(SERVER_CONFIG.dbPath);
 
-/** 목 태그 MAC → 표시 이름·그룹·메모 */
-const PROFILE: Record<string, { name: string; group: TagGroup; memo?: string }> = {
-  'AA:BB:CC:00:00:01': { name: '손님 1', group: 'patient', memo: '시연용 환자 화면' },
-  'AA:BB:CC:00:00:02': { name: '손님 2', group: 'patient', memo: '레이저 예약' },
-  'AA:BB:CC:00:00:03': { name: '손님 3', group: 'patient', memo: '피부관리 코스' },
-  'AA:BB:CC:00:00:04': { name: '손님 4', group: 'patient', memo: '수술 예정' },
-  'AA:BB:CC:00:00:05': { name: '손님 5', group: 'patient', memo: '대기 중' },
-  'AA:BB:CC:00:00:06': { name: '손님 6', group: 'patient', memo: '대기 중' },
-  'AA:BB:CC:00:00:07': { name: '손님 7', group: 'patient', memo: '대기 중' },
-  'AA:BB:CC:00:00:08': { name: '손님 8', group: 'patient', memo: '대기 중' },
-  'AA:BB:CC:00:00:09': { name: '손님 9', group: 'patient', memo: '대기 중' },
-  'AA:BB:CC:00:00:0A': { name: '손님 10', group: 'patient', memo: '대기 중' },
-  'AA:BB:CC:00:00:50': { name: '김원장', group: 'doctor', memo: '피부과' },
-  'AA:BB:CC:00:00:51': { name: '박과장', group: 'doctor', memo: '성형외과' },
-  'AA:BB:CC:00:00:52': { name: '이간호사', group: 'nurse', memo: '시술실 담당' },
-  'AA:BB:CC:00:00:53': { name: '최간호사', group: 'nurse', memo: '회복실 담당' },
-  'AA:BB:CC:00:00:54': { name: '정간호사', group: 'nurse' },
-  'AA:BB:CC:00:00:60': { name: '왕통역', group: 'interpreter', memo: '중국어' },
-};
-
 const STAFF_GROUPS = new Set<TagGroup>(['doctor', 'nurse', 'interpreter']);
 
-/** PROFILE 에 없는 태그는 동선 이름으로 그룹을 정한다 (태그를 늘릴 때 표를 안 고쳐도 되게) */
-function groupFromRoute(route: string): TagGroup {
-  if (route.startsWith('doctor')) return 'doctor';
-  if (route.startsWith('nurse')) return 'nurse';
-  if (route.startsWith('interpreter')) return 'interpreter';
-  return 'patient';
-}
 let persons = 0;
 let firstPatient = '';
 
 for (const [i, tag] of MOCK_TAGS.entries()) {
-  const profile = PROFILE[tag.mac] ?? {
-    name: `손님 ${i + 1}`,
-    group: groupFromRoute(tag.route),
-    memo: undefined as string | undefined,
-  };
+  const profile = mockProfileFor(tag.mac, tag.route, i);
   const isStaff = STAFF_GROUPS.has(profile.group);
   const personId = `${isStaff ? 'staff' : 'patient'}-${tag.mac.slice(-2)}`;
   const type: PersonType = isStaff ? 'staff' : 'patient';
