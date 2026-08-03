@@ -18,7 +18,7 @@ import type {
   Zone,
 } from '@meditracker/shared';
 import { AlertPanel, STUCK_ALERT_MS, type StuckAlert } from './alert-panel';
-import { demoSocket, localConfigUrl, markDemoUi, serverAlive } from './demo-mode';
+import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mode';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { groupColor, TagPanel, type TagRow } from './tag-panel';
 
@@ -209,15 +209,16 @@ class StaffMapScene extends Phaser.Scene {
       fontStyle: 'bold',
     });
 
-    // 서버가 없으면 시연 모드 — 도면·존·벽은 고정 파일이라 빌드에 든 사본을 쓰고,
-    // 사람들의 좌표만 브라우저 안에서 만든다 (정적 호스팅 배포용)
-    this.demo = !(await serverAlive(SERVER_URL));
+    // 존 목록을 서버에서 받아 보고, 안 되면 시연 모드 — 도면·존·벽은 고정 파일이라
+    // 빌드에 든 사본을 쓰고 사람들의 좌표만 브라우저 안에서 만든다 (정적 호스팅 배포용)
+    const source = await resolveZones(SERVER_URL);
+    this.demo = source.demo;
+    const zones = source.zones;
     const from = (route: string, local: string): string =>
       this.demo ? localConfigUrl(local) : `${SERVER_URL}${route}`;
 
-    const [plan, zones, meta, grid] = await Promise.all([
+    const [plan, meta, grid] = await Promise.all([
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
-      fetch(from('/zones', 'zones')).then((r) => r.json() as Promise<Zone[]>),
       this.demo
         ? Promise.resolve({} as TagMetaMap) // 이름·그룹은 아래 가짜 소켓이 바로 보내준다
         : fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json() as Promise<TagMetaMap>),

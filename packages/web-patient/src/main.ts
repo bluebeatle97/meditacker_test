@@ -9,7 +9,7 @@ import {
   pathLengthPx,
 } from '@meditracker/shared';
 import type { FloorplanMeta, PatientProfile, Zone, ZoneAction } from '@meditracker/shared';
-import { demoSocket, localConfigUrl, markDemoUi, serverAlive } from './demo-mode';
+import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mode';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { Crowd, type CrowdUnit } from './crowd';
 
@@ -256,8 +256,10 @@ class PatientScene extends Phaser.Scene {
   }
 
   private async boot(): Promise<void> {
-    // 서버가 없으면 시연 모드 — 도면·존·벽은 고정 파일이라 빌드에 든 사본을 쓴다
-    DEMO = !(await serverAlive(SERVER_URL));
+    // 존 목록을 서버에서 받아 보고, 안 되면 시연 모드 — 도면·존·벽은 고정 파일이라
+    // 빌드에 든 사본을 쓴다
+    const source = await resolveZones(SERVER_URL);
+    DEMO = source.demo;
     if (DEMO) markDemoUi();
     this.demo = DEMO;
     const from = (route: string, local: string): string =>
@@ -266,7 +268,7 @@ class PatientScene extends Phaser.Scene {
     this.token = await resolveToken();
     const [plan, zones, grid, profile] = await Promise.all([
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
-      fetch(from('/zones', 'zones')).then((r) => r.json() as Promise<Zone[]>),
+      Promise.resolve(source.zones),
       fetch(from('/walkable', 'walkable')).then((r) => r.json() as Promise<WalkableGrid>),
       // 저장해 둘 서버가 없으니 시연 모드는 늘 캐릭터 선택부터 시작한다
       DEMO

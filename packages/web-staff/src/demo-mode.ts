@@ -15,6 +15,37 @@ import type { PositionEstimate, TagMetaMap, Zone } from '@meditracker/shared';
 
 /** 서버 응답이 이 시간 안에 안 오면 없는 것으로 친다 — 정적 호스팅에선 대개 즉시 실패한다 */
 const PROBE_TIMEOUT_MS = 3500;
+
+/**
+ * 서버가 있는지 확인. **화면이 실제로 쓰는 엔드포인트**로 물어본다.
+ *
+ * ⚠️ 탐지 전용 요청(`/health`)을 쓰면 안 된다. 그 하나에만 CORS 헤더가 빠져도
+ *    서버가 멀쩡한데 브라우저가 응답을 막아 통째로 '서버 없음'이 된다 — 개발 모드
+ *    (5173→8080)가 조용히 시연 모드로 빠졌던 실제 사고다. 진짜 쓰는 것을 받아 보면
+ *    그 종류의 오진이 구조적으로 불가능하다.
+ */
+async function fetchZones(serverUrl: string): Promise<Zone[] | null> {
+  try {
+    const res = await fetch(`${serverUrl}/zones`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    return res.ok ? ((await res.json()) as Zone[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 존 목록을 서버에서 받아 보고, 안 되면 빌드에 든 사본으로 돌아간다.
+ * 돌려주는 `demo` 가 이후 모든 분기(설정 출처·소켓·배지)의 단일 기준이다.
+ */
+export async function resolveZones(serverUrl: string): Promise<{ demo: boolean; zones: Zone[] }> {
+  const fromServer = await fetchZones(serverUrl);
+  if (fromServer) return { demo: false, zones: fromServer };
+  const res = await fetch(localConfigUrl('zones'));
+  return { demo: true, zones: (await res.json()) as Zone[] };
+}
+
 /** 좌표 방송 주기 — 서버의 posBroadcastMs 와 같은 값이라야 아바타 보행 속도가 맞는다 */
 const POS_BROADCAST_MS = 1500;
 
@@ -29,21 +60,6 @@ export interface FakeSocket {
 /** 빌드에 같이 들어간 정적 설정 (서버의 /floorplan · /zones · /walkable 과 같은 내용) */
 export function localConfigUrl(name: string): string {
   return `${import.meta.env.BASE_URL}config/${name}.json`;
-}
-
-/**
- * 서버가 살아 있는지 확인. 응답이 없거나 느리면 시연 모드로 간다.
- * `/health` 는 인증이 필요 없고 가벼워서 탐지용으로 알맞다.
- */
-export async function serverAlive(serverUrl: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${serverUrl}/health`, {
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
 }
 
 /**

@@ -174,7 +174,9 @@ function readBody(req: IncomingMessage, limit: number, done: (body: string) => v
 
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    // ⚠️ CORS 필수: 화면이 서버와 다른 도메인일 때(개발 5173→8080, 프론트만 따로 배포)
+    //    이 헤더가 없으면 브라우저가 응답을 막아 **서버가 살아 있는데도 죽은 것으로 보인다**.
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(
       JSON.stringify({ ok: true, tags: engine.getAllStates().length, scans: scanRouter.stats() }),
     );

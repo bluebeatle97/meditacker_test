@@ -30,15 +30,24 @@ export function localConfigUrl(name: string): string {
   return `${import.meta.env.BASE_URL}config/${name}.json`;
 }
 
-export async function serverAlive(serverUrl: string): Promise<boolean> {
+/**
+ * 존 목록을 서버에서 받아 보고, 안 되면 빌드에 든 사본으로 돌아간다.
+ *
+ * ⚠️ 탐지 전용 요청(`/health`)으로 판단하면 안 된다. 그 하나에만 CORS 헤더가 빠져도
+ *    서버가 멀쩡한데 브라우저가 응답을 막아 '서버 없음'으로 오진한다 — 개발 모드가
+ *    조용히 시연 모드로 빠졌던 실제 사고다. 진짜 쓰는 것을 받아 보면 그럴 수 없다.
+ */
+export async function resolveZones(serverUrl: string): Promise<{ demo: boolean; zones: Zone[] }> {
   try {
-    const res = await fetch(`${serverUrl}/health`, {
+    const res = await fetch(`${serverUrl}/zones`, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
-    return res.ok;
+    if (res.ok) return { demo: false, zones: (await res.json()) as Zone[] };
   } catch {
-    return false;
+    /* 서버 없음 — 아래에서 사본을 쓴다 */
   }
+  const local = await fetch(localConfigUrl('zones'));
+  return { demo: true, zones: (await local.json()) as Zone[] };
 }
 
 /** 서버의 anonId 와 같은 해시 — 같은 태그면 같은 id 라야 스프라이트가 유지된다 */
