@@ -1,4 +1,15 @@
 export { ZoneDwellFilter, ZONE_DWELL_MS } from './zone-dwell.js';
+export {
+  ARRIVE_EPS_PX,
+  DEFAULT_UPDATE_INTERVAL_MS,
+  INTERPOLATION_OVERSHOOT,
+  MAX_CATCHUP_MULT,
+  UpdateClock,
+  WALK_PX_PER_SEC,
+  pathLengthPx,
+  paceForPath,
+  type Point,
+} from './walk-pacing.js';
 
 // ─── 정적 데이터 (설계서 5.1) ───────────────────────────────────────────────
 

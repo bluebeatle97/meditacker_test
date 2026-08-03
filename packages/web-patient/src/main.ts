@@ -1,6 +1,13 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
-import { ZoneDwellFilter, ZONE_DWELL_MS } from '@meditracker/shared';
+import {
+  ARRIVE_EPS_PX,
+  UpdateClock,
+  ZoneDwellFilter,
+  ZONE_DWELL_MS,
+  paceForPath,
+  pathLengthPx,
+} from '@meditracker/shared';
 import type { FloorplanMeta, PatientProfile, Zone, ZoneAction } from '@meditracker/shared';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { Crowd, type CrowdUnit } from './crowd';
@@ -50,9 +57,10 @@ const ARROW_BOB_PX = 2.5;
 const ARROW_BOB_MS = 900;
 const TILE = 16;
 
-// 걷는 속도: 도면 1px ≈ 1.62cm, 보행 1.4m/s → 약 86 도면px/초 → 화면은 ×MAP_SCALE
-const WALK_PX_PER_SEC = 86 * MAP_SCALE;
-const ARRIVE_EPS = 12 * MAP_SCALE;
+// 보행 속도·도착 판정·따라잡기는 @meditracker/shared 의 walk-pacing 이 단일 출처.
+// 직원용 패널과 **같은 계산**을 써야 같은 사람이 두 화면에서 같은 자리에 있다.
+// (shared 는 도면 px 기준 → 화면 좌표로 쓸 땐 ×MAP_SCALE)
+const ARRIVE_EPS = ARRIVE_EPS_PX * MAP_SCALE;
 
 const CHARACTERS = [
   { id: 'adam', label: '민준' },
@@ -160,6 +168,15 @@ class PatientScene extends Phaser.Scene {
   private crowd?: Crowd;
   /** 본인 실좌표를 마지막으로 받은 시각 — 이게 흐르면 존 중앙 스냅을 쓰지 않는다 */
   private lastPosAt = 0;
+  /**
+   * 직전 서버 좌표 (도면). 경로를 캐릭터의 현재 위치가 아니라 여기서부터 계산한다 —
+   * 캐릭터 위치에서 재면 직원용 패널과 A* 입력이 달라져 다른 문으로 돌아간다.
+   */
+  private lastPoint?: { x: number; y: number };
+  /** 이번 구간 보행 속도 (도면 px/초). 다음 좌표가 올 때쯤 도착하도록 매 구간 다시 정한다 */
+  private pace = 0;
+  /** 좌표 브로드캐스트 주기 관측 — 본인(pos:self)과 다른 사람들(crowd)이 같이 쓴다 */
+  private posClock = new UpdateClock();
 
   constructor() {
     super('patient');
@@ -279,8 +296,9 @@ class PatientScene extends Phaser.Scene {
       scene: this,
       pf: this.pf,
       mapScale: MAP_SCALE,
-      walkSpeed: WALK_PX_PER_SEC,
       arriveEps: ARRIVE_EPS,
+      // 본인 캐릭터와 같은 주기 관측을 공유한다 (같은 브로드캐스트로 움직이므로)
+      clock: this.posClock,
       // 익명 id 로 캐릭터를 흩뿌린다 (직원은 늘 같은 캐릭터로 통일해 구분되게)
       sheetFor: (u) =>
         u.kind === 'staff'
@@ -376,6 +394,17 @@ class PatientScene extends Phaser.Scene {
   private connect(): void {
     this.socket = io(`${SERVER_URL}/patient`, { auth: { token: this.token } });
 
+    // 탭이 백그라운드였다 돌아오면 걷지 말고 진실 좌표로 바로 붙인다 (직원용 패널과 동일)
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      if (this.lastPoint && this.me) {
+        this.me.setPosition(this.m(this.lastPoint.x), this.m(this.lastPoint.y));
+        this.path = [];
+        if (!this.overview) this.cameras.main.centerOn(this.me.x, this.me.y);
+      }
+      this.crowd?.snapAll();
+    });
+
     this.socket.on(
       'presence:self',
       (p: { zone: string | null; waitingRank: number; estimatedWaitSec: number }) => {
@@ -399,7 +428,11 @@ class PatientScene extends Phaser.Scene {
     // (존 중앙 스냅은 좌표가 없을 때의 대체 수단일 뿐이다)
     this.socket.on('pos:self', (p: { x: number; y: number; zone: string | null }) => {
       this.lastPosAt = Date.now();
-      this.walkToPoint(p.x, p.y);
+      // 주기 관측은 브로드캐스트당 한 번 — pos:self 는 태그 하나뿐이라 여기가 그 지점
+      this.posClock.tick();
+      // 직전 서버 좌표에서 경로를 잰다 → 직원용 패널과 반드시 같은 경로
+      this.walkToPoint(p.x, p.y, this.lastPoint);
+      this.lastPoint = { x: p.x, y: p.y };
       // 이 이벤트가 현재 구역도 함께 들고 온다 (3.5초마다 반드시 온다) → 안내 문구의
       // 기준을 이걸로 삼는다. presence:self 는 구역이 바뀔 때만 오므로 그것만 보면
       // 머문 시간이 차도 재평가 기회가 없다.
@@ -448,9 +481,16 @@ class PatientScene extends Phaser.Scene {
     if (zone) this.walkToPoint(zone.tilePosition.x, zone.tilePosition.y);
   }
 
-  /** 도면 좌표 한 점까지 벽을 피해 걸어간다 (본인 비콘 실좌표가 여기로 들어온다) */
-  private walkToPoint(fx: number, fy: number): void {
+  /**
+   * 도면 좌표 한 점까지 벽을 피해 걸어간다 (본인 비콘 실좌표가 여기로 들어온다).
+   *
+   * @param from 경로 출발점. 서버 좌표로 움직일 때는 **직전 서버 좌표**를 넘긴다 —
+   *   그래야 직원용 패널과 A* 입력이 같아져 같은 경로가 나온다. 존 스냅처럼 서버
+   *   좌표가 없을 때만 생략해 캐릭터 위치를 쓴다.
+   */
+  private walkToPoint(fx: number, fy: number, from?: { x: number; y: number }): void {
     const dest = this.pf.nearestWalkable(fx, fy);
+    const cur = { x: this.me.x / MAP_SCALE, y: this.me.y / MAP_SCALE };
     if (this.teleport) {
       this.me.setPosition(this.m(dest.x), this.m(dest.y));
       // 카메라도 같이 붙인다 — follow lerp 로 따라오게 두면 첫 화면이 엉뚱한 곳을 본다
@@ -459,10 +499,18 @@ class PatientScene extends Phaser.Scene {
       this.teleport = false;
       return;
     }
-    const from = { x: this.me.x / MAP_SCALE, y: this.me.y / MAP_SCALE };
-    const route = this.pf.hasLineOfSight(from.x, from.y, dest.x, dest.y)
+    const start = from ?? cur;
+    const route = this.pf.hasLineOfSight(start.x, start.y, dest.x, dest.y)
       ? [dest]
-      : this.pf.findPath(from.x, from.y, dest.x, dest.y) ?? [dest];
+      : (this.pf.findPath(start.x, start.y, dest.x, dest.y) ?? [dest]);
+    // 경로 시작점이 캐릭터에서 멀고 사이에 벽이 있으면(탭이 멈춰 있던 경우) 걸어서 붙이면
+    // 벽을 뚫는다 → 그 지점으로 바로 붙인다
+    let at = cur;
+    if (route[0] && !this.pf.hasLineOfSight(cur.x, cur.y, route[0].x, route[0].y)) {
+      this.me.setPosition(this.m(route[0].x), this.m(route[0].y));
+      at = route[0];
+    }
+    this.pace = paceForPath(pathLengthPx(at, route), this.posClock.intervalMs);
     this.path = route.map((p) => ({ x: this.m(p.x), y: this.m(p.y) }));
   }
 
@@ -472,7 +520,8 @@ class PatientScene extends Phaser.Scene {
     //    (= 화면이 통째로 비어 보인다. 실제로 그렇게 신고됨)
     if (!this.me) return;
 
-    let remaining = (WALK_PX_PER_SEC * delta) / 1000;
+    // 구간마다 다시 정해진 속도 (직원용 패널과 같은 계산 — walk-pacing.ts)
+    let remaining = (this.pace * MAP_SCALE * delta) / 1000;
     let moved = false;
 
     while (remaining > 0 && this.path.length > 0) {

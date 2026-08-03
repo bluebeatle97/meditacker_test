@@ -8,13 +8,17 @@
 // 도면 구역을 순서대로 경유 (존 중심 좌표 자동 사용).
 // 손님·직원이 섞여 돌아다니는 그림을 만들려고 역할별로 다른 동선을 둔다.
 export const ROUTES: Record<string, Array<{ zoneId: string; pause: number }>> = {
-  // 환자 A: 접수 → 상담 → 시술 → 회복
+  /**
+   * 환자 A: 대기 → 접수 → 상담 → 시술 → 회복 (다시 대기로 순환).
+   * ⚠️ 이 동선의 **첫 구역이 환자용 패널의 출발 지점**이다 — 시연용 비콘
+   *    `AA:BB:CC:00:00:01`(손님 1, offsetSec 0)이 이 경로를 탄다.
+   */
   patientA: [
+    { zoneId: 'waiting_2', pause: 20 },
     { zoneId: 'reception', pause: 40 },
     { zoneId: 'consult_2', pause: 30 },
     { zoneId: 'proc_2', pause: 45 },
     { zoneId: 'vip_recovery', pause: 35 },
-    { zoneId: 'waiting_2', pause: 20 },
   ],
   // 환자 B: 접수 → 촬영 → 상담 → 레이저 → 회복
   patientB: [

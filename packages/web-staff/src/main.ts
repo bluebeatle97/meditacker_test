@@ -1,6 +1,13 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
-import { ZoneDwellFilter, ZONE_DWELL_MS } from '@meditracker/shared';
+import {
+  ARRIVE_EPS_PX,
+  UpdateClock,
+  ZoneDwellFilter,
+  ZONE_DWELL_MS,
+  paceForPath,
+  pathLengthPx,
+} from '@meditracker/shared';
 import type {
   FloorplanMeta,
   MapAnnotation,
@@ -50,10 +57,8 @@ const PAD = 6;
 
 // 그룹 색은 tag-panel.ts 가 단일 출처 — 맵 위 점·목록 아이콘·그룹 버튼이 같은 색을 쓴다
 
-// 걸어가는 느낌: 도면 축척 1px ≈ 1.62cm, 성인 보행 1.4m/s → 약 86 도면px/초
-const WALK_PX_PER_SEC = 86;
-/** 이 거리 안이면 도착으로 간주 — RSSI 노이즈로 제자리 떨림 방지 */
-const ARRIVE_EPS_PX = 12;
+// 보행 속도·도착 판정·따라잡기 계수는 @meditracker/shared 의 walk-pacing 이 단일 출처.
+// 환자용 패널과 **같은 값**을 써야 두 화면의 같은 사람이 같은 자리에 있다.
 
 // 방 이름 라벨 — 방 폭에 맞춰 크기를 정한다 (좁은 방은 줄여서라도 방 안에 넣는다)
 const NAME_FONT = 'sans-serif';
@@ -118,6 +123,16 @@ class StaffMapScene extends Phaser.Scene {
   private paths = new Map<string, Array<{ x: number; y: number }>>();
   /** 즉시 배치할 태그 (최초 등장·자리비움) — 걷지 않고 순간 이동 */
   private teleport = new Set<string>();
+  /**
+   * 태그별 **직전 서버 좌표**. 경로를 아바타의 현재 화면 위치가 아니라 여기서부터 계산한다 —
+   * 아바타 위치에서 재면 두 패널의 A* 입력이 달라져 **아예 다른 문으로 돌아가고**,
+   * 그 차이가 좁혀지는 게 아니라 벌어진다. 서버 좌표는 양쪽이 똑같으니 경로도 똑같아진다.
+   */
+  private lastPoint = new Map<string, { x: number; y: number }>();
+  /** 태그별 이번 구간 보행 속도 (도면 px/초) — 다음 좌표가 올 때 정확히 도착하도록 매번 다시 정한다 */
+  private pace = new Map<string, number>();
+  /** 좌표 브로드캐스트 주기 관측 (환자용 패널과 같은 방식) */
+  private posClock = new UpdateClock();
   private pf!: Pathfinder;
   private blockedOverlay?: Phaser.GameObjects.Image;
   /** 방 이름 라벨 묶음 — 버튼으로 통째 토글 */
@@ -464,6 +479,22 @@ class StaffMapScene extends Phaser.Scene {
   private connect(token: string): void {
     this.socket = io(`${SERVER_URL}/staff`, { auth: { token } });
 
+    /**
+     * 탭이 백그라운드로 내려가면 브라우저가 rAF 를 멈춰 아바타가 그 자리에 굳는다.
+     * 돌아왔을 때 걸어서 메우려 하면 그동안 새 좌표가 계속 오므로 **영영 못 따라잡는다**
+     * (= 환자용 패널과 어긋난 채로 고정된다). 그러니 걷지 말고 진실 좌표로 바로 붙인다.
+     */
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      for (const [tagId, avatar] of this.avatars) {
+        const p = this.lastPoint.get(tagId);
+        if (!p) continue;
+        avatar.x = this.sx(p.x);
+        avatar.y = this.sy(p.y);
+        this.paths.set(tagId, []);
+      }
+    });
+
     this.socket.on('presence:update', (states: PresenceState[]) => {
       for (const state of states) {
         this.states.set(state.tagId, state);
@@ -474,6 +505,9 @@ class StaffMapScene extends Phaser.Scene {
 
     this.socket.on('presence:remove', ({ tagId }: { tagId: string }) => {
       this.lastPosAt.delete(tagId);
+      // 자리비움 구석으로 치우므로 직전 좌표는 무효 — 돌아오면 새로 잡는다
+      // (남겨두면 복귀 시 도면 밖에서 방까지 걸어 들어오는 경로가 나온다)
+      this.lastPoint.delete(tagId);
       const prev = this.states.get(tagId);
       if (prev) this.states.set(tagId, { ...prev, currentZone: null });
       const avatar = this.avatars.get(tagId);
@@ -483,6 +517,8 @@ class StaffMapScene extends Phaser.Scene {
 
     // RSSI 가중평균 연속 위치 → 도면 좌표계 그대로 변환
     this.socket.on('pos:update', (positions: PositionEstimate[]) => {
+      // 브로드캐스트 주기 관측은 배치당 한 번 (태그마다 부르면 0ms 로 수렴한다)
+      this.posClock.tick();
       for (const p of positions) {
         let avatar = this.avatars.get(p.tagId);
         if (!avatar) {
@@ -490,7 +526,9 @@ class StaffMapScene extends Phaser.Scene {
           this.avatars.set(p.tagId, avatar);
         }
         this.lastPosAt.set(p.tagId, Date.now());
-        this.routeTo(p.tagId, avatar, p.x, p.y);
+        // 직전 서버 좌표에서부터 경로를 잰다 → 환자용 패널과 반드시 같은 경로가 나온다
+        this.routeTo(p.tagId, avatar, p.x, p.y, this.lastPoint.get(p.tagId));
+        this.lastPoint.set(p.tagId, { x: p.x, y: p.y });
         // 존 판정과 신호 시각은 연속 위치 쪽이 더 최신이다 — 목록 상태에 반영
         const prev = this.states.get(p.tagId);
         this.states.set(p.tagId, {
@@ -689,24 +727,55 @@ class StaffMapScene extends Phaser.Scene {
     avatar: Phaser.GameObjects.Container,
     destX: number,
     destY: number,
+    /**
+     * 경로 계산 출발점 (도면 좌표). 서버 좌표를 받아 움직일 때는 **직전 서버 좌표**를 넘긴다 —
+     * 아바타 위치에서 재면 두 패널이 서로 다른 경로를 고른다. 존 스냅처럼 서버 좌표가 없는
+     * 경우에만 생략해서 아바타 위치를 쓴다.
+     */
+    from?: { x: number; y: number },
   ): void {
     // 현재 화면 좌표 → 도면 좌표
     const curX = (avatar.x - this.offX) / this.worldScale;
     const curY = (avatar.y - this.offY) / this.worldScale;
+    const start = from ?? { x: curX, y: curY };
 
     if (this.teleport.has(tagId)) {
-      this.paths.set(tagId, [{ x: destX, y: destY }]);
+      this.setLeg(tagId, [{ x: destX, y: destY }], curX, curY);
       return;
     }
     // 목표가 벽·가구 위면 통행 가능한 지점으로 보정 (그 지점까지만 걷는다)
     const dest = this.pf.nearestWalkable(destX, destY);
-    if (this.pf.hasLineOfSight(curX, curY, dest.x, dest.y)) {
-      this.paths.set(tagId, [dest]);
-      return;
+    const path = this.pf.hasLineOfSight(start.x, start.y, dest.x, dest.y)
+      ? [dest]
+      : // 경로를 못 찾으면(격리된 영역 등) 어쩔 수 없이 직선 — 최소한 멈추진 않게
+        (this.pf.findPath(start.x, start.y, dest.x, dest.y) ?? [dest]);
+    this.setLeg(tagId, path, curX, curY);
+  }
+
+  /**
+   * 이번 구간의 경로와 속도를 확정한다.
+   *
+   * 속도를 고정하지 않고 **다음 좌표가 올 때 정확히 도착하도록** 매번 다시 정하는 게 핵심이다.
+   * 고정 보행 속도(= 사람이 걷는 속도)로 쫓아가면 따라잡을 여유가 0이라, 한 번 뒤처진
+   * 화면은 사람이 멈출 때까지 영영 그만큼 뒤처진 채로 남는다.
+   */
+  private setLeg(
+    tagId: string,
+    path: Array<{ x: number; y: number }>,
+    curX: number,
+    curY: number,
+  ): void {
+    // 아바타가 경로 시작점에서 멀리 떨어졌고 사이에 벽이 있으면(탭 백그라운드 등으로 멈춰
+    // 있던 경우) 걸어서 붙이면 벽을 뚫는다 → 진실 좌표로 순간이동시킨다.
+    const head = path[0];
+    if (head && !this.pf.hasLineOfSight(curX, curY, head.x, head.y)) {
+      this.teleport.add(tagId);
     }
-    const path = this.pf.findPath(curX, curY, dest.x, dest.y);
-    // 경로를 못 찾으면(격리된 영역 등) 어쩔 수 없이 직선 — 최소한 멈추진 않게
-    this.paths.set(tagId, path ?? [dest]);
+    this.paths.set(tagId, path);
+    this.pace.set(
+      tagId,
+      paceForPath(pathLengthPx({ x: curX, y: curY }, path), this.posClock.intervalMs),
+    );
   }
 
   /** 존 스냅 이동 (연속 위치 없을 때) — 존 라벨 위치를 목표로 */
@@ -733,12 +802,13 @@ class StaffMapScene extends Phaser.Scene {
    * 서버는 3.5초마다 좌표를 주고, 그 사이를 아바타가 걸어서 좁힌다.
    */
   update(time: number, delta: number): void {
-    const step = WALK_PX_PER_SEC * this.worldScale * (delta / 1000);
     const eps = ARRIVE_EPS_PX * this.worldScale;
 
     for (const [tagId, avatar] of this.avatars) {
       const path = this.paths.get(tagId);
       if (!path || path.length === 0) continue;
+      // 구간마다 다시 정해진 속도 (환자용 패널과 같은 계산 — walk-pacing.ts)
+      const step = (this.pace.get(tagId) ?? 0) * this.worldScale * (delta / 1000);
 
       if (this.teleport.has(tagId)) {
         const last = path[path.length - 1];

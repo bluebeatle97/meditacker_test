@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { paceForPath, pathLengthPx, type UpdateClock } from '@meditracker/shared';
 import type { Pathfinder } from './pathfinder';
 
 /**
@@ -26,8 +27,12 @@ export interface CrowdDeps {
   pf: Pathfinder;
   /** 도면 좌표 → 화면 좌표 배율 */
   mapScale: number;
-  /** 걷는 속도 (화면 px/초) */
-  walkSpeed: number;
+  /**
+   * 좌표 브로드캐스트 주기 관측 (본인 캐릭터와 공유).
+   * ⚠️ 여기서 `tick()` 을 부르면 안 된다 — 같은 브로드캐스트에서 pos:self 가 이미 부르므로
+   *    두 번 세면 주기 추정이 0으로 수렴한다.
+   */
+  clock: UpdateClock;
   /** 도착 판정 거리 (화면 px) */
   arriveEps: number;
   /** kind 별 스프라이트 시트 키를 고른다 (id 로 캐릭터를 흩뿌리는 것도 여기서) */
@@ -41,6 +46,10 @@ interface Member {
   sheet: string;
   path: Array<{ x: number; y: number }>;
   lastSeen: number;
+  /** 직전 서버 좌표 (도면) — 경로 출발점. 직원용 패널과 같은 A* 입력을 쓰기 위한 것 */
+  lastPoint: { x: number; y: number };
+  /** 이번 구간 속도 (도면 px/초) */
+  pace: number;
 }
 
 export class Crowd {
@@ -69,17 +78,30 @@ export class Crowd {
           .setDepth(DEPTH_CROWD);
         sprite.play(this.d.animFor(sheet, false));
         this.d.scene.tweens.add({ targets: sprite, alpha: 0.92, duration: 350 });
-        m = { sprite, sheet, path: [], lastSeen: now };
+        m = { sprite, sheet, path: [], lastSeen: now, lastPoint: { x: u.x, y: u.y }, pace: 0 };
         this.members.set(u.id, m);
         continue;
       }
       m.lastSeen = now;
-      // 목표까지 벽을 피해 걷는다 (직선으로 가면 벽을 통과한다)
-      const from = { x: m.sprite.x / this.d.mapScale, y: m.sprite.y / this.d.mapScale };
+      // 목표까지 벽을 피해 걷는다 (직선으로 가면 벽을 통과한다).
+      // 출발점은 스프라이트 위치가 아니라 **직전 서버 좌표** — 직원용 패널과 A* 입력을
+      // 같게 만들어야 같은 경로가 나온다 (스프라이트에서 재면 다른 문으로 돌아간다).
+      const cur = { x: m.sprite.x / this.d.mapScale, y: m.sprite.y / this.d.mapScale };
       const dest = this.d.pf.nearestWalkable(u.x, u.y);
-      const route = this.d.pf.hasLineOfSight(from.x, from.y, dest.x, dest.y)
+      const route = this.d.pf.hasLineOfSight(m.lastPoint.x, m.lastPoint.y, dest.x, dest.y)
         ? [dest]
-        : this.d.pf.findPath(from.x, from.y, dest.x, dest.y) ?? [dest];
+        : (this.d.pf.findPath(m.lastPoint.x, m.lastPoint.y, dest.x, dest.y) ?? [dest]);
+      m.lastPoint = { x: u.x, y: u.y };
+
+      // 스프라이트가 경로 시작점에서 멀고 사이에 벽이 있으면(탭이 멈춰 있던 경우)
+      // 걸어서 붙이면 벽을 뚫는다 → 바로 그 지점으로 붙인다
+      let at = cur;
+      if (route[0] && !this.d.pf.hasLineOfSight(cur.x, cur.y, route[0].x, route[0].y)) {
+        m.sprite.setPosition(route[0].x * this.d.mapScale, route[0].y * this.d.mapScale);
+        at = route[0];
+      }
+      // 다음 좌표가 올 때쯤 도착하도록 매 구간 속도를 다시 정한다 (고정 속도면 못 따라잡는다)
+      m.pace = paceForPath(pathLengthPx(at, route), this.d.clock.intervalMs);
       m.path = route.map((p) => ({ x: p.x * this.d.mapScale, y: p.y * this.d.mapScale }));
     }
 
@@ -97,11 +119,22 @@ export class Crowd {
     }
   }
 
-  /** 매 프레임 이동 (직원용 아바타와 같은 등속 보행) */
-  update(delta: number): void {
-    const step = (this.d.walkSpeed * delta) / 1000;
+  /**
+   * 모두를 마지막 서버 좌표로 즉시 붙인다 (탭 복귀용).
+   * 백그라운드 동안 rAF 가 멈춰 뒤처진 걸 걸어서 메우려 하면 그 사이 새 좌표가 또 오므로
+   * 영영 못 따라잡는다 — 직원용 화면과 어긋난 채로 굳는다.
+   */
+  snapAll(): void {
     for (const m of this.members.values()) {
-      let remaining = step;
+      m.sprite.setPosition(m.lastPoint.x * this.d.mapScale, m.lastPoint.y * this.d.mapScale);
+      m.path = [];
+    }
+  }
+
+  /** 매 프레임 이동 (직원용 아바타와 같은 페이싱 — walk-pacing.ts) */
+  update(delta: number): void {
+    for (const m of this.members.values()) {
+      let remaining = (m.pace * this.d.mapScale * delta) / 1000;
       let moved = false;
       while (remaining > 0 && m.path.length > 0) {
         const wp = m.path[0];

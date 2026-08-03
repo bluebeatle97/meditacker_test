@@ -35,10 +35,15 @@ export const SERVER_CONFIG = {
    */
   zoneEvalIntervalMs: Number(process.env.ZONE_EVAL_MS ?? 200),
   /**
-   * 운영 화면 위치 브로드캐스트 주기 — 사람이 걷는 속도를 감안한 갱신 간격.
-   * 너무 짧으면 RSSI 노이즈로 아바타가 떨고, 너무 길면 반응이 늦다.
+   * 운영 화면 위치 브로드캐스트 주기.
+   *
+   * 예전엔 3.5초였다 — "너무 짧으면 RSSI 노이즈로 아바타가 떤다" 는 이유였는데,
+   * **떨림은 이미 서버가 EMA(posSampleMs 500ms, posSmoothing 0.35)로 잡고 있어서**
+   * 그 목적이라면 중복이었다. 주기가 길수록 프론트가 외삽하는 구간이 길어지고,
+   * 직원용·환자용 두 화면이 그 사이에 서로 벌어질 여지도 커진다.
+   * 태그 수십 개 기준 트래픽은 무시할 수준이라 짧게 잡는 편이 낫다.
    */
-  posBroadcastMs: Number(process.env.POS_BROADCAST_MS ?? 3500),
+  posBroadcastMs: Number(process.env.POS_BROADCAST_MS ?? 1500),
   /** 내부 위치 추정 주기 (이 값들을 EMA 로 평활해 브로드캐스트) */
   posSampleMs: 500,
   /** EMA 계수 (0~1, 클수록 최신값 비중↑) */
