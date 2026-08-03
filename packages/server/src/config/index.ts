@@ -18,6 +18,20 @@ export const ZONE_ENGINE_CONFIG = {
    * 잠깐 신호가 끊긴 사람이 목록에서 사라지지 않게 한다.
    */
   EVICT_AFTER_MS: 600000, // 10분
+  /**
+   * 복도(방 사이) 판정 — **동시에 세게 들리는 존이 몇 개인가**.
+   *
+   * 복도에는 게이트웨이가 없어 nearest-anchor 는 무조건 옆방 이름을 찍는다. 복도에 서
+   * 있는 사람이 "시술실 2 체류 1분" 으로 뜨는 이유다.
+   *
+   * 1·2위 세기 차이로 판정하는 방법을 먼저 시도했다가 버렸다 — 이 도면은 방이 작고
+   * 게이트웨이가 촘촘해 "방 안 벽 근처" 도 차이가 작게 나와서 구분이 안 됐다(43% 오검출).
+   * 실측 분포상 존 **개수**는 깨끗하게 갈린다: 1개 50%(방 안) / 2개 32%(문간) / 3개+ 18%.
+   * 현장 배치가 다르면 녹화 리플레이로 다시 잡는다.
+   */
+  TRANSIT_NEAR_DB: Number(process.env.TRANSIT_NEAR_DB ?? 6),
+  TRANSIT_MIN_ZONES: Number(process.env.TRANSIT_MIN_ZONES ?? 3),
+  TRANSIT_CONFIRM: 3,
 };
 
 export const SERVER_CONFIG = {

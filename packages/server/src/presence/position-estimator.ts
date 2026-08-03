@@ -51,6 +51,7 @@ export class PositionEstimator {
         x: xSum / wSum,
         y: ySum / wSum,
         zone: state.currentZone,
+        inTransit: state.inTransit,
       });
     }
     return result;

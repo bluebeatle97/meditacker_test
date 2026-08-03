@@ -398,7 +398,10 @@ const zoneCenters = new Map(loadZones().map((z) => [z.zoneId, z.tilePosition]));
  */
 const leashZone = new ZoneDwellFilter(ZONE_DWELL_MS);
 
-const smoothed = new Map<string, { x: number; y: number; zone: string | null }>();
+const smoothed = new Map<
+  string,
+  { x: number; y: number; zone: string | null; inTransit?: boolean }
+>();
 setInterval(() => {
   const a = SERVER_CONFIG.posSmoothing;
   const maxStep = (SERVER_CONFIG.maxSpeedPxPerSec * SERVER_CONFIG.posSampleMs) / 1000;
@@ -427,7 +430,7 @@ setInterval(() => {
 
     const prev = smoothed.get(p.tagId);
     if (!prev) {
-      smoothed.set(p.tagId, { x: target.x, y: target.y, zone: p.zone });
+      smoothed.set(p.tagId, { x: target.x, y: target.y, zone: p.zone, inTransit: p.inTransit });
       continue;
     }
 
@@ -452,7 +455,7 @@ setInterval(() => {
     }
 
     const c = walkable.clamp(nx, ny); // 보정 결과가 벽에 걸릴 수 있다
-    smoothed.set(p.tagId, { x: c.x, y: c.y, zone: p.zone });
+    smoothed.set(p.tagId, { x: c.x, y: c.y, zone: p.zone, inTransit: p.inTransit });
   }
   // 추적 종료된 태그 정리
   const live = new Set(estimator.estimateAll().map((p) => p.tagId));
@@ -464,7 +467,7 @@ setInterval(() => {
   const list = [...smoothed.entries()].map(([tagId, s]) => {
     // EMA 결과가 벽에 걸릴 수 있으므로 다시 보정
     const c = walkable.clamp(s.x, s.y);
-    return { tagId, x: c.x, y: c.y, zone: s.zone };
+    return { tagId, x: c.x, y: c.y, zone: s.zone, inTransit: s.inTransit };
   });
   if (list.length === 0) return;
   io.of('/staff').emit('pos:update', list);

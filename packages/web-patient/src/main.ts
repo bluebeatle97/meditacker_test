@@ -62,6 +62,13 @@ const TILE = 16;
 // (shared 는 도면 px 기준 → 화면 좌표로 쓸 땐 ×MAP_SCALE)
 const ARRIVE_EPS = ARRIVE_EPS_PX * MAP_SCALE;
 
+/**
+ * 복도(방 사이)를 나타내는 가짜 존 id — zones.json 에 없는 값이어야 한다.
+ * 실제 존과 같은 자리에서 다뤄야 표시 안정화가 그대로 재사용된다 (직원용과 동일한 처리).
+ */
+const TRANSIT_ZONE_ID = '__transit';
+const TRANSIT_ZONE_LABEL = '복도 이동 중';
+
 const CHARACTERS = [
   { id: 'adam', label: '민준' },
   { id: 'alex', label: '지호' },
@@ -163,7 +170,12 @@ class PatientScene extends Phaser.Scene {
    * 글자가 계속 바뀌어 읽을 수 없다. 캐릭터·카메라는 그대로 즉시 따라간다.
    */
   private zoneDwell = new ZoneDwellFilter(ZONE_DWELL_MS);
-  private lastSelf?: { zone: string | null; waitingRank: number; estimatedWaitSec: number };
+  private lastSelf?: {
+    zone: string | null;
+    waitingRank: number;
+    estimatedWaitSec: number;
+    inTransit?: boolean;
+  };
   /** 다른 사람들 (직원용 화면과 같은 좌표를 익명으로 받아 그린다) */
   private crowd?: Crowd;
   /** 본인 실좌표를 마지막으로 받은 시각 — 이게 흐르면 존 중앙 스냅을 쓰지 않는다 */
@@ -426,7 +438,8 @@ class PatientScene extends Phaser.Scene {
 
     // 본인 비콘의 실좌표 — 직원용 화면의 내 점과 같은 지점으로 걸어간다.
     // (존 중앙 스냅은 좌표가 없을 때의 대체 수단일 뿐이다)
-    this.socket.on('pos:self', (p: { x: number; y: number; zone: string | null }) => {
+    type SelfPos = { x: number; y: number; zone: string | null; inTransit?: boolean };
+    this.socket.on('pos:self', (p: SelfPos) => {
       this.lastPosAt = Date.now();
       // 주기 관측은 브로드캐스트당 한 번 — pos:self 는 태그 하나뿐이라 여기가 그 지점
       this.posClock.tick();
@@ -438,6 +451,7 @@ class PatientScene extends Phaser.Scene {
       // 머문 시간이 차도 재평가 기회가 없다.
       this.lastSelf = {
         zone: p.zone,
+        inTransit: p.inTransit,
         waitingRank: this.lastSelf?.waitingRank ?? 0,
         estimatedWaitSec: this.lastSelf?.estimatedWaitSec ?? 0,
       };
@@ -455,7 +469,12 @@ class PatientScene extends Phaser.Scene {
   }
 
   private setHud(
-    p: { zone: string | null; waitingRank: number; estimatedWaitSec: number } | null,
+    p: {
+      zone: string | null;
+      waitingRank: number;
+      estimatedWaitSec: number;
+      inTransit?: boolean;
+    } | null,
   ): void {
     const who = document.getElementById('hud-who')!;
     const where = document.getElementById('hud-where')!;
@@ -465,10 +484,18 @@ class PatientScene extends Phaser.Scene {
       where.textContent = '위치를 확인하는 중…';
       return;
     }
-    // 표시는 '머문 것이 확인된' 구역 기준
-    const settled = this.zoneDwell.update('me', p.zone);
-    const zone = settled ? this.zones.get(settled) : null;
-    where.textContent = zone ? zone.name : '추적 구역 밖';
+    /**
+     * 표시는 '머문 것이 확인된' 구역 기준.
+     * 복도(방 사이)는 게이트웨이가 없어 판정이 옆방 이름을 찍으므로, 가짜 존 id 를 끼워
+     * 넣어 방과 동등하게 다룬다 — 그래야 복도로 나가는 순간 안내가 정직해진다.
+     */
+    const settled = this.zoneDwell.update('me', p.inTransit ? TRANSIT_ZONE_ID : p.zone);
+    if (settled === TRANSIT_ZONE_ID) {
+      where.textContent = TRANSIT_ZONE_LABEL;
+    } else {
+      const zone = settled ? this.zones.get(settled) : null;
+      where.textContent = zone ? zone.name : '추적 구역 밖';
+    }
     // 대기 순번이 있을 때만 이 줄을 쓴다 — 없으면 zone:occupancy 가 채운 인원수를 남긴다
     if (p.waitingRank > 0) {
       sub.textContent = `대기 순번 ${p.waitingRank}번 · 예상 ${Math.round(p.estimatedWaitSec / 60)}분`;

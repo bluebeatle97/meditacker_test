@@ -65,6 +65,13 @@ const SPREAD_TRIGGER_PX = 18; // 이보다 가까우면 비켜선다
 const SPREAD_RELEASE_PX = 30; // 이만큼 떨어져야 제자리로 (문턱을 벌려 깜빡임 방지)
 const SPREAD_DOT_R = 9; // 비키는 거리. 실제 위치에서 이 이상 떼면 그게 거짓말이 된다
 
+/**
+ * 복도(방 사이)를 나타내는 가짜 존 id — zones.json 에 없는 값이어야 한다.
+ * 실제 존과 같은 자리에서 다뤄야 표시 안정화·체류 타이머가 그대로 재사용된다.
+ */
+const TRANSIT_ZONE_ID = '__transit';
+const TRANSIT_ZONE_LABEL = '복도 이동 중';
+
 /** 태그마다 고정된 회피 방향 — 무리 구성이 바뀌어도 각도가 변하지 않아야 안 흔들린다 */
 function spreadAngleFor(tagId: string): number {
   let h = 0;
@@ -554,6 +561,7 @@ class StaffMapScene extends Phaser.Scene {
         this.states.set(p.tagId, {
           tagId: p.tagId,
           currentZone: p.zone,
+          inTransit: p.inTransit,
           lastSeen: Date.now(),
           enteredAt: prev && prev.currentZone === p.zone ? prev.enteredAt : Date.now(),
         });
@@ -605,8 +613,22 @@ class StaffMapScene extends Phaser.Scene {
 
     const rows: TagRow[] = [...this.avatars.keys()].map((tagId) => {
       const st = this.states.get(tagId);
-      const zoneId = this.zoneDwell.update(tagId, st?.currentZone ?? null);
-      const zoneName = zoneId ? this.zones.get(zoneId)?.name ?? zoneId : null;
+      /**
+       * 복도(방 사이)는 **방과 동등한 하나의 상태**로 다룬다.
+       *
+       * 복도엔 게이트웨이가 없어 판정은 옆방 이름을 찍을 수밖에 없는데, 그대로 두면
+       * 복도에 서 있는 사람이 "시술실 2 체류 1분" 으로 뜬다. 가짜 존 id 를 하나 끼워
+       * 넣으면 표시 안정화도 체류 타이머도 **방을 오간 것과 똑같이** 동작한다 —
+       * 복도로 나가는 순간 체류가 끊기고, 다음 방에 들어가면 거기서 새로 센다.
+       */
+      const rawZone = st?.inTransit ? TRANSIT_ZONE_ID : (st?.currentZone ?? null);
+      const zoneId = this.zoneDwell.update(tagId, rawZone);
+      const zoneName =
+        zoneId === TRANSIT_ZONE_ID
+          ? TRANSIT_ZONE_LABEL
+          : zoneId
+            ? (this.zones.get(zoneId)?.name ?? zoneId)
+            : null;
       // 아직 배정 안 된 태그는 '미지정' 그룹에 모인다
       const group = this.tagMeta[tagId]?.group ?? 'unassigned';
       const since = this.dwellSince(tagId, zoneId, now);

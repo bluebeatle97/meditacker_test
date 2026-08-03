@@ -103,6 +103,13 @@ export interface PositionEstimate {
   x: number;
   y: number;
   zone: string | null; // 존 엔진의 현재 판정 (병행 표시용)
+  /**
+   * 방 사이(복도) 이동 중 — `PresenceState.inTransit` 과 같은 값.
+   *
+   * 존 전환 이벤트(presence:update)는 존이 **바뀔 때만** 나가는데 복도 진입은 존 변화가
+   * 아니라서 그 채널로는 전달되지 않는다. 주기 좌표 방송에 실어 보낸다.
+   */
+  inTransit?: boolean;
 }
 
 export type PersonType = 'patient' | 'staff';
@@ -133,6 +140,20 @@ export interface PresenceState {
   enteredAt: number; // 현재 존 진입 시각
   candidateZone?: string; // 전환 판정 중인 후보존
   candidateCount?: number; // 후보존 연속 카운트 (채터링 방지)
+  /**
+   * 어느 방으로도 신호가 확실히 기울지 않음 = **방 사이(복도) 이동 중**.
+   *
+   * 복도에는 게이트웨이가 없어서 nearest-anchor 는 어쩔 수 없이 옆방 이름을 찍는다.
+   * 그러면 복도에 서 있는 사람이 "시술실 2 체류 1분" 으로 뜬다(실제로 그랬다).
+   * 방 한가운데면 한 게이트웨이가 압도적이고 복도면 양쪽이 비슷하다는 성질을 이용해,
+   * 1·2위 존의 세기 차이(margin)가 작으면 이 플래그를 세운다.
+   *
+   * `currentZone` 은 그대로 최선의 추측을 유지한다 — 지도에 점은 찍어야 하므로.
+   * 바뀌는 건 **표시와 체류 타이머**뿐이다.
+   */
+  inTransit?: boolean;
+  /** inTransit 전환 판정 중인 연속 카운트 (내부용) */
+  transitCount?: number;
 }
 
 export interface PresenceLog {

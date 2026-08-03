@@ -9,7 +9,15 @@ import type { TagMetaStore } from '../presence/tag-meta-store.js';
 
 /** index.ts 가 위치 브로드캐스트를 밀어 넣는 창구 */
 export interface PatientBroadcast {
-  positions(list: Array<{ tagId: string; x: number; y: number; zone: string | null }>): void;
+  positions(
+    list: Array<{
+      tagId: string;
+      x: number;
+      y: number;
+      zone: string | null;
+      inTransit?: boolean;
+    }>,
+  ): void;
 }
 
 /** 몇 초마다 구역별 인원수를 내보낼지 (좌표가 아니라 수만 — 자주 보내도 정보량이 작다) */
@@ -168,7 +176,15 @@ export function registerPatientNamespace(
      * - `crowd:positions` — **다른 손님들만**. `patientSeesEveryone` 이 켜졌을 때만.
      *   나가는 것은 익명 id + 좌표뿐 — MAC·이름·personId 는 안 나간다.
      */
-    positions(list: Array<{ tagId: string; x: number; y: number; zone: string | null }>): void {
+    positions(
+      list: Array<{
+        tagId: string;
+        x: number;
+        y: number;
+        zone: string | null;
+        inTransit?: boolean;
+      }>,
+    ): void {
       if (ns.sockets.size === 0) return;
       // 손님 비콘만 내보낸다 — 직원 좌표는 환자 화면으로 나가지 않는다
       const units = list
@@ -186,7 +202,15 @@ export function registerPatientNamespace(
         // 본인 좌표 — 이게 없으면 본인 캐릭터만 존 중앙에 스냅되고,
         // 남들은 실좌표로 움직이는데 정작 나만 안 움직인다 (실제로 그랬다).
         const self = mine ? list.find((p) => p.tagId === mine) : undefined;
-        if (self) socket.emit('pos:self', { x: self.x, y: self.y, zone: self.zone });
+        // inTransit 이면 화면은 방 이름 대신 '이동 중' 을 띄운다 (복도엔 게이트웨이가 없다)
+        if (self) {
+          socket.emit('pos:self', {
+            x: self.x,
+            y: self.y,
+            zone: self.zone,
+            inTransit: self.inTransit,
+          });
+        }
         if (!SERVER_CONFIG.patientSeesEveryone) continue;
         socket.emit(
           'crowd:positions',

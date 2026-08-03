@@ -8,6 +8,12 @@ export interface ZoneEngineConfig {
   ABSENT_TIMEOUT_MS: number;
   /** 이 시간 무신호면 상태를 메모리에서 완전히 삭제 (자리비움보다 훨씬 길게) */
   EVICT_AFTER_MS: number;
+  /** 최강 신호 대비 이 차이 안이면 '같이 들린다' 로 센다 */
+  TRANSIT_NEAR_DB: number;
+  /** 같이 들리는 **서로 다른 존**이 이 수 이상이면 방 사이(복도)로 본다 */
+  TRANSIT_MIN_ZONES: number;
+  /** 복도 판정도 연속 N회 확인해야 바뀐다 (문턱 근처에서 깜빡이지 않게) */
+  TRANSIT_CONFIRM: number;
 }
 
 export interface ZoneChangeEvent {
@@ -160,6 +166,24 @@ export class ZoneEngine extends EventEmitter {
     const strongest = perGateway.reduce((a, b) => (b.rssi > a.rssi ? b : a));
     const bestZone = this.gatewayZoneMap.get(strongest.gatewayId)!;
 
+    /**
+     * 복도(방 사이) 판정 = **몇 개 존이 동시에 세게 들리는가**.
+     *
+     * 처음엔 1·2위 존의 세기 차이(margin)로 판정했는데, 실측하니 못 쓴다 —
+     * 이 도면은 방이 3~5m 로 작고 게이트웨이가 촘촘해 margin 중앙값이 5.5dB 밖에 안 되고,
+     * **"방 안인데 벽 근처"** 와 **"복도"** 가 똑같이 낮게 나왔다(임계 5dB 에서 43% 가 복도).
+     *
+     * 반면 들리는 존의 **개수**는 갈린다(실측 1216 표본):
+     *   1개 50% (방 안) · 2개 32% (문간·벽 근처) · 3개 이상 18% (여러 방이 한 번에 열린 자리)
+     * 복도에 서면 양옆 방문이 동시에 보이니 3개 이상이 들어온다.
+     */
+    const nearZones = new Set<string>();
+    for (const g of perGateway) {
+      if (strongest.rssi - g.rssi > this.config.TRANSIT_NEAR_DB) continue;
+      nearZones.add(this.gatewayZoneMap.get(g.gatewayId)!);
+    }
+    this.updateTransit(state, nearZones.size >= this.config.TRANSIT_MIN_ZONES);
+
     // 최초 진입(또는 자리비움 복귀)
     if (state.currentZone === null) {
       this.commitZone(tagId, bestZone);
@@ -229,6 +253,22 @@ export class ZoneEngine extends EventEmitter {
       this.states.set(tagId, state);
     }
     return state;
+  }
+
+  /**
+   * 복도(방 사이) 여부를 연속 확인 후에만 뒤집는다.
+   * 문턱 바로 근처에서는 매 판정마다 값이 오락가락하므로, 존 전환과 같은 방식으로 눌러 준다.
+   */
+  private updateTransit(state: PresenceState, ambiguous: boolean): void {
+    if (ambiguous === (state.inTransit ?? false)) {
+      state.transitCount = 0;
+      return;
+    }
+    state.transitCount = (state.transitCount ?? 0) + 1;
+    if (state.transitCount >= this.config.TRANSIT_CONFIRM) {
+      state.inTransit = ambiguous;
+      state.transitCount = 0;
+    }
   }
 
   private clearCandidate(state: PresenceState): void {

@@ -8,6 +8,9 @@ const CONFIG: ZoneEngineConfig = {
   CONFIRM_COUNT: 3,
   ABSENT_TIMEOUT_MS: 15000,
   EVICT_AFTER_MS: 600000,
+  TRANSIT_NEAR_DB: 6,
+  TRANSIT_MIN_ZONES: 3,
+  TRANSIT_CONFIRM: 3,
 };
 
 const GW_MAP = new Map([
@@ -231,6 +234,69 @@ describe('ZoneEngine', () => {
       clock.tick(200);
     }
     expect(engine.getState('tag1')?.currentZone).toBe('consult_1');
+  });
+
+  it('여러 방이 동시에 세게 들리면 복도(방 사이)로 표시한다', () => {
+    const { engine, clock, scan } = setup();
+    // 대기실 안 — 한 존만 세게 들린다 (나머지는 6dB 밖)
+    for (let i = 0; i < 5; i++) {
+      engine.ingest(scan('GW-WAIT', 'tag1', -55));
+      engine.ingest(scan('GW-CON1', 'tag1', -80));
+      clock.tick(200);
+    }
+    expect(engine.getState('tag1')?.inTransit).toBeFalsy();
+
+    // ⚠️ 판정은 창 중앙값이라 앞 구간 값이 남으면 안 된다 — 창을 비우고 간다
+    clock.tick(CONFIG.RSSI_WINDOW_MS + 100);
+    // 복도로 나옴 — 세 방이 모두 6dB 안에 들어온다
+    for (let i = 0; i < 5; i++) {
+      engine.ingest(scan('GW-WAIT', 'tag1', -70));
+      engine.ingest(scan('GW-CON1', 'tag1', -72));
+      engine.ingest(scan('GW-CON2', 'tag1', -74));
+      clock.tick(200);
+    }
+    expect(engine.getState('tag1')?.inTransit).toBe(true);
+    // 방 이름 자체는 최선의 추측을 유지한다 (지도에 점은 찍어야 하므로)
+    expect(engine.getState('tag1')?.currentZone).toBe('waiting_main');
+  });
+
+  it('두 방만 비슷하면 복도가 아니다 — 방 안 벽 근처와 구분되지 않으면 오검출이 된다', () => {
+    const { engine, clock, scan } = setup();
+    for (let i = 0; i < 6; i++) {
+      engine.ingest(scan('GW-WAIT', 'tag1', -70));
+      engine.ingest(scan('GW-CON1', 'tag1', -72)); // 옆방 하나만 가깝다 = 문간
+      engine.ingest(scan('GW-CON2', 'tag1', -88)); // 멀다
+      clock.tick(200);
+    }
+    expect(engine.getState('tag1')?.inTransit).toBeFalsy();
+  });
+
+  it('방 안으로 들어가면 복도 표시가 풀린다', () => {
+    const { engine, clock, scan } = setup();
+    for (let i = 0; i < 5; i++) {
+      engine.ingest(scan('GW-WAIT', 'tag1', -70));
+      engine.ingest(scan('GW-CON1', 'tag1', -72));
+      engine.ingest(scan('GW-CON2', 'tag1', -74));
+      clock.tick(200);
+    }
+    expect(engine.getState('tag1')?.inTransit).toBe(true);
+
+    clock.tick(CONFIG.RSSI_WINDOW_MS + 100);
+    for (let i = 0; i < 6; i++) {
+      engine.ingest(scan('GW-WAIT', 'tag1', -52));
+      engine.ingest(scan('GW-CON1', 'tag1', -84));
+      clock.tick(200);
+    }
+    expect(engine.getState('tag1')?.inTransit).toBe(false);
+  });
+
+  it('한 존만 들리면 복도로 보지 않는다 (비교 대상이 없는 것뿐)', () => {
+    const { engine, clock, scan } = setup();
+    for (let i = 0; i < 5; i++) {
+      engine.ingest(scan('GW-WAIT', 'tag1', -88)); // 약해도 유일한 신호
+      clock.tick(200);
+    }
+    expect(engine.getState('tag1')?.inTransit).toBeFalsy();
   });
 
   it('미등록 게이트웨이 스캔은 무시', () => {
