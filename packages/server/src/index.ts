@@ -19,7 +19,14 @@ import { KnownTagStore } from './presence/known-tag-store.js';
 import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
 import { ScanRouter } from './ingestion/scan-router.js';
 import { ScanRecorder } from './recording/scan-recorder.js';
-import { PATIENT_CHARACTERS, TAG_GROUP_IDS, type PatientCharacter, type TagGroup } from '@meditracker/shared';
+import {
+  PATIENT_CHARACTERS,
+  TAG_GROUP_IDS,
+  ZoneDwellFilter,
+  ZONE_DWELL_MS,
+  type PatientCharacter,
+  type TagGroup,
+} from '@meditracker/shared';
 
 // ── 조립: Ingestion → Zone Engine → Presence/DB → Permission → WS ──────────
 
@@ -382,6 +389,14 @@ tagMeta.onChange((map) => {
 // 내부적으로 자주 추정해 EMA 로 평활 → RSSI 노이즈로 아바타가 떨지 않게
 /** 존 중심 좌표 — 추정치가 판정된 방을 벗어나지 않게 붙잡는 데 쓴다 */
 const zoneCenters = new Map(loadZones().map((z) => [z.zoneId, z.tilePosition]));
+/**
+ * 목줄이 붙잡을 기준 존은 **안정화된 쪽**을 쓴다.
+ *
+ * 원시 판정은 태그당 분당 3회 가까이 흔들린다(실측). 그 값을 그대로 목줄 기준으로 삼으면
+ * 방이 바뀔 때마다 좌표를 다른 방 중심으로 끌어당겨, 결국 두 방 사이를 왕복하는
+ * **진동기**가 된다 — 고치려던 증상을 내가 만드는 꼴이었다.
+ */
+const leashZone = new ZoneDwellFilter(ZONE_DWELL_MS);
 
 const smoothed = new Map<string, { x: number; y: number; zone: string | null }>();
 setInterval(() => {
@@ -398,7 +413,8 @@ setInterval(() => {
      * 얼마든지 어긋난다. 그 결과가 "목록엔 시술실 2 체류 1분인데 점은 딴 데서 돌아다님"
      * 이다(실제로 신고됨). 둘 중 **존 판정이 안정된 쪽**이므로 좌표를 거기에 맞춘다.
      */
-    const center = p.zone ? zoneCenters.get(p.zone) : undefined;
+    const steadyZone = leashZone.update(p.tagId, p.zone);
+    const center = steadyZone ? zoneCenters.get(steadyZone) : undefined;
     if (center) {
       const dx = target.x - center.x;
       const dy = target.y - center.y;

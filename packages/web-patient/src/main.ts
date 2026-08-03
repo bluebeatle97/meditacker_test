@@ -500,17 +500,18 @@ class PatientScene extends Phaser.Scene {
       return;
     }
     const start = from ?? cur;
-    const route = this.pf.hasLineOfSight(start.x, start.y, dest.x, dest.y)
-      ? [dest]
-      : (this.pf.findPath(start.x, start.y, dest.x, dest.y) ?? [dest]);
-    // 경로 시작점이 캐릭터에서 멀고 사이에 벽이 있으면(탭이 멈춰 있던 경우) 걸어서 붙이면
-    // 벽을 뚫는다 → 그 지점으로 바로 붙인다
-    let at = cur;
+    const routeFrom = (fx: number, fy: number): Array<{ x: number; y: number }> =>
+      this.pf.hasLineOfSight(fx, fy, dest.x, dest.y)
+        ? [dest]
+        : (this.pf.findPath(fx, fy, dest.x, dest.y) ?? [dest]);
+
+    let route = routeFrom(start.x, start.y);
+    // 캐릭터와 경로 시작점 사이가 벽으로 막혀 있으면 순간이동시키지 말고 경로를 다시 잡는다
+    // (붙여 놓으면 화면에서 벽을 뚫고 순간이동한 것으로 보인다)
     if (route[0] && !this.pf.hasLineOfSight(cur.x, cur.y, route[0].x, route[0].y)) {
-      this.me.setPosition(this.m(route[0].x), this.m(route[0].y));
-      at = route[0];
+      route = routeFrom(cur.x, cur.y);
     }
-    this.pace = paceForPath(pathLengthPx(at, route), this.posClock.intervalMs);
+    this.pace = paceForPath(pathLengthPx(cur, route), this.posClock.intervalMs);
     this.path = route.map((p) => ({ x: this.m(p.x), y: this.m(p.y) }));
   }
 

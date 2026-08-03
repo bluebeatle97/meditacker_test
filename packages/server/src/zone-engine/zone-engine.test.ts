@@ -63,9 +63,14 @@ describe('ZoneEngine', () => {
     const { engine, clock, changes, scan } = setup();
     engine.ingest(scan('GW-WAIT', 'tag1', -60));
 
+    // ⚠️ 판정은 게이트웨이별 **창 중앙값**으로 한다 — 한 건만 약하게 넣으면 중앙값이
+    //    안 내려가서 전환이 안 된다. 실제로 멀어지는 상황처럼 연속으로 약하게 들어온다.
+    for (let i = 0; i < 4; i++) {
+      clock.tick(100);
+      engine.ingest(scan('GW-WAIT', 'tag1', -70));
+    }
     // consult_1 이 12dB 더 셈 — 후보 등록부터 확정까지 CONFIRM_COUNT(3)회 필요
-    clock.tick(500);
-    engine.ingest(scan('GW-WAIT', 'tag1', -70));
+    clock.tick(100);
     engine.ingest(scan('GW-CON1', 'tag1', -58)); // count=1
     expect(engine.getState('tag1')?.currentZone).toBe('waiting_main');
 
@@ -192,6 +197,40 @@ describe('ZoneEngine', () => {
 
     expect(engine.getState('tag1')?.currentZone).toBe('consult_1');
     expect(changes.at(-1)).toMatchObject({ fromZone: null, toZone: 'consult_1' });
+  });
+
+  it('한 방 튄 RSSI 는 판정을 흔들지 못한다 (게이트웨이별 창 중앙값)', () => {
+    const { engine, clock, changes, scan } = setup();
+    // 대기실에 안정적으로 머무는 중
+    for (let i = 0; i < 5; i++) {
+      engine.ingest(scan('GW-WAIT', 'tag1', -60));
+      clock.tick(200);
+    }
+    expect(engine.getState('tag1')?.currentZone).toBe('waiting_main');
+    changes.length = 0;
+
+    // 상담실 게이트웨이가 반사·간섭으로 세 번 크게 튄다 (멀티패스). 중앙값이면 안 넘어간다.
+    for (let i = 0; i < 3; i++) {
+      engine.ingest(scan('GW-CON1', 'tag1', -85)); // 실제 세기
+      engine.ingest(scan('GW-CON1', 'tag1', -40)); // 튄 값
+      engine.ingest(scan('GW-CON1', 'tag1', -84));
+      engine.ingest(scan('GW-WAIT', 'tag1', -60));
+      clock.tick(200);
+    }
+
+    expect(engine.getState('tag1')?.currentZone).toBe('waiting_main');
+    expect(changes).toHaveLength(0);
+  });
+
+  it('창 중앙값이라도 신호가 실제로 계속 세지면 전환은 된다 (둔감해지기만 하면 안 됨)', () => {
+    const { engine, clock, scan } = setup();
+    engine.ingest(scan('GW-WAIT', 'tag1', -75));
+    for (let i = 0; i < 8; i++) {
+      engine.ingest(scan('GW-CON1', 'tag1', -55));
+      engine.ingest(scan('GW-WAIT', 'tag1', -75));
+      clock.tick(200);
+    }
+    expect(engine.getState('tag1')?.currentZone).toBe('consult_1');
   });
 
   it('미등록 게이트웨이 스캔은 무시', () => {

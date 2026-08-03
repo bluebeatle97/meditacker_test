@@ -88,20 +88,20 @@ export class Crowd {
       // 같게 만들어야 같은 경로가 나온다 (스프라이트에서 재면 다른 문으로 돌아간다).
       const cur = { x: m.sprite.x / this.d.mapScale, y: m.sprite.y / this.d.mapScale };
       const dest = this.d.pf.nearestWalkable(u.x, u.y);
-      const route = this.d.pf.hasLineOfSight(m.lastPoint.x, m.lastPoint.y, dest.x, dest.y)
-        ? [dest]
-        : (this.d.pf.findPath(m.lastPoint.x, m.lastPoint.y, dest.x, dest.y) ?? [dest]);
-      m.lastPoint = { x: u.x, y: u.y };
+      const routeFrom = (fx: number, fy: number): Array<{ x: number; y: number }> =>
+        this.d.pf.hasLineOfSight(fx, fy, dest.x, dest.y)
+          ? [dest]
+          : (this.d.pf.findPath(fx, fy, dest.x, dest.y) ?? [dest]);
 
-      // 스프라이트가 경로 시작점에서 멀고 사이에 벽이 있으면(탭이 멈춰 있던 경우)
-      // 걸어서 붙이면 벽을 뚫는다 → 바로 그 지점으로 붙인다
-      let at = cur;
+      let route = routeFrom(m.lastPoint.x, m.lastPoint.y);
+      m.lastPoint = { x: u.x, y: u.y };
+      // 스프라이트와 경로 시작점 사이가 벽으로 막혀 있으면 붙이지 말고 경로를 다시 잡는다
+      // (붙이면 화면에서 벽을 뚫고 순간이동한 것으로 보인다)
       if (route[0] && !this.d.pf.hasLineOfSight(cur.x, cur.y, route[0].x, route[0].y)) {
-        m.sprite.setPosition(route[0].x * this.d.mapScale, route[0].y * this.d.mapScale);
-        at = route[0];
+        route = routeFrom(cur.x, cur.y);
       }
       // 다음 좌표가 올 때쯤 도착하도록 매 구간 속도를 다시 정한다 (고정 속도면 못 따라잡는다)
-      m.pace = paceForPath(pathLengthPx(at, route), this.d.clock.intervalMs);
+      m.pace = paceForPath(pathLengthPx(cur, route), this.d.clock.intervalMs);
       m.path = route.map((p) => ({ x: p.x * this.d.mapScale, y: p.y * this.d.mapScale }));
     }
 

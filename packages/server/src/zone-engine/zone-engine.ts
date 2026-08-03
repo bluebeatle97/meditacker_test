@@ -19,9 +19,33 @@ export interface ZoneChangeEvent {
   durationSec: number | null;
 }
 
-interface GatewayReading {
+interface RssiSample {
   rssi: number;
   timestamp: number;
+}
+
+/**
+ * 게이트웨이 한 대가 이 태그를 들은 기록 — **창 안의 값을 모두** 들고 있는다.
+ *
+ * 예전엔 게이트웨이당 최신 1건만 남겼는데, 단일 BLE 패킷의 RSSI 는 표준편차가 3~6dB 다.
+ * 사람이 가만히 서 있어도 -62, -71, -65, -78 처럼 튄다. 그 중 **하필 마지막 값**으로
+ * 방을 정하고 좌표를 계산하니 판정이 채터링하고 점이 날아다녔다.
+ * 창 안의 중앙값을 쓰면 이상치가 죽고, 노이즈가 대략 1/√n 로 줄어든다.
+ */
+interface GatewayReading {
+  samples: RssiSample[];
+  /** 창 안 마지막 수신 시각 (만료 정리에 사용) */
+  timestamp: number;
+}
+
+/** 게이트웨이당 보관할 최대 샘플 수 (창보다 훨씬 빠르게 올리는 장비 방어) */
+const MAX_SAMPLES_PER_GATEWAY = 24;
+
+/** 이상치에 강한 대표값 — 평균은 -95 같은 한 방에 끌려간다 */
+function medianRssi(samples: RssiSample[]): number {
+  const v = samples.map((s) => s.rssi).sort((a, b) => a - b);
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
 }
 
 /**
@@ -64,10 +88,14 @@ export class ZoneEngine extends EventEmitter {
       perGateway = new Map();
       this.readings.set(scan.tagId, perGateway);
     }
-    const prev = perGateway.get(scan.gatewayId);
-    if (!prev || scan.timestamp >= prev.timestamp) {
-      perGateway.set(scan.gatewayId, { rssi: scan.rssi, timestamp: scan.timestamp });
+    let entry = perGateway.get(scan.gatewayId);
+    if (!entry) {
+      entry = { samples: [], timestamp: scan.timestamp };
+      perGateway.set(scan.gatewayId, entry);
     }
+    entry.samples.push({ rssi: scan.rssi, timestamp: scan.timestamp });
+    if (entry.samples.length > MAX_SAMPLES_PER_GATEWAY) entry.samples.shift();
+    if (scan.timestamp > entry.timestamp) entry.timestamp = scan.timestamp;
 
     if (evaluateNow) this.updatePresence(scan.tagId);
   }
@@ -85,7 +113,7 @@ export class ZoneEngine extends EventEmitter {
     return [...this.states.values()];
   }
 
-  /** RSSI_WINDOW 내 게이트웨이별 최신 수신값 (연속 위치 추정 등 외부 활용) */
+  /** RSSI_WINDOW 내 게이트웨이별 대표값(중앙값) — 연속 위치 추정 등 외부 활용 */
   readingsOf(tagId: string): Array<{ gatewayId: string; rssi: number }> {
     return this.freshReadings(tagId, this.now());
   }
@@ -168,17 +196,28 @@ export class ZoneEngine extends EventEmitter {
     }
   }
 
-  /** RSSI_WINDOW 내 스캔만, 게이트웨이별 최신값 */
+  /**
+   * RSSI_WINDOW 내 스캔만, 게이트웨이별 **중앙값**.
+   *
+   * 창 안의 오래된 샘플도 같이 걷어낸다 — 안 걷으면 사람이 멀어져도 옛 강한 값이
+   * 중앙값에 남아 판정이 과거에 붙잡힌다.
+   */
   private freshReadings(tagId: string, now: number): Array<{ gatewayId: string; rssi: number }> {
     const perGateway = this.readings.get(tagId);
     if (!perGateway) return [];
     const result: Array<{ gatewayId: string; rssi: number }> = [];
     for (const [gatewayId, r] of perGateway) {
-      if (now - r.timestamp <= this.config.RSSI_WINDOW_MS) {
-        result.push({ gatewayId, rssi: r.rssi });
-      } else {
+      if (now - r.timestamp > this.config.RSSI_WINDOW_MS) {
         perGateway.delete(gatewayId); // 만료 정리
+        continue;
       }
+      const fresh = r.samples.filter((s) => now - s.timestamp <= this.config.RSSI_WINDOW_MS);
+      if (fresh.length === 0) {
+        perGateway.delete(gatewayId);
+        continue;
+      }
+      if (fresh.length !== r.samples.length) r.samples = fresh;
+      result.push({ gatewayId, rssi: medianRssi(fresh) });
     }
     return result;
   }

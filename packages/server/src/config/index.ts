@@ -46,8 +46,15 @@ export const SERVER_CONFIG = {
   posBroadcastMs: Number(process.env.POS_BROADCAST_MS ?? 1500),
   /** 내부 위치 추정 주기 (이 값들을 EMA 로 평활해 브로드캐스트) */
   posSampleMs: 500,
-  /** EMA 계수 (0~1, 클수록 최신값 비중↑) */
-  posSmoothing: 0.35,
+  /**
+   * EMA 계수 (0~1, 클수록 최신값 비중↑).
+   *
+   * 0.35 → 0.18 로 낮췄다. RSSI 무게중심은 게이트웨이 위치들의 가중평균이라 사람이
+   * 움직이면 그 사이를 계단처럼 건너뛴다 — 이건 추정 방식 자체의 성질이라 없앨 수 없고,
+   * **시간축으로 뭉개는 수밖에 없다**. 대가는 반응이 1~2초 늦어지는 것인데,
+   * 존 단위 정밀도가 목표인 시스템(설계서 1장)에서는 남는 장사다.
+   */
+  posSmoothing: Number(process.env.POS_SMOOTHING ?? 0.18),
   /**
    * 추정 좌표가 낼 수 있는 최대 속도 (도면 px/초). 140px ≈ 2.2m/s = 빠른 걸음.
    *

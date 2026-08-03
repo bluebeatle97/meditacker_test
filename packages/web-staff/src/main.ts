@@ -61,9 +61,16 @@ const PAD = 6;
 // 환자용 패널과 **같은 값**을 써야 두 화면의 같은 사람이 같은 자리에 있다.
 
 // 겹친 아바타 흩어놓기 (화면 px) — 점 반지름 7 + 흰 테두리 2 라 9 면 서로 안 먹는다
-const SPREAD_TRIGGER_PX = 18; // 이보다 가까우면 한 무리로 본다
-const SPREAD_DOT_R = 9;
-const SPREAD_MAX_R = 22; // 너무 크게 벌리면 실제 위치에서 멀어져 오히려 거짓말이 된다
+const SPREAD_TRIGGER_PX = 18; // 이보다 가까우면 비켜선다
+const SPREAD_RELEASE_PX = 30; // 이만큼 떨어져야 제자리로 (문턱을 벌려 깜빡임 방지)
+const SPREAD_DOT_R = 9; // 비키는 거리. 실제 위치에서 이 이상 떼면 그게 거짓말이 된다
+
+/** 태그마다 고정된 회피 방향 — 무리 구성이 바뀌어도 각도가 변하지 않아야 안 흔들린다 */
+function spreadAngleFor(tagId: string): number {
+  let h = 0;
+  for (let i = 0; i < tagId.length; i++) h = (h * 31 + tagId.charCodeAt(i)) | 0;
+  return ((h >>> 0) % 360) * (Math.PI / 180);
+}
 
 // 방 이름 라벨 — 방 폭에 맞춰 크기를 정한다 (좁은 방은 줄여서라도 방 안에 넣는다)
 const NAME_FONT = 'sans-serif';
@@ -758,10 +765,23 @@ class StaffMapScene extends Phaser.Scene {
     }
     // 목표가 벽·가구 위면 통행 가능한 지점으로 보정 (그 지점까지만 걷는다)
     const dest = this.pf.nearestWalkable(destX, destY);
-    const path = this.pf.hasLineOfSight(start.x, start.y, dest.x, dest.y)
-      ? [dest]
-      : // 경로를 못 찾으면(격리된 영역 등) 어쩔 수 없이 직선 — 최소한 멈추진 않게
-        (this.pf.findPath(start.x, start.y, dest.x, dest.y) ?? [dest]);
+    const route = (fx: number, fy: number): Array<{ x: number; y: number }> =>
+      this.pf.hasLineOfSight(fx, fy, dest.x, dest.y)
+        ? [dest]
+        : // 경로를 못 찾으면(격리된 영역 등) 어쩔 수 없이 직선 — 최소한 멈추진 않게
+          (this.pf.findPath(fx, fy, dest.x, dest.y) ?? [dest]);
+
+    let path = route(start.x, start.y);
+    /**
+     * 아바타와 경로 시작점 사이가 벽으로 막혀 있으면 (탭이 멈춰 뒤처졌거나 추정치가 크게
+     * 튄 경우) **아바타 위치에서** 경로를 다시 잡는다.
+     *
+     * 예전엔 여기서 순간이동시켰는데, 그게 화면에서 "벽을 뚫고 순간이동" 으로 보였다.
+     * 다시 걸어서 가면 조금 느릴 뿐 벽은 넘지 않는다.
+     */
+    if (path[0] && !this.pf.hasLineOfSight(curX, curY, path[0].x, path[0].y)) {
+      path = route(curX, curY);
+    }
     this.setLeg(tagId, path, curX, curY);
   }
 
@@ -778,12 +798,6 @@ class StaffMapScene extends Phaser.Scene {
     curX: number,
     curY: number,
   ): void {
-    // 아바타가 경로 시작점에서 멀리 떨어졌고 사이에 벽이 있으면(탭 백그라운드 등으로 멈춰
-    // 있던 경우) 걸어서 붙이면 벽을 뚫는다 → 진실 좌표로 순간이동시킨다.
-    const head = path[0];
-    if (head && !this.pf.hasLineOfSight(curX, curY, head.x, head.y)) {
-      this.teleport.add(tagId);
-    }
     this.paths.set(tagId, path);
     this.pace.set(
       tagId,
@@ -892,33 +906,38 @@ class StaffMapScene extends Phaser.Scene {
       .filter(([, a]) => a.visible)
       .map(([tagId, a]) => ({ tagId, x: a.x, y: a.y }));
 
-    const seen = new Set<string>();
     for (const p of pts) {
-      if (seen.has(p.tagId)) continue;
-      // 근접한 것들을 연쇄로 묶는다 (A-B 가 가깝고 B-C 가 가까우면 셋이 한 무리)
-      const group = [p];
-      seen.add(p.tagId);
-      for (let i = 0; i < group.length; i++) {
-        for (const q of pts) {
-          if (seen.has(q.tagId)) continue;
-          if (Math.hypot(group[i].x - q.x, group[i].y - q.y) > SPREAD_TRIGGER_PX) continue;
-          seen.add(q.tagId);
-          group.push(q);
-        }
-      }
-
-      if (group.length === 1) {
+      const cur = this.clusterOffset.get(p.tagId);
+      const engaged = !!cur && (cur.dx !== 0 || cur.dy !== 0);
+      // 붙을 때와 떨어질 때의 문턱을 다르게 (같으면 경계에서 붙었다 떨어졌다 깜빡인다)
+      const limit = engaged ? SPREAD_RELEASE_PX : SPREAD_TRIGGER_PX;
+      const crowded = pts.some(
+        (q) => q.tagId !== p.tagId && Math.hypot(p.x - q.x, p.y - q.y) < limit,
+      );
+      if (!crowded) {
         this.applyClusterOffset(p.tagId, 0, 0);
         continue;
       }
-      // n 개가 서로 안 겹치려면 반지름이 이만큼 필요하다 (원둘레에 균등 배치)
-      const n = group.length;
-      const radius = Math.min(SPREAD_DOT_R / Math.sin(Math.PI / n), SPREAD_MAX_R);
-      group.sort((a, b) => (a.tagId < b.tagId ? -1 : 1));
-      for (const [i, g] of group.entries()) {
-        const angle = (Math.PI * 2 * i) / n - Math.PI / 2; // 12시 방향부터 시계방향
-        this.applyClusterOffset(g.tagId, Math.cos(angle) * radius, Math.sin(angle) * radius);
+
+      /**
+       * 미는 방향은 **태그마다 고정**이다 (tagId 해시).
+       *
+       * 처음엔 무리를 찾아 원둘레에 균등 배치했는데, 무리에 한 명이 들고 날 때마다
+       * 전원의 각도가 다시 계산돼 **다 같이 튕겨 나갔다**(실제로 그렇게 보였다).
+       * 각자 제 방향으로만 조금 비키면 배치가 완벽하진 않아도 절대 흔들리지 않는다 —
+       * 여기서는 정확한 간격보다 안 흔들리는 게 훨씬 중요하다.
+       */
+      const angle = spreadAngleFor(p.tagId);
+      let dx = Math.cos(angle) * SPREAD_DOT_R;
+      let dy = Math.sin(angle) * SPREAD_DOT_R;
+      // 밀어낸 자리가 벽 안이면 밀지 않는다 — 점이 벽에 박히는 게 겹치는 것보다 나쁘다
+      const fx = (p.x + dx - this.offX) / this.worldScale;
+      const fy = (p.y + dy - this.offY) / this.worldScale;
+      if (!this.pf.isWalkable(fx, fy)) {
+        dx = 0;
+        dy = 0;
       }
+      this.applyClusterOffset(p.tagId, dx, dy);
     }
   }
 
