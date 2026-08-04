@@ -144,9 +144,12 @@ export function loadZones(): Zone[] {
  *
  *   GATEWAYS_FILE=gateways.planned.json npm run gateway:plan -w @meditracker/server
  */
+export function gatewaysFilePath(): string {
+  return join(here, process.env.GATEWAYS_FILE ?? 'gateways.json');
+}
+
 export function loadGateways(): Gateway[] {
-  const file = process.env.GATEWAYS_FILE ?? 'gateways.json';
-  return JSON.parse(readFileSync(join(here, file), 'utf-8'));
+  return JSON.parse(readFileSync(gatewaysFilePath(), 'utf-8'));
 }
 
 /** 도면 배경 이미지 메타 (프론트가 이 이미지 위에 존/아바타 매핑) */

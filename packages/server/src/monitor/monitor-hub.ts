@@ -70,6 +70,19 @@ export class MonitorHub {
     setInterval(() => this.ns.emit('state', this.snapshot()), 1000);
   }
 
+  /** 게이트웨이 목록 교체 — 현장에서 한 대 등록하면 재시작 없이 표에 뜨게 */
+  setGateways(gateways: Gateway[]): void {
+    this.gateways = gateways;
+    this.ns.emit('init', {
+      gateways: this.gateways,
+      zones: this.zones,
+      startedAt: this.startedAt,
+      recentScans: this.recentScans,
+      recentZoneChanges: this.recentZoneChanges,
+      tagMeta: this.tagMeta.all(),
+    });
+  }
+
   /** ingestion 콜백에서 매 스캔마다 호출 */
   recordScan(scan: ScanEvent): void {
     this.scanBatch.push(scan);

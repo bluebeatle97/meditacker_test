@@ -15,6 +15,12 @@ export class PositionEstimator {
     gateways: Gateway[],
     private engine: ZoneEngine,
   ) {
+    this.setGateways(gateways);
+  }
+
+  /** 게이트웨이 목록 교체 — 현장에서 한 대 등록할 때마다 서버를 재시작할 수 없다 */
+  setGateways(gateways: Gateway[]): void {
+    this.gatewayTiles = new Map();
     for (const gw of gateways) {
       if (gw.tile) this.gatewayTiles.set(gw.gatewayId, gw.tile);
     }

@@ -87,7 +87,10 @@ export class ZoneEngine extends EventEmitter {
    * 판정을 주기로 묶으면 CONFIRM_COUNT 도 설계 의도대로 '스캔 주기 N회' 가 된다.
    */
   ingest(scan: ScanEvent, evaluateNow = true): void {
-    if (!this.gatewayZoneMap.has(scan.gatewayId)) return; // 미등록 게이트웨이 무시
+    // 미등록 게이트웨이는 판정에서 제외. **발견(목록화)은 관문(ScanRouter)이 한다** —
+    // 여기서 하면 비콘 화이트리스트를 이미 통과한 스캔만 보게 되는데, 현장에서는 비콘도
+    // 미등록이라 그 조합이 성립하지 않아 아무것도 발견되지 않는다.
+    if (!this.gatewayZoneMap.has(scan.gatewayId)) return;
 
     let perGateway = this.readings.get(scan.tagId);
     if (!perGateway) {
@@ -109,6 +112,14 @@ export class ZoneEngine extends EventEmitter {
   /** 쌓인 수신값으로 존 판정 1회 (ingest(scan, false) 와 짝) */
   evaluate(tagId: string): void {
     this.updatePresence(tagId);
+  }
+
+  /**
+   * 게이트웨이→존 매핑 교체 (현장에서 게이트웨이를 등록한 직후).
+   * 서버를 재시작하지 않고 반영해야 한다 — 45대를 다는 동안 매번 재시작할 수 없다.
+   */
+  setGatewayZoneMap(map: Map<string, string>): void {
+    this.gatewayZoneMap = map;
   }
 
   getState(tagId: string): PresenceState | undefined {

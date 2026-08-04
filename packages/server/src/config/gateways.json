@@ -2,10 +2,19 @@
   {
     "gatewayId": "28:56:2F:79:B4:20",
     "zoneId": "consult_3",
-    "label": "실장비 #1 (AB V4) — 상담실 3",
+    "label": "실장비 #1 — 상담실 3",
     "tile": {
       "x": 851,
       "y": 548
+    }
+  },
+  {
+    "gatewayId": "80:F3:DA:45:5A:10",
+    "zoneId": "pantry_1",
+    "label": "실장비 #2 — 서브데스크(탕비공간 1)",
+    "tile": {
+      "x": 716,
+      "y": 701
     }
   }
 ]

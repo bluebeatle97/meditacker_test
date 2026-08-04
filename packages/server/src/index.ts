@@ -1,8 +1,16 @@
 import { createServer, type IncomingMessage } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildGatewayZoneMap, loadFloorplan, loadGateways, loadZones, SERVER_CONFIG, ZONE_ENGINE_CONFIG } from './config/index.js';
+import {
+  buildGatewayZoneMap,
+  gatewaysFilePath,
+  loadFloorplan,
+  loadGateways,
+  loadZones,
+  SERVER_CONFIG,
+  ZONE_ENGINE_CONFIG,
+} from './config/index.js';
 import { ZoneEngine } from './zone-engine/zone-engine.js';
 import { MqttIngestion } from './ingestion/mqtt-ingestion.js';
 import { AutoAdapter } from './ingestion/adapters/auto.adapter.js';
@@ -45,8 +53,10 @@ const serveStatic = createStaticHandler([
 
 const db = openDb(SERVER_CONFIG.dbPath);
 
-const gateways = loadGateways();
-const engine = new ZoneEngine(buildGatewayZoneMap(gateways), ZONE_ENGINE_CONFIG);
+let gateways = loadGateways();
+/** 게이트웨이→존 매핑. 현장 등록 시 이 변수를 갈아치우고 엔진에도 밀어 넣는다 */
+let gatewayZoneMap = buildGatewayZoneMap(gateways);
+const engine = new ZoneEngine(gatewayZoneMap, ZONE_ENGINE_CONFIG);
 
 const presence = new PresenceService(engine, db);
 const estimator = new PositionEstimator(gateways, engine);
@@ -89,6 +99,7 @@ const scanRouter = new ScanRouter(
     recorder?.record(scan); // 녹화 중이면 원본 그대로 적재
   },
   SERVER_CONFIG.tagWhitelist,
+  (gatewayId) => gatewayZoneMap.has(gatewayId),
 );
 
 const ingestion = new MqttIngestion(
@@ -361,6 +372,73 @@ const httpServer = createServer((req, res) => {
       } catch {
         res.writeHead(400, CORS_JSON);
         res.end(JSON.stringify({ ok: false }));
+      }
+    });
+    return;
+  }
+  /**
+   * 등록 안 된 채 신호를 쏘고 있는 게이트웨이 — 현장 설치 발견용.
+   *
+   * 게이트웨이를 달아도 `gateways.json` 에 없으면 판정에서 조용히 버려져 **화면에 아무
+   * 흔적이 없다**. 그래서 MAC 을 알아내려고 장비 웹페이지를 뒤져야 했다(실제로 그랬다).
+   * 게다가 이 장비는 네트워크 카드 MAC 과 페이로드에 실리는 MAC 이 끝자리가 다르다 —
+   * 스티커를 보고 넣으면 영원히 안 맞는다. 그러니 **실제로 온 값**을 보여주는 게 맞다.
+   */
+  if (req.url === '/unknown-gateways') {
+    res.writeHead(200, { ...CORS_JSON, 'Cache-Control': 'no-store' });
+    res.end(
+      JSON.stringify({
+        registered: loadGateways().map((g) => ({ gatewayId: g.gatewayId, zoneId: g.zoneId })),
+        unknown: scanRouter.unknownGatewayList(),
+      }),
+    );
+    return;
+  }
+  /**
+   * 게이트웨이를 존에 배정하고 **재시작 없이** 반영한다.
+   * 45대를 다는 동안 매번 서버를 재시작할 수 없고, JSON 을 손으로 찍는 것도 오타 지옥이다.
+   *
+   * ⚠️ 인증 없음 — /tag-meta·/register-tag 와 같은 수준. 한 번에 staff 토큰 뒤로 옮길 것.
+   */
+  if (req.url === '/register-gateway' && req.method === 'POST') {
+    readBody(req, 2_000, (body) => {
+      try {
+        const { gatewayId, zoneId, label } = JSON.parse(body) as {
+          gatewayId: string;
+          zoneId: string;
+          label?: string;
+        };
+        const zone = loadZones().find((z) => z.zoneId === zoneId);
+        if (!gatewayId) throw new Error('gatewayId 없음');
+        if (!zone) throw new Error(`모르는 zoneId: ${zoneId}`);
+
+        const list = loadGateways();
+        const entry = {
+          gatewayId,
+          zoneId,
+          label: (label ?? '').trim() || `${zone.name} 게이트웨이`,
+          // 설치 지점을 사람이 알려주기 전까지는 그 방의 라벨 위치를 쓴다
+          tile: { x: zone.tilePosition.x, y: zone.tilePosition.y },
+        };
+        const at = list.findIndex((g) => g.gatewayId === gatewayId);
+        if (at >= 0) list[at] = entry;
+        else list.push(entry);
+        writeFileSync(gatewaysFilePath(), JSON.stringify(list, null, 2) + '\n');
+
+        // 재시작 없이 즉시 반영 (관문·판정·좌표추정·관제 표 전부)
+        gateways = list;
+        gatewayZoneMap = buildGatewayZoneMap(list);
+        engine.setGatewayZoneMap(gatewayZoneMap);
+        estimator.setGateways(list);
+        monitor?.setGateways(list);
+        scanRouter.forgetGateway(gatewayId);
+
+        console.log(`[server] 게이트웨이 등록: ${gatewayId} → ${zone.name} (총 ${list.length}대)`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, gateways: list.length, entry }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
       }
     });
     return;

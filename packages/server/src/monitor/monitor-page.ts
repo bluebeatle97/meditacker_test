@@ -114,6 +114,18 @@ export function monitorPageHtml(): string {
       <div class="body"><table id="gw-table"><tbody></tbody></table></div>
     </div>
     <div style="height:12px"></div>
+    <div class="panel" id="ugw-panel" style="display:none">
+      <h2>미등록 게이트웨이 <span id="ugw-count" class="muted"></span></h2>
+      <div class="body">
+        <div class="bar">
+          <span class="muted">설치한 구역</span>
+          <select id="ugw-zone"></select>
+          <span class="muted">를 고르고 등록</span>
+        </div>
+        <div id="ugw-body"></div>
+      </div>
+    </div>
+    <div style="height:12px"></div>
     <div class="panel">
       <h2>태그 상태 (게이트웨이별 RSSI = 존 판정 원재료)</h2>
       <div class="body" id="tag-cards"><div class="empty">신호 대기 중…</div></div>
@@ -182,9 +194,13 @@ export function monitorPageHtml(): string {
     (d.zones || []).forEach(function(z){ zoneName[z.zoneId] = z.name; });
     meta = d.tagMeta || {};
     // 정답 마크용 존 목록 (녹화 중일 때만 쓰이지만 미리 채워둔다)
-    document.getElementById('mark-zone').innerHTML = (d.zones || []).map(function(z){
+    var zoneOptions = (d.zones || []).map(function(z){
       return '<option value="' + esc(z.zoneId) + '">' + esc(z.name || z.zoneId) + '</option>';
     }).join('');
+    document.getElementById('mark-zone').innerHTML = zoneOptions;
+    // 게이트웨이 등록용 — 첫 항목이 실수로 선택되지 않게 빈 값을 앞에 둔다
+    document.getElementById('ugw-zone').innerHTML =
+      '<option value="">— 구역 선택 —</option>' + zoneOptions;
     document.getElementById('s-gwtotal').textContent = gateways.length;
     if (d.startedAt) startedAt = d.startedAt;
     (d.recentScans || []).forEach(pushScan);
@@ -258,6 +274,49 @@ export function monitorPageHtml(): string {
         alert('등록 실패: ' + err.message);
       });
   });
+
+  // ── 미등록 게이트웨이 → 구역 배정 ────────────────────────────────────────
+  // 게이트웨이를 달아도 gateways.json 에 없으면 판정에서 조용히 버려져 화면에 흔적이
+  // 없다. 그래서 MAC 을 알아내려고 장비 웹페이지를 뒤져야 했다. 게다가 이 장비는
+  // **네트워크 카드 MAC 과 페이로드에 실리는 MAC 이 끝자리가 다르다** — 스티커를 보고
+  // 넣으면 영원히 안 맞는다. 여기 뜨는 값이 실제로 온 값이므로 이걸 그대로 쓰면 된다.
+  function renderUnknownGateways(d){
+    var panel = document.getElementById('ugw-panel');
+    var list = (d && d.unknown) || [];
+    if (list.length === 0) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+    document.getElementById('ugw-count').textContent = '(' + list.length + '대)';
+    document.getElementById('ugw-body').innerHTML = '<table><tbody>'
+      + '<tr><th>게이트웨이 MAC</th><th>스캔</th><th>들은 비콘</th><th>최근</th><th></th></tr>'
+      + list.map(function(g){
+          return '<tr><td class="gw">' + esc(g.gatewayId) + '</td>'
+            + '<td style="text-align:right">' + g.scans + '</td>'
+            + '<td style="text-align:right">' + g.beacons + '종</td>'
+            + '<td class="muted" style="text-align:right">' + ago(Date.now() - g.lastSeen) + '</td>'
+            + '<td style="text-align:right"><button class="btn ureg" data-gw="' + esc(g.gatewayId) + '">등록</button></td></tr>';
+        }).join('') + '</tbody></table>';
+  }
+
+  document.getElementById('ugw-body').addEventListener('click', function(e){
+    var btn = e.target.closest('.ureg');
+    if (!btn) return;
+    var zoneId = document.getElementById('ugw-zone').value;
+    if (!zoneId) { alert('설치한 구역을 먼저 고르세요'); return; }
+    btn.disabled = true; btn.textContent = '…';
+    fetch('/register-gateway', { method: 'POST', body: JSON.stringify({
+      gatewayId: btn.getAttribute('data-gw'), zoneId: zoneId
+    }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { btn.disabled = false; btn.textContent = '등록'; alert('등록 실패: ' + (d.error || '')); }
+      })
+      .catch(function(err){ btn.disabled = false; btn.textContent = '등록'; alert('등록 실패: ' + err.message); });
+  });
+
+  // 저빈도 운영 동작이라 소켓에 태우지 않고 폴링한다
+  setInterval(function(){
+    fetch('/unknown-gateways').then(function(r){ return r.json(); }).then(renderUnknownGateways).catch(function(){});
+  }, 2000);
 
   // ── 녹화 정답 마크 ───────────────────────────────────────────────────────
   // 걸으면서 방을 바꿀 때마다 찍는다. 이 마크가 replay 채점의 기준이 된다.
