@@ -1,11 +1,11 @@
 [
   {
     "gatewayId": "28:56:2F:79:B4:20",
-    "zoneId": "reception",
-    "label": "실장비 #1 (AB BLE Gateway V4)",
+    "zoneId": "consult_3",
+    "label": "실장비 #1 (AB V4) — 상담실 3",
     "tile": {
-      "x": 1163,
-      "y": 626
+      "x": 851,
+      "y": 548
     }
   }
 ]

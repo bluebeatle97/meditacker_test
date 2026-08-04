@@ -3,7 +3,11 @@
  *
  *   npm run gateway:plan -w @meditracker/server
  *   npm run gateway:plan -w @meditracker/server -- --step 4      # 더 촘촘히(느림)
- *   npm run gateway:plan -w @meditracker/server -- --wall 10     # 벽 감쇠 10dB 가정
+ *   npm run gateway:plan -w @meditracker/server -- --wall 4      # 가벽(석고보드) 가정
+ *   GATEWAYS_FILE=gateways.planned.json npm run gateway:plan ... # 계획본으로 검토
+ *
+ * ⚠️ 벽 감쇠 방향을 헷갈리지 말 것. **낮은 값이 판정에는 보수적**이다 — 벽이 얇으면
+ *    옆방 신호가 덜 깎여 판정 여유가 줄어든다. 높은 값은 커버리지에만 보수적이다.
  *
  * **왜 필요한가.** gateway4 는 PoE 가 아니라 5V USB 급전이라 설치 지점마다 배선이 붙는다
  * (설계서 12장). 30개소만 해도 별도 이슈인데 지금 계획은 50대다. 한 대를 줄이면 배선
@@ -17,7 +21,7 @@
  * ⚠️ 모델 예측이다 (`shared/rssi-model.ts`). 가구·인체 감쇠·안테나 지향성이 빠져 있어
  *    실제는 이보다 나쁘다. 최종 대수는 README "3. 현장 튜닝" 의 실측으로 정한다.
  */
-import { loadGateways, loadZones } from '../config/index.js';
+import { ZONE_ENGINE_CONFIG, loadGateways, loadZones } from '../config/index.js';
 import { WalkableMap } from '../presence/walkable-map.js';
 import { computeCoverage, coverageStats, type BlockedGrid, type CoverageGateway } from '@meditracker/shared';
 
@@ -92,6 +96,51 @@ console.log(`    사각지대 ${bs.dead}칸 · 1대만 듣는 칸 ${bs.single} �
 console.log(
   `    가장 센 신호 dBm — 최악 ${bs.worst.toFixed(0)} / 하위10% ${bs.p10.toFixed(0)} / 중앙 ${bs.median.toFixed(0)}`,
 );
+
+// ── 2.5 판정 여유 — 벽이 얇으면 여기가 먼저 무너진다 ────────────────────────
+const hys = ZONE_ENGINE_CONFIG.HYSTERESIS_DB;
+console.log(`\n[2.5] 판정 여유 = 이긴 게이트웨이 − 다른 존 중 가장 센 것 (dB)`);
+console.log(
+  `    중앙 ${bs.marginMedian.toFixed(1)}dB · 하위10% ${bs.marginP10.toFixed(1)}dB`,
+);
+const frag = bs.fragile(hys);
+console.log(
+  `    여유 < 히스테리시스(${hys}dB) 인 칸: ${frag} / ${bs.cells}` +
+    ` (${((frag / bs.cells) * 100).toFixed(1)}%) ← 잡음 몇 dB 로 방이 뒤집히는 자리`,
+);
+console.log(
+  `    ⚠️ 벽이 얇을수록(가벽) 옆방 신호가 덜 깎여 이 여유가 줄어든다.\n` +
+    `       즉 판정 정확도의 **보수적 방향은 --wall 을 낮추는 쪽**이다 (높이는 쪽은 낙관적).`,
+);
+
+// ── 2.6 여유가 얇은 구역 — 게이트웨이를 옮겨야 할 곳 ────────────────────────
+/**
+ * 여유를 키우는 방법은 벽을 두껍게 하는 것(불가)이 아니라 **거리비를 벌리는 것**이다.
+ * 공유벽에 붙은 게이트웨이는 양쪽 방에서 거리가 비슷해 여유가 안 생긴다.
+ * 그래서 어느 구역이 얇은지를 알면 그 방의 설치 지점을 옮겨 볼 수 있다.
+ */
+const fragileByZone = new Map<string, { thin: number; total: number; minMargin: number }>();
+for (const c of base.cells) {
+  if (c.bestIdx < 0 || !Number.isFinite(c.otherZoneBest)) continue;
+  const zid = all[c.bestIdx].zoneId;
+  const e = fragileByZone.get(zid) ?? { thin: 0, total: 0, minMargin: Number.POSITIVE_INFINITY };
+  const margin = c.best - c.otherZoneBest;
+  e.total++;
+  if (margin < hys) e.thin++;
+  e.minMargin = Math.min(e.minMargin, margin);
+  fragileByZone.set(zid, e);
+}
+const worstZones = [...fragileByZone]
+  .filter(([, e]) => e.total >= 4) // 칸이 너무 적은 구역은 통계가 안 된다
+  .sort((a, b) => b[1].thin / b[1].total - a[1].thin / a[1].total)
+  .slice(0, 8);
+console.log(`\n[2.6] 여유가 얇은 구역 (얇은칸/전체, 최소여유) — 설치 지점을 옮겨 볼 후보`);
+for (const [zid, e] of worstZones) {
+  console.log(
+    `    ${(zoneName.get(zid) ?? zid).padEnd(16)} ${String(e.thin).padStart(3)}/${String(e.total).padEnd(3)}` +
+      ` (${((e.thin / e.total) * 100).toFixed(0).padStart(3)}%)  최소 ${e.minMargin.toFixed(1)}dB`,
+  );
+}
 
 // ── 3. 한 대씩 빼 보기: 존 판정이 바뀌는 칸 수 ──────────────────────────────
 const baseZone = zoneOf(base, all);

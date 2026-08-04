@@ -34,6 +34,15 @@ export interface CoverageCell {
   bestIdx: number;
   /** 두 번째로 센 게이트웨이 인덱스 — 1대를 빼면 누가 대신 먹는지 바로 알 수 있다 */
   secondIdx: number;
+  /**
+   * 이긴 게이트웨이와 **다른 존**에 설치된 것 중 가장 센 세기.
+   *
+   * `best - otherZoneBest` 가 이 지점의 **판정 여유**다. 이 값이 히스테리시스보다 작으면
+   * 잡음 몇 dB 로 방이 뒤집힌다 — 채터링이 나는 자리는 커버리지가 아니라 여기서 보인다.
+   * 벽이 얇을수록(가벽) 옆방 신호가 덜 깎여서 이 여유가 줄어든다.
+   */
+  otherZoneBest: number;
+  otherZoneIdx: number;
   /** `USABLE_RSSI` 이상으로 듣는 게이트웨이 대수 (좌표 추정에 기여하는 수) */
   heard: number;
 }
@@ -93,6 +102,9 @@ export function computeCoverage(
       let second = Number.NEGATIVE_INFINITY;
       let secondIdx = -1;
       let heard = 0;
+      // 존별 최댓값을 들고 있다가 나중에 '이긴 존이 아닌 것 중 최댓값' 을 뽑는다.
+      // 한 번 훑는 동안엔 누가 이길지 모르므로 존별로 모아 두는 수밖에 없다.
+      const perZone = new Map<string, { rssi: number; idx: number }>();
 
       for (let i = 0; i < gateways.length; i++) {
         const g = gateways[i];
@@ -104,6 +116,8 @@ export function computeCoverage(
         const rssi = rssiAt(dist, walls, 0, opts.wallLossDb);
         if (rssi === null) continue;
         if (rssi >= USABLE_RSSI) heard++;
+        const prev = perZone.get(g.zoneId);
+        if (!prev || rssi > prev.rssi) perZone.set(g.zoneId, { rssi, idx: i });
         if (rssi > best) {
           second = best;
           secondIdx = bestIdx;
@@ -114,7 +128,20 @@ export function computeCoverage(
           secondIdx = i;
         }
       }
-      cells.push({ x, y, best, bestIdx, secondIdx, heard });
+
+      let otherZoneBest = Number.NEGATIVE_INFINITY;
+      let otherZoneIdx = -1;
+      if (bestIdx >= 0) {
+        const wonZone = gateways[bestIdx].zoneId;
+        for (const [zoneId, v] of perZone) {
+          if (zoneId === wonZone) continue;
+          if (v.rssi > otherZoneBest) {
+            otherZoneBest = v.rssi;
+            otherZoneIdx = v.idx;
+          }
+        }
+      }
+      cells.push({ x, y, best, bestIdx, secondIdx, otherZoneBest, otherZoneIdx, heard });
     }
   }
   return { step, cellPx: grid.cell * step, cells };
@@ -132,12 +159,29 @@ export interface CoverageStats {
   worst: number;
   p10: number;
   median: number;
+  /**
+   * 판정 여유 = 이긴 게이트웨이 − 다른 존 중 가장 센 것 (dB).
+   * 이 값이 작은 칸이 곧 채터링이 나는 자리다.
+   */
+  marginP10: number;
+  marginMedian: number;
+  /** 여유가 히스테리시스(dB)보다 작은 칸 — 잡음 몇 dB 로 방이 뒤집힌다 */
+  fragile: (hysteresisDb: number) => number;
 }
 
 export function coverageStats(result: CoverageResult): CoverageStats {
   const best = result.cells.map((c) => c.best).filter((v) => Number.isFinite(v));
   best.sort((a, b) => a - b);
   const at = (p: number): number => (best.length === 0 ? RX_FLOOR : best[Math.floor(best.length * p)]);
+
+  // 다른 존 후보가 아예 없는 칸(게이트웨이가 한 곳뿐)은 여유를 말할 수 없어 제외한다
+  const margins = result.cells
+    .filter((c) => c.bestIdx >= 0 && Number.isFinite(c.otherZoneBest))
+    .map((c) => c.best - c.otherZoneBest)
+    .sort((a, b) => a - b);
+  const mAt = (p: number): number =>
+    margins.length === 0 ? Number.POSITIVE_INFINITY : margins[Math.floor(margins.length * p)];
+
   return {
     cells: result.cells.length,
     dead: result.cells.filter((c) => c.bestIdx === -1).length,
@@ -146,5 +190,8 @@ export function coverageStats(result: CoverageResult): CoverageStats {
     worst: at(0),
     p10: at(0.1),
     median: at(0.5),
+    marginP10: mAt(0.1),
+    marginMedian: mAt(0.5),
+    fragile: (hysteresisDb) => margins.filter((m) => m < hysteresisDb).length,
   };
 }
