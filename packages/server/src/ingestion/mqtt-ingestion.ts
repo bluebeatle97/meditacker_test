@@ -11,7 +11,8 @@ export class MqttIngestion {
 
   constructor(
     private url: string,
-    private scanTopic: string, // e.g. "gw/+/scan"
+    /** 구독할 토픽들. 목 게이트웨이와 실장비가 서로 다른 토픽을 쓰므로 배열이다 */
+    private scanTopics: string[],
     private adapter: GatewayAdapter,
     private onScan: (event: ScanEvent) => void,
   ) {}
@@ -21,9 +22,9 @@ export class MqttIngestion {
 
     this.client.on('connect', () => {
       console.log(`[ingestion] MQTT connected: ${this.url}`);
-      this.client!.subscribe(this.scanTopic, (err) => {
+      this.client!.subscribe(this.scanTopics, (err) => {
         if (err) console.error('[ingestion] subscribe failed:', err.message);
-        else console.log(`[ingestion] subscribed: ${this.scanTopic}`);
+        else console.log(`[ingestion] subscribed: ${this.scanTopics.join(', ')}`);
       });
     });
 

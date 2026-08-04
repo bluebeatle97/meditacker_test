@@ -10,6 +10,7 @@ import {
 } from '@meditracker/shared';
 import type {
   FloorplanMeta,
+  Gateway,
   MapAnnotation,
   PositionEstimate,
   PresenceState,
@@ -18,7 +19,9 @@ import type {
   Zone,
 } from '@meditracker/shared';
 import { AlertPanel, STUCK_ALERT_MS, type StuckAlert } from './alert-panel';
+import { escapeHtml } from './format';
 import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mode';
+import { GatewayLayer, type GatewayMode } from './gateway-layer';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { groupColor, TagPanel, type TagRow } from './tag-panel';
 
@@ -180,6 +183,8 @@ class StaffMapScene extends Phaser.Scene {
 
   /** 서버가 없어 브라우저 안에서 가짜 좌표를 만들어 쓰는 중 (정적 호스팅 시연) */
   private demo = false;
+  /** 게이트웨이 위치·커버리지 오버레이 (버튼으로 토글) */
+  private gwLayer?: GatewayLayer;
   /** 확대해도 제자리·같은 크기로 남아야 하는 것(제목)만 그리는 카메라 */
   private uiCam?: Phaser.Cameras.Scene2D.Camera;
   private title!: Phaser.GameObjects.Text;
@@ -249,6 +254,9 @@ class StaffMapScene extends Phaser.Scene {
       .setDisplaySize(plan.width * this.worldScale, plan.height * this.worldScale)
       .setVisible(false);
     this.setupOverlayToggle();
+
+    // 게이트웨이 범위 (방 이름·아바타보다 먼저 만들어 그 아래에 깔리게)
+    await this.setupGatewayLayer(zones);
 
     // 방 이름 (아바타보다 먼저 만들어 아바타가 위에 그려지게)
     this.drawNames(zones, plan.annotations ?? []);
@@ -351,6 +359,8 @@ class StaffMapScene extends Phaser.Scene {
     };
     setOff('zoom-in', z >= ZOOM_MAX - 1e-6);
     setOff('zoom-out', z <= ZOOM_MIN + 1e-6);
+    // 게이트웨이 라벨 50개는 기본 배율에서 겹쳐 읽을 수 없다 — 확대하면 나타난다
+    this.gwLayer?.onZoom(z);
     // 확대해 놓으면 끌어서 옮길 수 있다는 걸 커서로 알린다
     this.input.setDefaultCursor(z > ZOOM_MIN ? 'grab' : 'default');
   }
@@ -489,6 +499,73 @@ class StaffMapScene extends Phaser.Scene {
     };
     render();
   }
+
+  /**
+   * 게이트웨이 범위 보기.
+   *
+   * 버튼을 누르면 담당 → 세기 → 끔 으로 돌아간다. 커버리지 계산은 처음 켤 때 한 번만
+   * 하고(0.2초쯤) 캔버스로 캐시하므로 그 뒤 전환은 즉시다.
+   */
+  private async setupGatewayLayer(zones: Zone[]): Promise<void> {
+    const btn = document.getElementById('gw-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    const url = this.demo ? localConfigUrl('gateways') : `${SERVER_URL}/gateways`;
+    const list = await fetch(url)
+      .then((r) => r.json() as Promise<Gateway[]>)
+      .catch(() => [] as Gateway[]);
+    // 설치 좌표가 없는 게이트웨이는 그릴 수가 없다 — 버튼도 내리는 편이 정직하다
+    if (list.filter((g) => g.tile).length === 0) {
+      btn.remove();
+      return;
+    }
+
+    this.gwLayer = new GatewayLayer({
+      scene: this,
+      pf: this.pf,
+      gateways: list,
+      zones: new Map(zones.map((z) => [z.zoneId, z])),
+      sx: (x) => this.sx(x),
+      sy: (y) => this.sy(y),
+      worldScale: this.worldScale,
+      plan: { width: this.plan.width, height: this.plan.height },
+      ignore: (o) => this.uiCam?.ignore(o),
+      onChange: () => this.gwGuideRender?.(),
+    });
+
+    const NEXT: Record<GatewayMode, GatewayMode> = { off: 'owner', owner: 'signal', signal: 'off' };
+    const LABEL: Record<GatewayMode, string> = {
+      off: '📡 게이트웨이',
+      owner: '📡 담당 구역',
+      signal: '📡 수신 세기',
+    };
+    const hint = document.getElementById('gw-hint');
+    const render = (): void => {
+      const mode = this.gwLayer!.current;
+      btn.textContent = LABEL[mode];
+      btn.classList.toggle('on', mode !== 'off');
+      if (!hint) return;
+      const only = this.gwLayer!.isolatedLabel;
+      hint.hidden = mode === 'off';
+      hint.innerHTML = only
+        ? `<b>${escapeHtml(only)}</b> 한 대만 — 다시 누르면 전체`
+        : mode === 'owner'
+          ? '색 = 그 자리에서 가장 센 게이트웨이. 방 색이 옆방 색에 먹히면 오판이 나는 자리다.<br><i>모델 예측 · 실측 아님</i>'
+          : '초록 = 강함, 빨강 = 약함 (가장 센 신호).<br><i>모델 예측 · 실측 아님</i>';
+    };
+
+    btn.onclick = () => {
+      this.gwLayer!.setMode(NEXT[this.gwLayer!.current]);
+      this.gwLayer!.onZoom(this.cameras.main.zoom);
+      render();
+    };
+    // 마커를 눌러 한 대만 볼 때도 설명이 따라가야 한다
+    this.gwGuideRender = render;
+    render();
+    this.gwLayer.warmUp(); // 버튼을 눌렀을 때 화면이 멈추지 않게 미리 계산
+  }
+
+  /** 게이트웨이 안내문 갱신 (마커 클릭·확대에서도 호출) */
+  private gwGuideRender?: () => void;
 
   /** 통제구역 표시 버튼 연결 */
   private setupOverlayToggle(): void {

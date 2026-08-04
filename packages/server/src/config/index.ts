@@ -37,7 +37,22 @@ export const ZONE_ENGINE_CONFIG = {
 export const SERVER_CONFIG = {
   httpPort: Number(process.env.PORT ?? 8080),
   mqttUrl: process.env.MQTT_URL ?? 'mqtt://localhost:1883',
-  mqttScanTopic: process.env.MQTT_SCAN_TOPIC ?? 'gw/+/scan', // gw/<gatewayId>/scan
+  /**
+   * 구독할 스캔 토픽 (쉼표로 여러 개). 기본값이 둘인 이유:
+   * - `gw/+/scan` — 목 게이트웨이(JSON). 로컬 개발·리플레이의 입력원
+   * - `meditracker/scan` — 실장비 AB Gateway V4. 게이트웨이 50대가 **같은 토픽**을
+   *   쓴다 (gatewayId 를 본문 MAC 에서 뽑으므로 토픽을 나눌 이유가 없다)
+   */
+  mqttScanTopics: (process.env.MQTT_SCAN_TOPIC ?? 'gw/+/scan,meditracker/scan')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean),
+  /**
+   * 실장비 비콘 MAC 바이트 순서 뒤집기 (`AB_MAC_REVERSE=1`).
+   * 벤더 문서가 순서를 명시하지 않았다 — MAC 이 스티커에 적힌 실물 비콘을 게이트웨이
+   * 앞에 대 보고, 관제 화면 값이 스티커와 뒤집혀 보이면 켠다.
+   */
+  abMacReverse: process.env.AB_MAC_REVERSE === '1',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-only-change-me',
   dbPath: process.env.DB_PATH ?? join(here, '../../data/meditracker.db'),
   /** 자리비움 스윕 주기 */
@@ -121,8 +136,17 @@ export function loadZones(): Zone[] {
   return JSON.parse(readFileSync(join(here, 'zones.json'), 'utf-8'));
 }
 
+/**
+ * 게이트웨이 목록. 기본은 **실제로 설치된 것**(`gateways.json`).
+ *
+ * 계획 배치 50대는 `gateways.planned.json` 에 따로 있다 — 실장비 실측 중에는 아직 안 달린
+ * 게이트웨이가 화면에 섞이면 안 되기 때문이다. 배치 검토 도구는 그쪽을 지정해서 쓴다:
+ *
+ *   GATEWAYS_FILE=gateways.planned.json npm run gateway:plan -w @meditracker/server
+ */
 export function loadGateways(): Gateway[] {
-  return JSON.parse(readFileSync(join(here, 'gateways.json'), 'utf-8'));
+  const file = process.env.GATEWAYS_FILE ?? 'gateways.json';
+  return JSON.parse(readFileSync(join(here, file), 'utf-8'));
 }
 
 /** 도면 배경 이미지 메타 (프론트가 이 이미지 위에 존/아바타 매핑) */

@@ -10,6 +10,24 @@ export {
 } from './mock-walk.js';
 export { DemoSim } from './demo-sim.js';
 export {
+  PATH_LOSS_N,
+  RX_FLOOR,
+  TX_AT_1M,
+  USABLE_RSSI,
+  WALL_LOSS_DB,
+  rssiAt,
+} from './rssi-model.js';
+export {
+  computeCoverage,
+  coverageStats,
+  wallsBetween,
+  type BlockedGrid,
+  type CoverageCell,
+  type CoverageGateway,
+  type CoverageResult,
+  type CoverageStats,
+} from './coverage.js';
+export {
   ARRIVE_EPS_PX,
   DEFAULT_UPDATE_INTERVAL_MS,
   INTERPOLATION_OVERSHOOT,

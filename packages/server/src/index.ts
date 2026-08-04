@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { buildGatewayZoneMap, loadFloorplan, loadGateways, loadZones, SERVER_CONFIG, ZONE_ENGINE_CONFIG } from './config/index.js';
 import { ZoneEngine } from './zone-engine/zone-engine.js';
 import { MqttIngestion } from './ingestion/mqtt-ingestion.js';
-import { GenericJsonAdapter } from './ingestion/adapters/generic-json.adapter.js';
+import { AutoAdapter } from './ingestion/adapters/auto.adapter.js';
 import { PresenceService } from './presence/presence-service.js';
 import { PositionEstimator } from './presence/position-estimator.js';
 import { WalkableMap } from './presence/walkable-map.js';
@@ -93,8 +93,8 @@ const scanRouter = new ScanRouter(
 
 const ingestion = new MqttIngestion(
   SERVER_CONFIG.mqttUrl,
-  SERVER_CONFIG.mqttScanTopic,
-  new GenericJsonAdapter(),
+  SERVER_CONFIG.mqttScanTopics,
+  new AutoAdapter({ reverseMac: SERVER_CONFIG.abMacReverse }),
   (scan) => scanRouter.route(scan),
 );
 ingestion.start();
@@ -206,6 +206,13 @@ const httpServer = createServer((req, res) => {
       'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify(loadZones()));
+    return;
+  }
+  // 게이트웨이 설치 위치 — 직원 화면의 '게이트웨이 범위' 보기가 쓴다.
+  // 태그 위치가 아니라 천장 설비 배치도라 권한 구분이 필요 없다 (정적 마스터).
+  if (req.url === '/gateways') {
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify(loadGateways()));
     return;
   }
   // 태그 이름/메모 — 관제·직원 화면 공용

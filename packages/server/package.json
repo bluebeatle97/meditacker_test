@@ -14,10 +14,12 @@
     "replay": "tsx src/tools/replay.ts",
     "dev:seed": "tsx src/tools/dev-seed.ts",
     "test:watch": "vitest",
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "gateway:plan": "tsx src/tools/gateway-plan.ts"
   },
   "dependencies": {
     "@meditracker/shared": "*",
+    "@msgpack/msgpack": "^2.8.0",
     "better-sqlite3": "^12.4.1",
     "jsonwebtoken": "^9.0.2",
     "mqtt": "^5.10.3",

@@ -17,11 +17,13 @@ import mqtt from 'mqtt';
 import { loadFloorplan, loadGateways, loadZones } from '../config/index.js';
 import { WalkableMap } from '../presence/walkable-map.js';
 import {
-  CM_PER_PX,
   MOCK_TAGS,
   ROUTES,
+  RX_FLOOR,
+  WALL_LOSS_DB as SHARED_WALL_LOSS_DB,
   buildRouteTimelines,
   positionAt as positionOnTimeline,
+  rssiAt,
 } from '@meditracker/shared';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
@@ -61,16 +63,12 @@ function positionAt(routeName: string, sec: number): { x: number; y: number } {
   return positionOnTimeline(TIMELINES.get(routeName)!, sec);
 }
 
-// ── 경로손실 모델: 거리(cm) + 벽 관통 감쇠 → RSSI ───────────────────────────
-const TX_AT_1M = -45; // 1m 에서의 수신세기
-const PATH_LOSS_N = 2.2; // 실내 감쇠 지수
-const RX_FLOOR = -92; // 이보다 약하면 게이트웨이가 못 들음
-/**
- * 벽 1개 관통당 감쇠(dB). 실내 경량 칸막이·석고보드 기준 6~8dB.
- * ⚠️ 이 항이 없으면 옆방 게이트웨이가 실제보다 훨씬 세게 잡혀
- *    위치 추정이 벽 사이에 생기고 방↔방 순간이동처럼 보인다.
- */
-const WALL_LOSS_DB = Number(process.env.WALL_LOSS_DB ?? 7);
+// 경로손실 모델은 @meditracker/shared 의 rssi-model 이 단일 출처 —
+// 직원용 화면의 게이트웨이 범위 보기가 같은 식으로 커버리지를 그린다.
+/** 벽당 감쇠는 현장 실측으로 바꿔 볼 수 있게 열어 둔다 (기본은 모델 기본값) */
+const WALL_LOSS_DB = Number(process.env.WALL_LOSS_DB ?? SHARED_WALL_LOSS_DB);
+/** 실제 수신값처럼 흔들리게 하는 잡음 폭(dB peak-to-peak). 0 이면 결정적 */
+const RSSI_NOISE_DB = Number(process.env.MOCK_RSSI_NOISE_DB ?? 4);
 
 const walkable = new WalkableMap();
 
@@ -134,15 +132,16 @@ function newNoiseDevice(nowSec: number): NoiseDevice {
 
 const noiseDevices: NoiseDevice[] = [];
 
+/**
+ * 모델값에 잡음을 얹어 실제 수신값처럼 만든다.
+ * 잡음은 여기서만 더한다 — 커버리지 계산은 같은 입력에 같은 그림이 나와야 하므로
+ * 모델 자체(`rssiAt`)는 결정적으로 둔다.
+ */
 function rssiFor(distPx: number, walls: number, extraLossDb = 0): number | null {
-  const meters = Math.max((distPx * CM_PER_PX) / 100, 0.3); // px → cm → m
-  const rssi =
-    TX_AT_1M -
-    10 * PATH_LOSS_N * Math.log10(meters) -
-    WALL_LOSS_DB * walls -
-    extraLossDb +
-    (Math.random() - 0.5) * 4;
-  return rssi < RX_FLOOR ? null : Math.round(rssi);
+  const clean = rssiAt(distPx, walls, extraLossDb, WALL_LOSS_DB);
+  if (clean === null) return null;
+  const noisy = clean + (Math.random() - 0.5) * RSSI_NOISE_DB;
+  return noisy < RX_FLOOR ? null : Math.round(noisy);
 }
 
 client.on('connect', () => {

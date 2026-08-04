@@ -208,6 +208,23 @@
       #blocked-btn:hover { background: #3a2323; }
       #blocked-btn.on { background: #7a2b2b; color: #fff; }
 
+      /* 게이트웨이 범위 보기 */
+      #gw-btn { border: 1px solid #d3a13c; background: #2e2513; color: #ffd489; }
+      #gw-btn:hover { background: #3d3119; }
+      #gw-btn.on { background: #7a5c14; color: #fff; }
+      /* 범례·주의문 — 버튼 바로 아래, 오른쪽 끝에 붙는다 */
+      #tools > #gw-hint {
+        width: 224px; padding: 8px 11px; box-sizing: border-box;
+        border: 1px solid #6a5526; border-right: none; border-radius: 6px 0 0 6px;
+        background: #241d0ff2; color: #e6d3a8;
+        font: 400 11px/1.5 ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+        white-space: normal; cursor: default;
+      }
+      #gw-hint[hidden] { display: none; }
+      #gw-hint b { color: #ffd489; }
+      /* 실측이 아니라는 표시는 항상 붙어 있어야 한다 */
+      #gw-hint i { display: inline-block; margin-top: 3px; color: #b09a68; font-style: normal; }
+
       /* 시연 모드 배지 — 서버 없이 도는 중임을 숨기지 않는다.
          움직임이 진짜와 구분이 안 되므로, 표시가 없으면 실제 추적 정확도로 오해한다. */
       #demo-badge {
@@ -281,6 +298,9 @@
       <button id="name-btn" type="button">🏷 이름</button>
       <!-- 통제구역(벽·계단·엘리베이터) 표시 토글 -->
       <button id="blocked-btn" type="button">🚧 통제구역 보기</button>
+      <!-- 게이트웨이 위치·커버리지 (담당 구역 → 수신 세기 → 끔 순서로 순환) -->
+      <button id="gw-btn" type="button">📡 게이트웨이</button>
+      <div id="gw-hint" hidden></div>
       <!-- 환자용 패널(도트 그래픽) 진입 — 별 앱이라 새 탭으로 -->
       <a id="patient-btn" href="#" target="_blank" rel="noopener">🎮 환자용 패널</a>
       <!-- 관리자(관제) 모드 진입 — 서버가 서빙하는 /monitor 로 이동, back 파라미터로 복귀 경로 전달 -->
