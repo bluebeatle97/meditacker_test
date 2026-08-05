@@ -37,8 +37,12 @@ export interface CrowdDeps {
   arriveEps: number;
   /** kind 별 스프라이트 시트 키를 고른다 (id 로 캐릭터를 흩뿌리는 것도 여기서) */
   sheetFor(unit: CrowdUnit): string;
-  /** 시트 키 → idle/걷기 애니메이션 키 */
-  animFor(sheet: string, moving: boolean): string;
+  /**
+   * 시트 키 + 상태 → 애니메이션 키.
+   * `unit.x/y` 는 **도면 좌표**다 (화면 좌표가 아니다) — 호출 쪽이 존을 찾아
+   * 앉기/서기 같은 자세를 고를 수 있게 넘긴다.
+   */
+  animFor(sheet: string, moving: boolean, unit: { id: string; x: number; y: number }): string;
 }
 
 interface Member {
@@ -76,7 +80,7 @@ export class Crowd {
           // ⚠️ 음수 depth 를 쓰면 배경 픽셀맵(depth 0) 뒤로 들어가 아예 안 보인다.
           //    배경 위·본인 캐릭터 아래 = DEPTH_CROWD (main.ts 의 depth 층 참고)
           .setDepth(DEPTH_CROWD);
-        sprite.play(this.d.animFor(sheet, false));
+        sprite.play(this.d.animFor(sheet, false, { id: u.id, x: u.x, y: u.y }));
         this.d.scene.tweens.add({ targets: sprite, alpha: 0.92, duration: 350 });
         m = { sprite, sheet, path: [], lastSeen: now, lastPoint: { x: u.x, y: u.y }, pace: 0 };
         this.members.set(u.id, m);
@@ -133,7 +137,7 @@ export class Crowd {
 
   /** 매 프레임 이동 (직원용 아바타와 같은 페이싱 — walk-pacing.ts) */
   update(delta: number): void {
-    for (const m of this.members.values()) {
+    for (const [id, m] of this.members) {
       let remaining = (m.pace * this.d.mapScale * delta) / 1000;
       let moved = false;
       while (remaining > 0 && m.path.length > 0) {
@@ -156,7 +160,11 @@ export class Crowd {
         m.sprite.setPosition(m.sprite.x + (dx / dist) * remaining, m.sprite.y + (dy / dist) * remaining);
         remaining = 0;
       }
-      const want = this.d.animFor(m.sheet, moved);
+      const want = this.d.animFor(m.sheet, moved, {
+        id,
+        x: m.lastPoint.x,
+        y: m.lastPoint.y,
+      });
       if (m.sprite.anims.currentAnim?.key !== want) m.sprite.play(want, true);
     }
   }

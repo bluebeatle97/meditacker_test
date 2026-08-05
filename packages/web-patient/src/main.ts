@@ -12,6 +12,7 @@ import type { FloorplanMeta, PatientProfile, Zone, ZoneAction } from '@meditrack
 import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mode';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { Crowd, type CrowdUnit } from './crowd';
+import { poseFor, sittableAt } from './pose';
 
 /** 익명 id → 캐릭터 고르기용 (같은 사람은 늘 같은 캐릭터로 보이게) */
 function hashCode(s: string): number {
@@ -96,6 +97,12 @@ const CHARACTERS = [
 
 /** 스프라이트 시트 24프레임 = 6프레임 × 4방향 (오른쪽·위·왼쪽·아래 순서) */
 const DIR_ROW = { right: 0, up: 1, left: 2, down: 3 } as const;
+/**
+ * 앉기 시트는 방향이 없다 — 6프레임짜리 두 벌(총 12)이고 자세 차이가 거의 없다.
+ * 원본이 32px 프레임에 사람을 16px 폭으로 넣어 둔 것을 추출 때 16px 로 다시 담는다
+ * (`tools/build-characters.py`). 그 처리가 없으면 사람이 반으로 쪼개져 보인다.
+ */
+const SIT_FRAMES = 6;
 type Dir = keyof typeof DIR_ROW;
 
 
@@ -236,14 +243,14 @@ class PatientScene extends Phaser.Scene {
   preload(): void {
     this.load.image('pixelmap', `${ASSETS}pixelmap.png`);
     for (const c of CHARACTERS) {
-      this.load.spritesheet(`${c.id}-idle`, `${ASSETS}characters/${c.id}-idle.png`, {
-        frameWidth: 16,
-        frameHeight: 32,
-      });
-      this.load.spritesheet(`${c.id}-run`, `${ASSETS}characters/${c.id}-run.png`, {
-        frameWidth: 16,
-        frameHeight: 32,
-      });
+      // 포즈 4종 모두 (한 장 3~6KB). sit·phone 은 머무는 사람에게 쓴다 —
+      // 대기실에 전원이 서 있으면 그것만으로 화면이 어색하다.
+      for (const pose of ['idle', 'run', 'sit', 'phone'] as const) {
+        this.load.spritesheet(`${c.id}-${pose}`, `${ASSETS}characters/${c.id}-${pose}.png`, {
+          frameWidth: 16,
+          frameHeight: 32,
+        });
+      }
     }
   }
 
@@ -356,7 +363,8 @@ class PatientScene extends Phaser.Scene {
         u.kind === 'staff'
           ? 'bob'
           : CHARACTERS[Math.abs(hashCode(u.id)) % CHARACTERS.length].id,
-      animFor: (sheet, moving) => `${sheet}-c-${moving ? 'walk' : 'idle'}`,
+      animFor: (sheet, moving, unit) =>
+        `${sheet}-c-${poseFor(this.zones.values(), unit.id, moving, unit.x, unit.y)}`,
     });
 
     this.setupOverviewButton();
@@ -427,6 +435,21 @@ class PatientScene extends Phaser.Scene {
         frameRate: 10,
         repeat: -1,
       });
+      // ⚠️ 앉기는 걷기와 배치가 다르다 — 4방향이 아니라 **6프레임 x 2벌**(총 12)이다.
+      //    걷기와 같다고 보고 18~23 을 집으면 없는 프레임이라 아무것도 안 나온다.
+      this.anims.create({
+        key: `${c.id}-c-sit`,
+        frames: this.anims.generateFrameNumbers(`${c.id}-sit`, { start: 0, end: SIT_FRAMES - 1 }),
+        frameRate: 4,
+        repeat: -1,
+      });
+      // 폰 시트는 9프레임 단일 방향이라 방향 개념이 없다 (그래서 본인 캐릭터엔 안 쓴다)
+      this.anims.create({
+        key: `${c.id}-c-phone`,
+        frames: this.anims.generateFrameNumbers(`${c.id}-phone`, { start: 0, end: 8 }),
+        frameRate: 6,
+        repeat: -1,
+      });
     }
     for (const [dir, row] of Object.entries(DIR_ROW)) {
       for (const kind of ['idle', 'run'] as const) {
@@ -436,11 +459,21 @@ class PatientScene extends Phaser.Scene {
             start: row * 6,
             end: row * 6 + 5,
           }),
-          frameRate: kind === 'idle' ? 6 : 10,
+          frameRate: kind === 'run' ? 10 : 6,
           repeat: -1,
         });
       }
     }
+    // 본인 앉기는 방향이 없다 — 시트에 4방향이 없다. 앉은 사람은 어차피 안 돈다.
+    this.anims.create({
+      key: 'sit',
+      frames: this.anims.generateFrameNumbers(`${this.profile.charId}-sit`, {
+        start: 0,
+        end: SIT_FRAMES - 1,
+      }),
+      frameRate: 4,
+      repeat: -1,
+    });
   }
 
   private connect(): void {
@@ -620,7 +653,11 @@ class PatientScene extends Phaser.Scene {
       remaining = 0;
     }
 
-    const want = `${moved ? 'run' : 'idle'}-${this.facing}`;
+    // 본인도 대기실·상담실에 머무르면 앉는다 (폰 자세는 방향이 없어 본인에겐 안 쓴다).
+    // lastPoint 가 도면 좌표 — 화면 좌표로 존을 찾으면 축척만큼 어긋난다.
+    const still =
+      !moved && !!this.lastPoint && sittableAt(this.zones.values(), this.lastPoint.x, this.lastPoint.y);
+    const want = still ? 'sit' : `${moved ? 'run' : 'idle'}-${this.facing}`;
     if (this.me.anims.currentAnim?.key !== want) this.me.play(want, true);
     this.nameTag?.setPosition(this.me.x, this.me.y + 6);
     // 강조 표시는 캐릭터를 옮긴 뒤에 따라붙인다 (먼저 하면 한 프레임 뒤처진다)
