@@ -12,10 +12,10 @@
 서버 좌표(도면 px)에 MAP_SCALE 을 곱하면 그대로 화면 좌표가 된다.
 
 방 구분:
-  존마다 통행가능 격자에서 **방 사각형을 실측**한다(pathfinder.roomBoxAt 과 같은
-  방식 — 앵커 주변 여러 줄의 좌우/상하 벽 위치 중앙값). 사각형이 겹치면 앵커가
-  더 가까운 존이 이긴다. 어느 방에도 안 들어가는 바닥은 복도로 칠한다.
-  ⚠️ 연결영역 BFS 로는 안 된다 — 문이 열려 있어 방끼리 색이 번진다(실측 확인).
+  **문 폭보다 크게 깎아 방을 떼어낸 뒤 다시 채운다** (`segment_rooms` 주석에 자세히).
+  앵커가 없는 조각은 복도다. 사각형 실측 방식은 v2 도면에서 문이 사라지자 개구부로
+  새어 복도까지 한 방으로 먹었고, 그냥 연결영역 BFS 는 문이 열려 있어 층 전체가
+  한 덩어리가 된다 — 둘 다 실제로 겪은 실패다.
 
 입력:  packages/server/src/config/{walkable,zones,floorplan}.json
        Modern Interiors 타일셋 (Room_Builder_free_16x16.png)
@@ -30,8 +30,9 @@ import json
 import math
 import os
 import sys
+from collections import deque
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = os.path.join(ROOT, "packages", "server", "src", "config")
@@ -61,11 +62,28 @@ FLOORS = {
 # 타일(52cm)·격자(6.5cm) 둘 다 계단처럼 각이 지는데, 도면을 LANCZOS 로 줄이면
 # 안티에일리어싱이 걸려 벽만 매끈해진다 (바닥은 도트 타일 그대로).
 PLAN_PNG = os.path.join(ROOT, "packages", "web-staff", "public", "floorplan.png")
-WALL_RGB = (52, 54, 74)
+WALL_RGB = (58, 58, 80)   # 에셋 시트의 외곽선 색 — 벽 윗면 테두리에 쓴다
+CAP_RGB = (248, 248, 248)  # 벽을 위에서 본 윗면 (Room_Builder 의 ceiling 색)
 WALL_DARK = 200      # 이보다 어두우면 완전 불투명한 벽
 WALL_LIGHT = 246     # 이보다 밝으면 벽 아님 (사이는 반투명 → 매끈한 경계)
-SHADOW_DROP = 3      # 벽 아래로 이만큼 그림자 (출력 px)
-SHADOW_ALPHA = 90
+
+# ── 2.5D 벽 ──────────────────────────────────────────────────────────────
+# 벽을 위에서 본 납작한 선으로 두면 두께만 있고 높이가 없다. 카메라 쪽(남향) 벽에만
+# **벽면을 세워 붙이면** 탑다운인데 벽에 높이가 생긴다 (엔터 더 건전이 쓰는 방식).
+# 북·동·서 벽은 윗면만 보인다 — 그쪽 면은 카메라를 등지고 있다.
+#
+# 셋이 한 묶음이다. 벽면만 세우고 걸레받이와 접지 그림자를 빼면 벽이 바닥에 붙지 않고
+# 떠 보인다.
+FACE_H = 13          # 벽면 높이 (출력 px). 13px ≈ 42cm
+BASEBOARD_H = 2      # 걸레받이 (에셋 블록의 맨 아래 2px)
+CONTACT_H = 5        # 벽면 아래 바닥에 흘리는 접지 그림자
+CONTACT_ALPHA = 75
+# 벽지 블록 좌상단 (Room_Builder, 타일 단위). 블록 하나가 2타일=32px 이고 구성은
+# 외곽선1 + 천장캡4 + 외곽선1 + 벽면24 + 걸레받이1 + 외곽선1 이다.
+# ⚠️ gray·beige·wood 만 쓴다. 줄무늬 벽지(mint·cream·salmon)는 아래 절반이 다른 색
+#    굽도리라, 높이를 줄이려고 아래에서 자르면 그 색으로만 채워진다.
+WALL_BLOCK = {"gray": (0, 17), "beige": (0, 19), "wood": (0, 11)}
+FACE_BAND_BOTTOM = 30    # 블록 안에서 벽면이 끝나는 y (걸레받이 시작 전)
 # 막힌 셀에서 이 거리(격자 셀) 안에 통행가능 셀이 있으면 '건물 안', 아니면 건물 밖(void).
 WALL_REACH = 4
 
@@ -81,11 +99,39 @@ FLOOR_BY_TYPE = {
     "etc": "lightgray",
     "staff": "concrete",
 }
-VOID_RGB = (14, 20, 32)      # 건물 밖 / 샤프트
+# 존 type → **벽지** 재질. 벽면은 방 안에서 보이므로 그 방 기준으로 고른다.
+# ⚠️ 디자이너가 바꿀 값이다 — 구조(어디에 벽을 세우나)는 도면에서 나오고, 마감(무엇을
+#    붙이나)은 여기서 정한다. 표면만 갈아입히는 자리라 이 dict 만 고치면 된다.
+WALL_BY_TYPE = {
+    "waiting": "wood",
+    "reception": "wood",
+    "consult": "beige",
+    "recovery": "beige",
+    "skincare": "beige",
+    "surgery": "gray",
+    "laser": "gray",
+    "etc": "gray",
+    "staff": "gray",
+}
+WALL_CORRIDOR = "gray"
+VOID_RGB = (14, 20, 32)      # 건물 밖 / 샤프트 / 통제구역
 CORRIDOR = "lightgray"
-# 방 사각형이 앵커에서 이만큼(도면 px ≈ 3.9m)까지만 뻗게 자른다.
-# 실측이 문틈으로 새면 복도까지 한 방 색으로 덮여버린다 — 남는 곳은 복도로 칠하면 된다.
-MAX_HALF = 240
+# 도면 축척 — 단일 출처는 shared/mock-walk.ts 의 CM_PER_PX. 여기 값이 그것과 다르면
+# 화면의 거리감과 서버의 물리가 어긋난다.
+CM_PER_PX = 1.62
+# 방을 떼어낼 때 깎는 양. **문 폭의 절반보다 커야** 문이 닫힌다 (문 약 90cm → 45cm 초과).
+# 55cm 로 두면 110cm 개구부까지 닫히고, 복도(1.5m 이상)와 가장 작은 방(1.6m)은 살아남는다.
+ERODE_CM = 55
+# 앵커에서 **걸어서** 이만큼까지만 그 방으로 본다.
+#
+# 깎기만으로는 부족하다 — 대기공간처럼 문 없이 복도로 열린 방은 개구부가 110cm 를 넘어
+# 안 닫히고, 그 방 조각이 복도와 한 덩어리가 된다. 그러면 대기공간 색이 복도를 타고
+# 층 절반까지 번진다(실제로 그렇게 나왔다).
+#
+# 예전 MAX_HALF(사각형 상한)와 다른 점은 **벽을 따라 재는 거리**라는 것이다. 직선 거리로
+# 자르면 벽 너머 옆방까지 잘려 나가지만, 이건 걸어서 갈 수 있는 거리라 방 모양을 따른다.
+# 이 층에서 가장 큰 방(대기공간 2, 6.2 x 4.7m)의 중심에서 모서리까지가 3.9m 다.
+MAX_REACH_CM = 450
 
 
 def load(name):
@@ -106,57 +152,164 @@ class Walk:
         c, r = int(px // self.cell), int(py // self.cell)
         return 0 <= c < self.cols and 0 <= r < self.rows and self.grid[r][c] == "1"
 
-    def span_x(self, px, py):
-        if not self.ok(px, py):
-            return None
-        l = r = px
-        while l - self.cell > 0 and self.ok(l - self.cell, py):
-            l -= self.cell
-        while r + self.cell < self.cols * self.cell and self.ok(r + self.cell, py):
-            r += self.cell
-        return l, r
-
-    def span_y(self, px, py):
-        if not self.ok(px, py):
-            return None
-        t = b = py
-        while t - self.cell > 0 and self.ok(px, t - self.cell):
-            t -= self.cell
-        while b + self.cell < self.rows * self.cell and self.ok(px, b + self.cell):
-            b += self.cell
-        return t, b
-
-    def room_box(self, px, py, probe=6):
-        """앵커가 속한 방의 사각형 (도면 px). 문틈 한 줄에 휘둘리지 않게 중앙값을 쓴다."""
-        if not self.ok(px, py):
-            return None
-        step = self.cell * 2
-        L, R, Tp, B = [], [], [], []
-        for i in range(-probe, probe + 1):
-            s = self.span_x(px, py + i * step)
-            if s:
-                L.append(s[0])
-                R.append(s[1])
-            s = self.span_y(px + i * step, py)
-            if s:
-                Tp.append(s[0])
-                B.append(s[1])
-        if not L or not Tp:
-            return None
-        mid = lambda v: sorted(v)[len(v) // 2]
-        return mid(L), mid(Tp), mid(R) + self.cell, mid(B) + self.cell
+    def cell_ok(self, c, r):
+        return 0 <= c < self.cols and 0 <= r < self.rows and self.grid[r][c] == "1"
 
 
+def segment_rooms(walk, zones, detail=None):
+    """통행가능 바닥을 방별로 나눈다. 반환: `owner[r][c]` = 존 인덱스 / -1 복도 / None 막힘.
 
-def nearest_mat(mat_of, tx, ty, tw, th, reach=3):
-    """막힌 타일 밑에 깔 바닥 재질 — 가까운 방 재질을 가져온다 (벽이 그 위를 덮는다)"""
-    for r in range(1, reach + 1):
-        for dy in range(-r, r + 1):
-            for dx in range(-r, r + 1):
-                x, y = tx + dx, ty + dy
-                if 0 <= x < tw and 0 <= y < th and mat_of[y][x]:
-                    return mat_of[y][x]
-    return None
+    ## 왜 사각형이 아닌가
+
+    예전에는 앵커에서 좌우·상하 벽까지의 중앙값으로 **방 사각형**을 재고 그 안을 그 방
+    색으로 칠했다. v2 도면부터 문이 그려지지 않아 개구부가 넓어지자 그 방식이 무너졌다 —
+    사각형이 문틈으로 새어 복도까지 한 방으로 먹었다 (피부관리실이 깊이 7.7m, 대기공간 1과
+    의국실이 13타일로 측정됐다. 상한 ±240px 에 걸려 있던 것이다).
+
+    ## 왜 그냥 BFS 도 아닌가
+
+    통행가능 영역을 그대로 연결영역으로 나누면 **문이 열려 있어 방끼리 다 이어진다** —
+    층 전체가 한 덩어리가 된다. 이건 예전에도 확인한 실패다.
+
+    ## 그래서: 문보다 크게 깎았다가 다시 채운다
+
+    1. 각 셀에서 가장 가까운 벽까지의 거리를 잰다.
+    2. **문 폭의 절반보다 크게** 깎는다(ERODE_CM). 문(약 90cm)은 양쪽에서 깎여 닫히고,
+       복도(1.5m 이상)와 방은 폭이 남아 살아 있다 → 방이 서로 떨어진 조각(core)이 된다.
+    3. 조각 안에 앵커가 있으면 그 방, 앵커가 여러 개면 조각 안에서 가까운 앵커가 이긴다.
+       앵커가 없는 조각은 복도다 (zones.json 에 복도 존은 없다).
+    4. 깎여 나간 테두리와 문간을 조각들로부터 다시 채운다.
+
+    ⚠️ 깎는 양은 **문 폭에 매여 있다.** 도면의 문 개구부가 이보다 넓어지면 그 문이 닫히지
+       않아 방과 복도가 한 조각이 된다. 문 폭을 바꿀 일이 생기면 여기도 같이 본다.
+    """
+    cell_cm = walk.cell * CM_PER_PX
+    erode = max(2, int(ERODE_CM / cell_cm))
+    cols, rows = walk.cols, walk.rows
+    W = [[walk.grid[r][c] == "1" for c in range(cols)] for r in range(rows)]
+
+    # 1. 벽까지의 거리 (체임퍼 2-패스, 직교 10 · 대각 14 ≈ 유클리드 x10)
+    INF = 10 ** 9
+    d = [[0 if not W[r][c] else INF for c in range(cols)] for r in range(rows)]
+    for r in range(rows):
+        for c in range(cols):
+            if d[r][c] == 0:
+                continue
+            best = d[r][c]
+            for dc, dr, w in ((-1, 0, 10), (0, -1, 10), (-1, -1, 14), (1, -1, 14)):
+                cc, rr = c + dc, r + dr
+                if 0 <= cc < cols and 0 <= rr < rows:
+                    best = min(best, d[rr][cc] + w)
+            d[r][c] = best
+    for r in range(rows - 1, -1, -1):
+        for c in range(cols - 1, -1, -1):
+            if d[r][c] == 0:
+                continue
+            best = d[r][c]
+            for dc, dr, w in ((1, 0, 10), (0, 1, 10), (1, 1, 14), (-1, 1, 14)):
+                cc, rr = c + dc, r + dr
+                if 0 <= cc < cols and 0 <= rr < rows:
+                    best = min(best, d[rr][cc] + w)
+            d[r][c] = best
+
+    # 2. 깎은 뒤 남은 조각(core) 라벨링
+    thr = erode * 10
+    core = [[-1] * cols for _ in range(rows)]
+    cores = 0
+    for sr in range(rows):
+        for sc in range(cols):
+            if d[sr][sc] < thr or core[sr][sc] >= 0:
+                continue
+            q = deque([(sc, sr)])
+            core[sr][sc] = cores
+            while q:
+                c, r = q.popleft()
+                for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    cc, rr = c + dc, r + dr
+                    if (0 <= cc < cols and 0 <= rr < rows and d[rr][cc] >= thr
+                            and core[rr][cc] < 0):
+                        core[rr][cc] = cores
+                        q.append((cc, rr))
+            cores += 1
+
+    # 3. 앵커를 조각에 붙인다. 앵커가 벽 가까이 있어 조각 밖이면 가장 가까운 조각 셀을 찾는다.
+    seeds = []          # (c, r, zone_idx)
+    for i, z in enumerate(zones):
+        ac = int(z["tilePosition"]["x"] // walk.cell)
+        ar = int(z["tilePosition"]["y"] // walk.cell)
+        if core[ar][ac] >= 0:
+            seeds.append((ac, ar, i))
+            continue
+        best = None
+        for rr in range(max(0, ar - 40), min(rows, ar + 41)):
+            for cc in range(max(0, ac - 40), min(cols, ac + 41)):
+                if core[rr][cc] < 0:
+                    continue
+                dist = math.hypot(cc - ac, rr - ar)
+                if best is None or dist < best[0]:
+                    best = (dist, cc, rr)
+        if best:
+            seeds.append((best[1], best[2], i))
+        else:
+            print(f"⚠️ 조각에 못 붙인 존: {z['name']} — 방이 문 폭보다 좁다는 뜻이다")
+
+    # 4. 조각 안에서 가까운 앵커가 이긴다 (조각 하나에 앵커가 여러 개일 수 있다).
+    #    reach 를 넘어가면 놓아준다 — 복도와 한 덩어리가 된 조각이 방 색으로 덮이지 않게.
+    reach = int(MAX_REACH_CM / cell_cm)
+    owner = [[None] * cols for _ in range(rows)]
+    walked = [[0] * cols for _ in range(rows)]
+    q = deque()
+    for c, r, i in seeds:
+        owner[r][c] = i
+        q.append((c, r))
+    while q:
+        c, r = q.popleft()
+        if walked[r][c] >= reach:
+            continue
+        for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            cc, rr = c + dc, r + dr
+            if (0 <= cc < cols and 0 <= rr < rows and owner[rr][cc] is None
+                    and core[rr][cc] >= 0 and core[rr][cc] == core[r][c]):
+                owner[rr][cc] = owner[r][c]
+                walked[rr][cc] = walked[r][c] + 1
+                q.append((cc, rr))
+    # 앵커가 없던 조각, 그리고 reach 를 넘어 남은 조각 = 복도
+    for r in range(rows):
+        for c in range(cols):
+            if core[r][c] >= 0 and owner[r][c] is None:
+                owner[r][c] = -1
+
+    # 5. 깎여 나간 테두리·문간을 조각들로부터 채운다
+    q = deque((c, r) for r in range(rows) for c in range(cols) if owner[r][c] is not None)
+    while q:
+        c, r = q.popleft()
+        for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            cc, rr = c + dc, r + dr
+            if 0 <= cc < cols and 0 <= rr < rows and W[rr][cc] and owner[rr][cc] is None:
+                owner[rr][cc] = owner[r][c]
+                q.append((cc, rr))
+    for r in range(rows):
+        for c in range(cols):
+            if not W[r][c]:
+                owner[r][c] = None
+
+    # ⚠️ 다수결 스무딩을 붙여 봤지만 뺐다. reach 로 자른 경계는 셀 단위 잡음이 아니라
+    #    매끈한 원호라서, 5x5 다수결로는 10만 셀 중 4셀만 바뀌고 값만 비싸다. 대기공간처럼
+    #    벽 없이 열린 구역의 경계가 벽과 안 맞는 건 이 방법의 한계이고, 고치려면 그 구역에
+    #    복도 앵커를 따로 주는 수밖에 없다.
+
+    named = sum(1 for r in range(rows) for c in range(cols)
+                if owner[r][c] is not None and owner[r][c] >= 0)
+    hall = sum(1 for r in range(rows) for c in range(cols) if owner[r][c] == -1)
+    got = len({o for row in owner for o in row if o is not None and o >= 0})
+    print(f"방 구역 나누기: 조각 {cores}개 · 존 {got}/{len(zones)}개가 바닥을 얻음 "
+          f"(깎기 {erode}셀 = {erode * cell_cm:.0f}cm) · 방 {named:,}셀 / 복도 {hall:,}셀")
+    # 조각 지도는 문간을 찾는 데 쓴다 — 깎여 나간 띠 중 서로 다른 조각을 잇는 셀이 문이다.
+    # 디자이너 판(build-design-board.py)이 이걸 쓴다. 같은 계산을 두 벌 두지 않기 위해 내보낸다.
+    if detail is not None:
+        detail["core"] = core
+        detail["clearance"] = d      # 셀 → 가장 가까운 벽까지 (x10, 대각 14)
+    return owner
 
 
 def main():
@@ -186,47 +339,22 @@ def main():
             blocked = 1 - n / (per * per)
             floor[ty][tx] = blocked < WALL_RATIO
 
-    # ── 2. 존별 방 사각형 실측 → 타일 소유권 (겹치면 앵커가 가까운 쪽) ──────
-    boxes = []
-    for z in zones:
-        ax, ay = z["tilePosition"]["x"], z["tilePosition"]["y"]
-        box = walk.room_box(ax, ay)
-        if box:
-            x0, y0, x1, y1 = box
-            box = (
-                max(x0, ax - MAX_HALF),
-                max(y0, ay - MAX_HALF),
-                min(x1, ax + MAX_HALF),
-                min(y1, ay + MAX_HALF),
-            )
-            boxes.append((box, (ax, ay), z))
-    print(f"방 사각형 실측: {len(boxes)}/{len(zones)}")
+    # ── 2. 방 구역 나누기 (문에서 끊는다 — segment_rooms 주석 참고) ──────────
+    owner = segment_rooms(walk, zones)
 
-    mat_of = [[None] * tw for _ in range(th)]
-    for ty in range(th):
-        for tx in range(tw):
-            if not floor[ty][tx]:
-                continue
-            fx = (tx + 0.5) * TILE_FP      # 타일 중심을 도면 좌표로
-            fy = (ty + 0.5) * TILE_FP
-            best, bestd = None, None
-            for (x0, y0, x1, y1), (ax, ay), z in boxes:
-                if x0 <= fx < x1 and y0 <= fy < y1:
-                    d = math.hypot(fx - ax, fy - ay)
-                    if bestd is None or d < bestd:
-                        best, bestd = z, d
-            if best is None:
-                mat_of[ty][tx] = CORRIDOR
-            elif best["category"] == "staff_area":
-                mat_of[ty][tx] = "concrete"
-            elif best["zoneId"] == "elev_hall":
-                mat_of[ty][tx] = "brick"
-            else:
-                mat_of[ty][tx] = FLOOR_BY_TYPE.get(best["type"], CORRIDOR)
+    def mat_for(idx):
+        if idx is None or idx < 0:
+            return CORRIDOR
+        z = zones[idx]
+        if z["category"] == "staff_area":
+            return "concrete"
+        if z["zoneId"] == "elev_hall":
+            return "brick"
+        return FLOOR_BY_TYPE.get(z["type"], CORRIDOR)
 
     # ── 3. 바닥 찍기 ────────────────────────────────────────────────────────
-    # 재질별로 타일을 채운 레이어를 만들고, **방 사각형 마스크**로 잘라 얹는다.
-    # 타일 단위로 재질을 고르면 방 경계가 52cm 계단이 된다 — 마스크로 자르면 직선이다.
+    # 재질별 마스크를 **격자 셀(6.5cm) 해상도**로 만들어 타일 레이어를 통과시킨다.
+    # 타일(52cm) 단위로 재질을 고르면 방 경계가 계단이 된다 — 셀 해상도면 벽선과 맞는다.
     img = Image.new("RGBA", (tw * T, th * T), VOID_RGB + (255,))
 
     def tiled(mat):
@@ -239,27 +367,30 @@ def main():
         return layer
 
     layers = {m: tiled(m) for m in FLOORS}
-    img.alpha_composite(layers[CORRIDOR])       # 복도/기본 바닥
+    masks = {m: Image.new("L", img.size, 0) for m in FLOORS}
+    draws = {m: ImageDraw.Draw(masks[m]) for m in FLOORS}
+    cpx = walk.cell * MAP_SCALE                 # 셀 한 변의 출력 px (2)
+    for r in range(walk.rows):
+        c = 0
+        while c < walk.cols:
+            if owner[r][c] is None:
+                c += 1
+                continue
+            mat = mat_for(owner[r][c])
+            s = c
+            while c < walk.cols and owner[r][c] is not None and mat_for(owner[r][c]) == mat:
+                c += 1
+            draws[mat].rectangle(
+                [int(s * cpx), int(r * cpx), int(c * cpx) - 1, int((r + 1) * cpx) - 1],
+                fill=255,
+            )
+    for mat, mask in masks.items():
+        img.paste(layers[mat], (0, 0), mask)
 
-    # 넓은 사각형부터 깔아 작은 방(더 구체적인 것)이 위로 오게 한다
     counts = {}
-    for (x0, y0, x1, y1), _anchor, z in sorted(
-        boxes, key=lambda b: -((b[0][2] - b[0][0]) * (b[0][3] - b[0][1]))
-    ):
-        if z["category"] == "staff_area":
-            mat = "concrete"
-        elif z["zoneId"] == "elev_hall":
-            mat = "brick"
-        else:
-            mat = FLOOR_BY_TYPE.get(z["type"], CORRIDOR)
-        counts[mat] = counts.get(mat, 0) + 1
-        box = (
-            int(x0 * MAP_SCALE),
-            int(y0 * MAP_SCALE),
-            int(x1 * MAP_SCALE),
-            int(y1 * MAP_SCALE),
-        )
-        img.paste(layers[mat].crop(box), (box[0], box[1]))
+    for i, z in enumerate(zones):
+        m = mat_for(i)
+        counts[m] = counts.get(m, 0) + 1
 
     # ── 4. 건물 밖(void) 채우기 — 막힌 셀 중 통행가능 셀에서 먼 곳 ───────────
     cell_px = int(walk.cell * MAP_SCALE)
@@ -286,7 +417,7 @@ def main():
                     fill=VOID_RGB,
                 )
 
-    # ── 5. 벽 — 도면 원본 선을 축소해 매끈하게 올린다 (여기만 도트 아님) ──────
+    # ── 5. 벽 — 2.5D (천장캡 + 남향 벽면 + 걸레받이 + 접지 그림자) ────────────
     if not os.path.exists(PLAN_PNG):
         sys.exit(f"도면 원본을 못 찾음: {PLAN_PNG}")
     gray = Image.open(PLAN_PNG).convert("L")
@@ -302,14 +433,90 @@ def main():
     mh = int(plan["height"] * MAP_SCALE)
     # LANCZOS 축소가 경계에 반투명 픽셀을 만들어 벽이 계단이 아니라 선으로 보인다
     alpha = gray.point(lut).resize((mw, mh), Image.LANCZOS)
+    ap = alpha.load()
+    opx = walk.cell * MAP_SCALE                  # 격자 셀 한 변의 출력 px (2)
 
-    shadow = Image.new("RGBA", (mw, mh), (0, 0, 0, 0))
-    shadow.putalpha(alpha.point(lambda a: a * SHADOW_ALPHA // 255))
-    img.alpha_composite(shadow, (0, SHADOW_DROP))   # 벽 아래로 살짝 흘린 그림자
+    def owner_at(x, y):
+        """출력 좌표의 바닥 주인 (없으면 None)"""
+        c, r = int(x / opx), int(y / opx)
+        if 0 <= r < walk.rows and 0 <= c < walk.cols:
+            return owner[r][c]
+        return None
 
-    wall = Image.new("RGBA", (mw, mh), WALL_RGB + (255,))
-    wall.putalpha(alpha)
-    img.alpha_composite(wall, (0, 0))
+    def wall_mat_at(x, y):
+        o = owner_at(x, y)
+        if o is None or o < 0:
+            return WALL_CORRIDOR
+        z = zones[o]
+        return WALL_BY_TYPE.get("staff" if z["category"] == "staff_area" else z["type"],
+                                WALL_CORRIDOR)
+
+    # 벽지 블록에서 벽면 띠와 걸레받이를 잘라 둔다 (아래에서 잘라야 걸레받이가 남는다)
+    bands = {}
+    for name, (bc, br) in WALL_BLOCK.items():
+        by = br * T
+        bands[name] = (
+            sheet.crop(((bc + 1) * T, by + FACE_BAND_BOTTOM - FACE_H,
+                        (bc + 2) * T, by + FACE_BAND_BOTTOM)),
+            sheet.crop(((bc + 1) * T, by + FACE_BAND_BOTTOM,
+                        (bc + 2) * T, by + FACE_BAND_BOTTOM + BASEBOARD_H)),
+        )
+
+    face_layer = Image.new("RGBA", (mw, mh), (0, 0, 0, 0))
+    shade = Image.new("RGBA", (mw, mh), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shade)
+    faces = 0
+    for x in range(mw):
+        y = 1
+        while y < mh - 1:
+            # 벽의 아래쪽 경계이고, 그 아래가 통행 가능한 바닥이면 벽면을 세운다
+            if ap[x, y] >= 128 and ap[x, y + 1] < 128 and owner_at(x, y + 1) is not None:
+                mat = wall_mat_at(x, y + 1)
+                band, base = bands[mat]
+                # 좁은 통로에서 벽면이 맞은편 벽을 넘어가지 않게 자른다
+                h = 0
+                while h < FACE_H and y + 1 + h < mh and ap[x, y + 1 + h] < 128:
+                    h += 1
+                if h >= 3:
+                    sx = x % T
+                    face_layer.alpha_composite(
+                        band.crop((sx, FACE_H - h, sx + 1, FACE_H)), (x, y + 1))
+                    yb = y + 1 + h
+                    for i in range(BASEBOARD_H):
+                        if yb + i < mh and ap[x, yb + i] < 128:
+                            face_layer.alpha_composite(
+                                base.crop((sx, i, sx + 1, i + 1)), (x, yb + i))
+                    for i in range(CONTACT_H):     # 바닥으로 흘리는 접지 그림자
+                        yy = yb + BASEBOARD_H + i
+                        if yy < mh and ap[x, yy] < 128:
+                            sd.point((x, yy), fill=(0, 0, 0,
+                                                    int(CONTACT_ALPHA * (1 - i / CONTACT_H))))
+                    faces += 1
+                y += max(h, 1)
+            else:
+                y += 1
+    img.alpha_composite(shade)
+    img.alpha_composite(face_layer)
+
+    # 천장캡 — 벽을 위에서 본 윗면. 바닥에 붙은 벽에만 올린다 (샤프트 안쪽은 통제구역이라
+    # 어두운 채로 남겨야 한다). 테두리는 시트의 외곽선 색으로 1px.
+    near = Image.new("L", (walk.cols, walk.rows), 0)
+    npx = near.load()
+    for r in range(walk.rows):
+        for c in range(walk.cols):
+            if walk.grid[r][c] == "1":
+                npx[c, r] = 255
+    near = near.filter(ImageFilter.MaxFilter(WALL_REACH * 2 + 1))
+    near = near.resize((mw, mh), Image.NEAREST)
+
+    cap_mask = Image.new("L", (mw, mh), 0)
+    cap_mask.paste(alpha, (0, 0), near)
+    cap = Image.new("RGBA", (mw, mh), CAP_RGB + (255,))
+    cap.putalpha(cap_mask)
+    img.alpha_composite(cap)
+    edge = Image.new("RGBA", (mw, mh), WALL_RGB + (255,))
+    edge.putalpha(ImageChops.subtract(cap_mask, cap_mask.filter(ImageFilter.MinFilter(3))))
+    img.alpha_composite(edge)
 
     # 타일 격자 크기 그대로 저장한다 (도면 크기로 자르면 마지막 타일이 잘린다)
     img.save(OUT)
