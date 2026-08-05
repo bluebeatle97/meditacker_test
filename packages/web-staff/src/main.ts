@@ -538,6 +538,20 @@ class StaffMapScene extends Phaser.Scene {
       owner: '📡 담당 구역',
       signal: '📡 수신 세기',
     };
+    /**
+     * 설치 좌표가 존 라벨 앵커 그대로면 실측이 아니라 자리표시자다. 그 상태의 커버리지는
+     * '이 자리에 달면 이렇다' 는 가정이므로, 그림만 보고 실제 범위로 읽지 않게 알린다.
+     */
+    const placeholders = list.filter((g) => {
+      const a = zones.find((z) => z.zoneId === g.zoneId)?.tilePosition;
+      return a && g.tile && a.x === g.tile.x && a.y === g.tile.y;
+    }).length;
+    const caveat =
+      placeholders > 0
+        ? `<i>⚠️ ${placeholders}/${list.length} 대는 설치 좌표가 방 이름표 위치 그대로 —` +
+          ` 실측 지점이 아니다. 모델 예측</i>`
+        : '<i>모델 예측 · 실측 아님</i>';
+
     const hint = document.getElementById('gw-hint');
     const render = (): void => {
       const mode = this.gwLayer!.current;
@@ -547,10 +561,10 @@ class StaffMapScene extends Phaser.Scene {
       const only = this.gwLayer!.isolatedLabel;
       hint.hidden = mode === 'off';
       hint.innerHTML = only
-        ? `<b>${escapeHtml(only)}</b> 한 대만 — 다시 누르면 전체`
+        ? `<b>${escapeHtml(only)}</b> 한 대만 — 다시 누르면 전체<br>${caveat}`
         : mode === 'owner'
-          ? '색 = 그 자리에서 가장 센 게이트웨이. 방 색이 옆방 색에 먹히면 오판이 나는 자리다.<br><i>모델 예측 · 실측 아님</i>'
-          : '초록 = 강함, 빨강 = 약함 (가장 센 신호).<br><i>모델 예측 · 실측 아님</i>';
+          ? `색 = 그 자리에서 가장 센 게이트웨이. 방 색이 옆방 색에 먹히면 오판이 나는 자리다.<br>${caveat}`
+          : `초록 = 강함, 빨강 = 약함 (가장 센 신호).<br>${caveat}`;
     };
 
     btn.onclick = () => {

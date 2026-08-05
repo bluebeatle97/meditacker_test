@@ -88,6 +88,29 @@ console.log(
   `    → 대수는 전파 커버리지가 아니라 **존 개수**가 정한다. 존마다 1대가 하한이다.`,
 );
 
+/**
+ * 좌표가 실측인지 자리표시자인지 구분한다.
+ *
+ * 설치 지점을 아직 안 정했을 때 존 라벨 앵커를 그대로 tile 로 넣어 두는 경우가 있는데,
+ * 그 상태로 이 도구를 돌리면 **판정 여유가 전부 가정 위에 세워진다** — 여유는 거리비가
+ * 정하고 거리비는 설치 지점이 정하기 때문이다. 숫자만 보면 실측처럼 보이므로 여기서
+ * 크게 알린다.
+ */
+const anchorOf = new Map(zones.map((z) => [z.zoneId, z.tilePosition]));
+const onAnchor = all.filter((g) => {
+  const a = anchorOf.get(g.zoneId);
+  return a && a.x === g.tile.x && a.y === g.tile.y;
+});
+if (onAnchor.length > 0) {
+  const pct = ((onAnchor.length / all.length) * 100).toFixed(0);
+  console.log(
+    `\n    ⚠️ 좌표가 존 라벨 앵커와 동일한 게이트웨이 ${onAnchor.length}/${all.length} (${pct}%)` +
+      `\n       = 실측 설치 지점이 아니라 **자리표시자**다. 아래 '판정 여유' 는 그 가정 위의` +
+      `\n       숫자이므로 '어느 게이트웨이를 옮겨라' 로는 쓸 수 없다. 커버리지 유무·대수` +
+      `\n       구조 같은 결론만 유효하다. 실제 설치 지점을 tile 에 넣고 다시 돌릴 것.`,
+  );
+}
+
 // ── 2. 전파 커버리지는 여유가 있나 ──────────────────────────────────────────
 const base = run(all);
 const bs = coverageStats(base);
@@ -134,7 +157,10 @@ const worstZones = [...fragileByZone]
   .filter(([, e]) => e.total >= 4) // 칸이 너무 적은 구역은 통계가 안 된다
   .sort((a, b) => b[1].thin / b[1].total - a[1].thin / a[1].total)
   .slice(0, 8);
-console.log(`\n[2.6] 여유가 얇은 구역 (얇은칸/전체, 최소여유) — 설치 지점을 옮겨 볼 후보`);
+console.log(
+  `\n[2.6] 여유가 얇은 구역 (얇은칸/전체, 최소여유)` +
+    (onAnchor.length > 0 ? ' ⚠️ 좌표가 자리표시자 — 방 목록으로만 읽을 것' : ' — 설치 지점 재검토 후보'),
+);
 for (const [zid, e] of worstZones) {
   console.log(
     `    ${(zoneName.get(zid) ?? zid).padEnd(16)} ${String(e.thin).padStart(3)}/${String(e.total).padEnd(3)}` +
