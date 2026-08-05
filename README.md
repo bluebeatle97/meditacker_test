@@ -37,6 +37,102 @@ npm run dev:staff     # http://localhost:5173
 npm run dev:patient   # http://localhost:5174
 ```
 
+한 번에 띄우고 내리기:
+
+```bash
+npm run dev:all              # 브로커·서버·직원용·환자용·목 게이트웨이
+npm run dev:all -- --no-mock # 실장비 구성 (목 게이트웨이 빼고)
+npm run stop                 # 전부 정지
+```
+
+> `npm run stop` 을 먼저 돌리고 띄우는 습관을 들이는 게 좋다. `dev:all` 은 **자식이 죽으면
+> 다시 띄우는 감독 프로세스**라 창을 닫아도 서버·Vite 가 살아남는 일이 잦고, 그러면
+> `dev:all` 이 "이미 떠 있네" 하고 건너뛰어 **옛날 코드가 계속 도는데 모르고 넘어간다**.
+
+### 테스트 PC 를 껐다 켠 뒤 복구 🔌
+
+게이트웨이가 신호를 보내는 **그 PC**(유선 연결된 서버 PC)에서 하는 절차다. 서버는 자동 시작이
+아니라서 재부팅하면 아무것도 안 떠 있다.
+
+```bash
+# 1) 남은 프로세스 정리 (있든 없든 먼저)
+npm run stop
+
+# 2) 최신 코드
+git pull
+
+# 3) 기동 — 실장비 구성이면 목 게이트웨이는 뺀다
+npm run dev:all -- --no-mock
+```
+
+**⭐ 2단계보다 먼저 확인할 것 — 이 PC 의 IP.** 게이트웨이 설정에는 브로커 주소가 **IP 로 박혀
+있다.** 유선이어도 DHCP 면 재부팅 후 주소가 바뀔 수 있고, 바뀌면 게이트웨이가 접속을 못 해
+**신호가 아예 안 들어온다**.
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' }
+```
+
+`PrefixOrigin` 이 `Dhcp` 면 바뀔 수 있다는 뜻이다. 근본 해결은 **공유기에서 이 PC 에 DHCP
+예약(고정 IP)을 걸어 두는 것** — 안 그러면 재부팅할 때마다 게이트웨이 설정을 다시 만지게 된다.
+
+방화벽에 1883 인바운드 허용이 있어야 한다:
+
+```powershell
+Get-NetFirewallRule -Enabled True -Direction Inbound |
+  Where-Object { ($_ | Get-NetFirewallPortFilter).LocalPort -eq 1883 }
+# 없으면:
+New-NetFirewallRule -DisplayName 'MQTT 1883' -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow
+```
+
+#### 살아났는지 확인
+
+```bash
+curl -s http://localhost:8080/health
+```
+
+- `gateways: N` 이 기대한 대수인지
+- 게이트웨이가 붙으면 **`acceptedScans` 가 계속 올라간다**
+- 브로커 로그에 `client connected:` 가 서버(`mqttjs_*`) **말고도** 떠야 한다. 서버 것 하나뿐이면
+  게이트웨이가 한 대도 안 붙은 것이다.
+
+#### 신호가 안 올 때 — 어디서 막혔나
+
+`/health` 의 카운터만 보면 어느 계층에서 끊겼는지 바로 갈린다.
+
+| 증상 | 어디서 막혔나 | 볼 것 |
+|---|---|---|
+| `accepted 0` · `dropped 0` · `unknown 0` | **네트워크** — 도착 자체를 안 한다 | IP 바뀜 / 방화벽 / 게이트웨이 전원·랜 |
+| `dropped` 가 올라감 | 도착은 하는데 걸러진다 | 등록 안 된 게이트웨이 ID, 태그 화이트리스트 |
+| `unknown` 만 올라감 | 신호는 정상, 비콘이 미등록 | 관제 페이지 **미등록 신호** 에서 등록 |
+| 판정이 옛 배치대로 | `gateways.json` 고치고 **서버 재시작을 안 함** | 존 매핑은 부팅 때 한 번 만든다 — 재시작 |
+
+> `dropped 0` 이라는 게 특히 중요하다. 걸러진 것도 없다는 건 **파싱·화이트리스트 이전 단계**,
+> 즉 TCP 로 아예 못 왔다는 뜻이다. 어댑터나 태그 등록을 뒤질 이유가 없다.
+
+#### ⚠️ 재부팅 뒤에 절대 하지 말 것
+
+**`npm run dev:seed`** — 목 태그 16개를 넣으면서 **명단에 없는 태그를 전부 비활성화**한다.
+현장에서 등록해 둔 실비콘이 한 번에 다 꺼진다. 목 데이터로 화면을 채워 볼 때만 쓴다.
+
+#### DB 는 이 PC 에만 있다
+
+`packages/server/data/meditracker.db` (gitignore). 태그 등록·환자 프로필·존 로그가 전부 여기
+들어 있고 저장소에는 안 올라간다. **PC 가 죽으면 등록 내역도 같이 사라진다** — 실측 전후로
+복사해 두는 게 좋다.
+
+#### 브로커를 재부팅마다 손대기 싫으면
+
+지금은 `dev:broker`(aedes)를 스택과 같이 띄운다. Docker Mosquitto 로 바꾸면 `restart:
+unless-stopped` 라 Docker Desktop 만 자동 시작이면 알아서 올라온다.
+
+```bash
+docker compose up -d
+```
+
+`dev:all` 은 이미 쓰이는 포트를 건너뛰므로, 1883 을 Mosquitto 가 잡고 있으면 자기 브로커를
+안 띄운다. 그대로 같이 쓰면 된다.
+
 ### 환자용 패널 (도트 그래픽)
 
 직원용은 **실제 도면**을 그대로 쓰고(위치 정확성), 환자용은 같은 층을 **타일 도트맵**으로 다시 그린다 (포켓몬 골드류 타일 탑뷰 — 카메라가 본인 캐릭터를 따라가고, 화면 폭에 타일 14칸쯤 보이게 정수배 줌).
@@ -46,8 +142,17 @@ npm run dev:patient   # http://localhost:5174
 배경은 커밋된 생성물이고, 도면·통제구역이 바뀌면 다시 만든다:
 
 ```bash
-python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"
+python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"   # 배경 도트맵
+python tools/build-characters.py "<Modern tiles_Free 폴더>"  # 캐릭터 스프라이트
 ```
+
+캐릭터는 포즈 4종(`idle`·`run`·`sit`·`phone`)을 쓴다. **머무는 사람은 앉는다** — 대기공간·상담실·
+회복실·피부관리실에 도착해 멈추면 앉고, 그중 1/3은 서서 폰을 본다 (같은 사람은 늘 같은 자세 —
+id 해시로 고정해 프레임마다 안 바뀐다). 규칙은 `src/pose.ts` 의 순수 함수라 브라우저 없이
+테스트된다.
+
+> ⚠️ `adam-idle.png` 는 원본의 `Adam_idle`(4프레임 정지)이 아니라 `Adam_idle_anim`(24프레임
+> 숨쉬기)이다. 손으로 복사하면 정지 시트를 집어 캐릭터가 굳는다 — 그래서 스크립트를 둔다.
 
 - 타일 1칸(16px) = 도면 32px ≈ **52cm**. 이 축척이 캐릭터(16×32 = 두 칸 키 ≈ 104cm)와 맞아야 도트맵으로 보인다 — 더 잘게 잡으면 바닥 무늬가 캐릭터보다 커진다.
 - 방 구분은 좌표 추측이 아니라 `walkable.json` 에서 **방 사각형 실측**(`pathfinder.roomBoxAt` 과 같은 방식). 연결영역 BFS 는 문으로 색이 번져서 못 쓴다.

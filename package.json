@@ -14,6 +14,7 @@
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "build:demo": "npm run build -w @meditracker/web-staff && npm run build -w @meditracker/web-patient",
-    "start:demo": "npm run start:demo -w @meditracker/server"
+    "start:demo": "npm run start:demo -w @meditracker/server",
+    "stop": "node tools/stop-all.mjs"
   }
 }
