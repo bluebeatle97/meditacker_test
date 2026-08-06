@@ -35,6 +35,11 @@ export function monitorPageHtml(): string {
   .panel > .body { padding: 8px 12px; }
   .feed { max-height: 42vh; overflow-y: auto; }
   .feed .row { display: flex; gap: 8px; padding: 2px 0; white-space: nowrap; border-bottom: 1px solid #21262d; }
+  /* 피드도 막대 길이를 눈으로 훑는 화면이라 시작점이 줄마다 달라지면 못 읽는다.
+     시각·게이트웨이·dBm 은 글자수가 일정한데 이름만 들쭉날쭉하므로 그 칸만 고정하고,
+     flex 가 남은 폭에 맞춰 칸을 줄이지 못하게 막는다. */
+  .feed .row > span { flex: none; }
+  .feed .tag { width: 80px; overflow: hidden; text-overflow: ellipsis; }
   .feed .t { color: var(--muted); }
   .gw { color: var(--accent); }
   .tag { color: #e3b341; }
