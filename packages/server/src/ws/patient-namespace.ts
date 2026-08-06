@@ -1,6 +1,6 @@
 import type { Namespace } from 'socket.io';
 import type { PresenceService } from '../presence/presence-service.js';
-import type { Db } from '../db/index.js';
+import { findTagByPerson, type Db } from '../db/index.js';
 import type { AuthedSocket } from './index.js';
 import { anonymousOccupancy } from '../permission/permission-filter.js';
 import { actionsForZone, isAllowedReaction } from '../social/zone-actions.js';
@@ -151,10 +151,7 @@ export function registerPatientNamespace(
   });
 
   function tagOf(personId: string): string | null {
-    const row = db
-      .prepare(`SELECT tag_id FROM tags WHERE person_id = ? AND active = 1`)
-      .get(personId) as { tag_id: string } | undefined;
-    return row?.tag_id ?? null;
+    return findTagByPerson(db, personId);
   }
 
   function currentZoneOf(personId: string): string | null {

@@ -3,7 +3,7 @@ import type { PresenceService } from '../presence/presence-service.js';
 import type { Db } from '../db/index.js';
 import type { AuthedSocket } from './index.js';
 import { visibleTargets } from '../permission/permission-filter.js';
-import { findPersonByTag } from '../db/index.js';
+import { findPersonByTag, findTagByPerson } from '../db/index.js';
 
 /**
  * namespace: /staff (설계서 7)
@@ -22,11 +22,9 @@ export function registerStaffNamespace(ns: Namespace, presence: PresenceService,
     socket.emit('presence:update', visibleTargets(socket.claims, presence.getAllStates(), tagOwner));
 
     socket.on('person:locate', ({ personId }: { personId: string }) => {
-      const row = db
-        .prepare(`SELECT tag_id FROM tags WHERE person_id = ? AND active = 1`)
-        .get(personId) as { tag_id: string } | undefined;
-      if (!row) return;
-      const state = presence.getAllStates().find((s) => s.tagId === row.tag_id);
+      const tagId = findTagByPerson(db, personId);
+      if (!tagId) return;
+      const state = presence.getAllStates().find((s) => s.tagId === tagId);
       if (!state) return;
       // 권한 검사: 이 viewer 가 볼 수 있는 대상인지 확인 후에만 응답
       const visible = visibleTargets(socket.claims, [state], tagOwner);

@@ -17,7 +17,15 @@ import { AutoAdapter } from './ingestion/adapters/auto.adapter.js';
 import { PresenceService } from './presence/presence-service.js';
 import { PositionEstimator } from './presence/position-estimator.js';
 import { WalkableMap } from './presence/walkable-map.js';
-import { getPatientProfile, openDb, registerTag, upsertPatientProfile } from './db/index.js';
+import {
+  assignBeacon,
+  getOpenAssignment,
+  getPatientProfile,
+  openDb,
+  registerBeacon,
+  releaseBeacon,
+  upsertPatientProfile,
+} from './db/index.js';
 import { createWsServer } from './ws/index.js';
 import { signToken, verifyToken } from './auth/jwt.js';
 import { MonitorHub } from './monitor/monitor-hub.js';
@@ -157,15 +165,14 @@ function patientForToken(tagId: string | null): string {
   // ?tag= 우선, 없으면 시연용 고정 비콘(손님 1), 그것도 없으면 아무 환자
   for (const candidate of [tagId, SERVER_CONFIG.demoPatientTag]) {
     if (!candidate) continue;
-    const byTag = db
-      .prepare(`SELECT person_id AS personId FROM tags WHERE tag_id = ? AND active = 1`)
-      .get(candidate) as { personId: string } | undefined;
-    if (byTag) return byTag.personId;
+    const open = getOpenAssignment(db, candidate);
+    if (open) return open.personId;
   }
+  // 배정된 환자가 하나도 없으면(창고에 다 있는 상태) 마지막 수단
   const row = db
     .prepare(
-      `SELECT t.person_id AS personId FROM tags t JOIN persons p ON p.person_id = t.person_id
-       WHERE t.active = 1 AND p.type = 'patient' ORDER BY t.tag_id LIMIT 1`,
+      `SELECT a.person_id AS personId FROM assignments a JOIN persons p ON p.person_id = a.person_id
+       WHERE a.released_at IS NULL AND p.type = 'patient' ORDER BY a.assigned_at DESC LIMIT 1`,
     )
     .get() as { personId: string } | undefined;
   return row?.personId ?? 'patient-001';
@@ -337,7 +344,10 @@ const httpServer = createServer((req, res) => {
         if (!tagId) throw new Error('tagId 없음');
 
         const label = (name ?? '').trim() || tagId;
-        const { personId } = registerTag(db, { tagId, name: label, group: g });
+        // 등록(하드웨어)과 배정(사람)을 같이 한다 — 관제에서 등록하면 바로 추적되던
+        // 기존 동작을 유지하기 위해서다. 인포의 배정/반납은 아래 별도 API 를 쓴다.
+        registerBeacon(db, tagId, label);
+        const { personId } = assignBeacon(db, { tagId, displayName: label, group: g });
         // 표시 이름은 캐시 일관성 때문에 스토어를 거친다 (관제·직원 화면으로 즉시 방송됨)
         tagMeta.set(tagId, label, (memo ?? '').trim(), g);
         knownTags.reload(); // 다음 스캔부터 통과

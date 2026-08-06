@@ -12,7 +12,7 @@
  * - 직원/환자용 JWT 출력 → 프론트에 ?token=... 으로 전달
  */
 import { SERVER_CONFIG } from '../config/index.js';
-import { assignTag, openDb, upsertTagMeta } from '../db/index.js';
+import { assignBeacon, openDb, releaseBeacon, upsertTagMeta } from '../db/index.js';
 import { signToken } from '../auth/jwt.js';
 import { MOCK_TAGS, mockProfileFor } from '@meditracker/shared';
 import type { PersonType, TagGroup } from '@meditracker/shared';
@@ -27,24 +27,13 @@ let firstPatient = '';
 for (const [i, tag] of MOCK_TAGS.entries()) {
   const profile = mockProfileFor(tag.mac, tag.route, i);
   const isStaff = STAFF_GROUPS.has(profile.group);
-  const personId = `${isStaff ? 'staff' : 'patient'}-${tag.mac.slice(-2)}`;
-  const type: PersonType = isStaff ? 'staff' : 'patient';
-  const role = profile.group === 'doctor' ? 'doctor' : profile.group === 'nurse' ? 'nurse' : null;
-
-  db.prepare(
-    `INSERT INTO persons (person_id, type, display_name, role, dept) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(person_id) DO UPDATE SET display_name = excluded.display_name,
-       type = excluded.type, role = excluded.role`,
-  ).run(personId, type, profile.name, role, isStaff ? 'derma' : null);
-  persons++;
-
-  assignTag(db, {
+  // 등록 + 배정을 한 번에. person 은 assignBeacon 이 배정마다 새로 만든다
+  const { personId } = assignBeacon(db, {
     tagId: tag.mac,
-    assignedTo: personId,
-    personType: type,
-    assignedAt: Date.now(),
-    active: true,
+    displayName: profile.name,
+    group: profile.group,
   });
+  persons++;
   // 직원 화면 비콘 목록에 이름·그룹이 바로 뜨게
   upsertTagMeta(db, tag.mac, profile.name, profile.memo ?? '', profile.group);
 
@@ -53,12 +42,14 @@ for (const [i, tag] of MOCK_TAGS.entries()) {
 
 // 명단에서 빠진 태그는 반납 처리 — 안 그러면 신호 없는 옛 배정이 DB 에 남는다
 const keep = MOCK_TAGS.map((t) => t.mac);
-const dropped = db
+const stale = db
   .prepare(
-    `UPDATE tags SET active = 0
-     WHERE active = 1 AND tag_id NOT IN (${keep.map(() => '?').join(',')})`,
+    `SELECT tag_id FROM assignments
+     WHERE released_at IS NULL AND tag_id NOT IN (${keep.map(() => '?').join(',')})`,
   )
-  .run(...keep).changes;
+  .all(...keep) as Array<{ tag_id: string }>;
+for (const r of stale) releaseBeacon(db, r.tag_id);
+const dropped = stale.length;
 
 // 관제·직원 화면을 열 계정 (전체 열람 권한이 있는 의사 역할)
 db.prepare(

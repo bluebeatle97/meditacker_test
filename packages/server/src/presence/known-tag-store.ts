@@ -1,4 +1,4 @@
-import { getActiveTagIds, type Db } from '../db/index.js';
+import { getRegisteredTagIds, type Db } from '../db/index.js';
 
 /**
  * 등록 태그 화이트리스트 — `tags` 테이블(active=1)의 인메모리 캐시.
@@ -24,12 +24,12 @@ export class KnownTagStore {
   private ids: Set<string>;
 
   constructor(private db: Db) {
-    this.ids = new Set(getActiveTagIds(db));
+    this.ids = new Set(getRegisteredTagIds(db));
   }
 
   /** 태그 지급·반납·등록 후 호출 */
   reload(): void {
-    this.ids = new Set(getActiveTagIds(this.db));
+    this.ids = new Set(getRegisteredTagIds(this.db));
   }
 
   has(tagId: string): boolean {
