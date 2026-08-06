@@ -53,6 +53,31 @@ export function monitorPageHtml(): string {
           cursor: pointer; font: 11px var(--mono); padding: 1px 6px; }
   .edit:hover { color: var(--accent); border-color: var(--accent); }
   .memo { color: var(--warn); font-size: 12px; margin: 2px 0 6px; white-space: pre-wrap; }
+  /* 그룹 칩 — 색은 직원 화면 tag-panel.ts 의 GROUPS 와 같은 값을 쓴다 (두 화면이 달라 보이면 안 된다) */
+  .grp { font-size: 11px; padding: 1px 6px; border-radius: 999px; color: #0d1117; font-weight: 700; }
+  /* 이름/메모/그룹 편집 — 카드 밖에 띄운다. 카드는 1초마다 통째로 다시 그려져서
+     그 안에 select 를 두면 고르는 도중에 사라진다. */
+  #edit-back {
+    position: fixed; inset: 0; background: #000a; z-index: 50;
+    display: none; align-items: center; justify-content: center;
+  }
+  #edit-back.show { display: flex; }
+  #edit-box {
+    width: 340px; padding: 16px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--border);
+  }
+  #edit-box h3 { margin: 0 0 2px; font-size: 14px; }
+  #edit-box .rawid { margin-bottom: 12px; }
+  #edit-box label { display: block; margin: 10px 0 3px; color: var(--muted); font-size: 12px; }
+  #edit-box input, #edit-box select {
+    width: 100%; padding: 6px 8px; border-radius: 6px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 13px;
+  }
+  #edit-box .row { display: flex; gap: 8px; margin-top: 16px; }
+  #edit-box button { flex: 1; padding: 7px; border-radius: 6px; cursor: pointer; font-family: var(--mono); }
+  #edit-save { background: var(--accent); border: none; color: #04121f; font-weight: 700; }
+  #edit-cancel { background: transparent; border: 1px solid var(--border); color: var(--text); }
   .rawid { color: var(--muted); font-size: 10px; }
   #back-btn {
     margin-left: auto; padding: 8px 14px; border: 1px solid var(--accent); border-radius: 6px;
@@ -156,6 +181,30 @@ export function monitorPageHtml(): string {
   </div>
 </div>
 
+<!-- 이름/메모/그룹 편집. 카드 밖에 둔다 — 카드는 1초마다 다시 그려진다 -->
+<div id="edit-back">
+  <div id="edit-box">
+    <h3>비콘 정보</h3>
+    <div class="rawid" id="edit-id"></div>
+    <label for="edit-name">이름</label>
+    <input id="edit-name" autocomplete="off" />
+    <label for="edit-group">그룹</label>
+    <select id="edit-group">
+      <option value="patient">환자</option>
+      <option value="doctor">의사</option>
+      <option value="nurse">간호사</option>
+      <option value="interpreter">통역</option>
+      <option value="unassigned">미지정</option>
+    </select>
+    <label for="edit-memo">메모 (선택)</label>
+    <input id="edit-memo" autocomplete="off" />
+    <div class="row">
+      <button id="edit-cancel" type="button">취소</button>
+      <button id="edit-save" type="button">저장</button>
+    </div>
+  </div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
   var socket = io('/monitor');
@@ -167,6 +216,19 @@ export function monitorPageHtml(): string {
 
   function nameOf(tagId) { return (meta[tagId] && meta[tagId].name) || tagShort(tagId); }
   function memoOf(tagId) { return (meta[tagId] && meta[tagId].memo) || ''; }
+
+  // 그룹 표시 — 색·이름은 직원 화면 tag-panel.ts 의 GROUPS 와 같은 값
+  var GROUPS = {
+    doctor:      { label: '의사',   color: '#4aa3ff' },
+    nurse:       { label: '간호사', color: '#06d6a0' },
+    interpreter: { label: '통역',   color: '#b98ce0' },
+    patient:     { label: '환자',   color: '#ffd166' },
+    unassigned:  { label: '미지정', color: '#8b98a8' }
+  };
+  function groupChip(tagId) {
+    var g = GROUPS[(meta[tagId] && meta[tagId].group) || 'unassigned'] || GROUPS.unassigned;
+    return '<span class="grp" style="background:' + g.color + '">' + g.label + '</span>';
+  }
 
   function ago(ms) {
     if (ms == null) return '-';
@@ -209,14 +271,47 @@ export function monitorPageHtml(): string {
 
   socket.on('tagmeta', function(m){ meta = m || {}; if (lastState) renderState(lastState); });
 
-  // 이름/메모 편집 (프롬프트 → POST). content-type 미지정으로 preflight 회피.
+  // ── 이름/메모/그룹 편집 ──────────────────────────────────────────────────
+  // 등록할 때 그룹을 잘못 골랐어도 여기서 고칠 수 있어야 한다. 그 전에는 그룹을 바꿀
+  // 방법이 직원 화면(:5173)뿐이었다.
+  // ⚠️ 서버는 name·memo 를 보낸 값으로 덮어쓴다 — 그룹만 바꾸려 해도 셋을 다 보내야
+  //    나머지가 지워지지 않는다. content-type 미지정으로 preflight 회피.
+  var editing = null;
+  var back = document.getElementById('edit-back');
+
   function editMeta(tagId){
     var cur = meta[tagId] || {};
-    var name = prompt('태그 ' + tagId + '\\n\\n이름:', cur.name || '');
-    if (name === null) return;
-    var memo = prompt('메모 (선택):', cur.memo || '');
-    fetch('/tag-meta', { method: 'POST', body: JSON.stringify({ tagId: tagId, name: name, memo: memo || '' }) });
+    editing = tagId;
+    document.getElementById('edit-id').textContent = tagId;
+    document.getElementById('edit-name').value = cur.name || '';
+    document.getElementById('edit-memo').value = cur.memo || '';
+    document.getElementById('edit-group').value = cur.group || 'unassigned';
+    back.classList.add('show');
+    document.getElementById('edit-name').focus();
   }
+
+  function closeEdit(){ editing = null; back.classList.remove('show'); }
+
+  function saveEdit(){
+    if (!editing) return;
+    fetch('/tag-meta', { method: 'POST', body: JSON.stringify({
+      tagId: editing,
+      name: document.getElementById('edit-name').value,
+      memo: document.getElementById('edit-memo').value,
+      group: document.getElementById('edit-group').value
+    }) });
+    closeEdit();
+  }
+
+  document.getElementById('edit-save').addEventListener('click', saveEdit);
+  document.getElementById('edit-cancel').addEventListener('click', closeEdit);
+  // 배경을 눌러도 닫히게 (상자 안을 누른 것은 통과)
+  back.addEventListener('click', function(e){ if (e.target === back) closeEdit(); });
+  document.addEventListener('keydown', function(e){
+    if (!editing) return;
+    if (e.key === 'Escape') closeEdit();
+    if (e.key === 'Enter') saveEdit();
+  });
   document.getElementById('tag-cards').addEventListener('click', function(e){
     var btn = e.target.closest('.edit');
     if (btn) editMeta(btn.getAttribute('data-tag'));
@@ -426,8 +521,8 @@ export function monitorPageHtml(): string {
       var named = meta[t.tagId] && meta[t.tagId].name;
       var memo = memoOf(t.tagId);
       return '<div class="card"><div class="hd">'
-        + '<b class="tag">' + esc(nameOf(t.tagId)) + '</b>' + badge
-        + '<button class="edit" data-tag="' + esc(t.tagId) + '">✎ 이름/메모</button>'
+        + '<b class="tag">' + esc(nameOf(t.tagId)) + '</b>' + groupChip(t.tagId) + badge
+        + '<button class="edit" data-tag="' + esc(t.tagId) + '">✎ 이름/그룹</button>'
         + '<span class="muted">최근 ' + ago(t.ageMs) + '</span></div>'
         + (named ? '<div class="rawid">' + esc(t.tagId) + '</div>' : '')
         + (memo ? '<div class="memo">📝 ' + esc(memo) + '</div>' : '')
