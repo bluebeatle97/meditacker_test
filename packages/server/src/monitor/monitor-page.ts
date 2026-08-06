@@ -74,7 +74,11 @@ export function monitorPageHtml(): string {
     background: var(--bg); border: 1px solid var(--border); color: var(--text);
     font-family: var(--mono); font-size: 13px;
   }
-  #edit-box .row { display: flex; gap: 8px; margin-top: 16px; }
+  #edit-box .req { color: var(--bad); }
+  #edit-box #edit-sig { font-size: 12px; margin-bottom: 4px; }
+  .warn-line { min-height: 16px; margin-top: 8px; color: var(--warn); font-size: 12px; }
+  #edit-box .row { display: flex; gap: 8px; margin-top: 8px; }
+  #edit-save:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
   #edit-box button { flex: 1; padding: 7px; border-radius: 6px; cursor: pointer; font-family: var(--mono); }
   #edit-save { background: var(--accent); border: none; color: #04121f; font-weight: 700; }
   #edit-cancel { background: transparent; border: 1px solid var(--border); color: var(--text); }
@@ -117,18 +121,13 @@ export function monitorPageHtml(): string {
     <div class="panel" id="unknown-panel">
       <h2>미등록 신호 <span id="unknown-count" class="muted"></span></h2>
       <div class="body">
+        <!-- 분류는 여기 두지 않는다. 공용 기본값이 있으면 그대로 눌러서 넘어가고,
+             나중에 엉뚱한 그룹으로 등록된 비콘을 찾아다니게 된다. 줄마다 고른다. -->
         <div class="bar">
-          <span class="muted">등록 설정</span>
-          <select id="reg-group">
-            <option value="patient">환자</option>
-            <option value="doctor">의사</option>
-            <option value="nurse">간호사</option>
-            <option value="interpreter">통역</option>
-            <option value="unassigned">미지정</option>
-          </select>
+          <span class="muted">이름 자동 채우기</span>
           <input id="reg-prefix" value="비콘" style="width:80px" />
           <input id="reg-next" type="number" value="1" style="width:56px" />
-          <span class="muted">이름 = 접두어 + 번호 (등록할 때마다 자동 증가)</span>
+          <span class="muted">등록창 이름칸에 '접두어 + 번호' 로 채워진다 (등록할 때마다 +1)</span>
         </div>
         <div id="unknown-body"><div class="empty">미등록 신호 없음</div></div>
       </div>
@@ -181,23 +180,27 @@ export function monitorPageHtml(): string {
   </div>
 </div>
 
-<!-- 이름/메모/그룹 편집. 카드 밖에 둔다 — 카드는 1초마다 다시 그려진다 -->
+<!-- 등록·수정 공용 입력창. 카드/목록 밖에 둔다 — 둘 다 1초마다 다시 그려져서
+     그 안에 select 나 input 을 두면 입력 도중에 사라진다. -->
 <div id="edit-back">
   <div id="edit-box">
-    <h3>비콘 정보</h3>
+    <h3 id="edit-title">비콘 정보</h3>
     <div class="rawid" id="edit-id"></div>
-    <label for="edit-name">이름</label>
-    <input id="edit-name" autocomplete="off" />
-    <label for="edit-group">그룹</label>
+    <div class="muted" id="edit-sig"></div>
+    <label for="edit-group">분류 <span class="req">*</span></label>
     <select id="edit-group">
+      <option value="">— 고르세요 —</option>
       <option value="patient">환자</option>
       <option value="doctor">의사</option>
       <option value="nurse">간호사</option>
       <option value="interpreter">통역</option>
       <option value="unassigned">미지정</option>
     </select>
-    <label for="edit-memo">메모 (선택)</label>
-    <input id="edit-memo" autocomplete="off" />
+    <label for="edit-name">이름 <span class="req">*</span></label>
+    <input id="edit-name" autocomplete="off" placeholder="예: 김원장 / 손님 1" />
+    <label for="edit-memo">설명 <span class="req">*</span></label>
+    <input id="edit-memo" autocomplete="off" placeholder="예: 피부과 · 3층 상주" />
+    <div class="warn-line" id="edit-warn"></div>
     <div class="row">
       <button id="edit-cancel" type="button">취소</button>
       <button id="edit-save" type="button">저장</button>
@@ -276,41 +279,99 @@ export function monitorPageHtml(): string {
   // 방법이 직원 화면(:5173)뿐이었다.
   // ⚠️ 서버는 name·memo 를 보낸 값으로 덮어쓴다 — 그룹만 바꾸려 해도 셋을 다 보내야
   //    나머지가 지워지지 않는다. content-type 미지정으로 preflight 회피.
-  var editing = null;
+  var editing = null;    // 대상 tagId
+  var editMode = 'edit'; // 'edit' | 'register'
   var back = document.getElementById('edit-back');
+  var elGroup = document.getElementById('edit-group');
+  var elName = document.getElementById('edit-name');
+  var elMemo = document.getElementById('edit-memo');
+  var elSave = document.getElementById('edit-save');
+  var elWarn = document.getElementById('edit-warn');
 
-  function editMeta(tagId){
-    var cur = meta[tagId] || {};
+  /**
+   * 세 칸이 다 차야 저장된다.
+   *
+   * 특히 **분류는 기본값을 비워 둔다.** 기본값이 있으면 그냥 눌러서 넘어가고, 나중에
+   * 엉뚱한 그룹으로 등록된 비콘을 찾아다니게 된다 — 100개를 등록하고 나서 알게 되면
+   * 되돌리는 비용이 크다. 설명도 같이 받는다: 나중에 "이 비콘이 누구 거였지" 를 푸는
+   * 단서는 이름 한 줄로는 부족하다.
+   */
+  function validate(){
+    var missing = [];
+    if (!elGroup.value) missing.push('분류');
+    if (!elName.value.trim()) missing.push('이름');
+    if (!elMemo.value.trim()) missing.push('설명');
+    elWarn.textContent = missing.length ? missing.join(' · ') + ' 을(를) 입력하세요' : '';
+    elSave.disabled = missing.length > 0;
+    return missing.length === 0;
+  }
+  [elGroup, elName, elMemo].forEach(function(el){
+    el.addEventListener('input', validate);
+    el.addEventListener('change', validate);
+  });
+
+  function openDialog(mode, tagId, opts){
+    editMode = mode;
     editing = tagId;
+    var cur = (mode === 'edit' ? meta[tagId] : null) || {};
+    document.getElementById('edit-title').textContent = mode === 'register' ? '비콘 등록' : '비콘 정보';
     document.getElementById('edit-id').textContent = tagId;
-    document.getElementById('edit-name').value = cur.name || '';
-    document.getElementById('edit-memo').value = cur.memo || '';
-    document.getElementById('edit-group').value = cur.group || 'unassigned';
+    // 등록할 때는 어느 비콘인지 확신이 서야 한다 — 신호 세기와 잡은 게이트웨이를 같이 보여준다
+    document.getElementById('edit-sig').textContent =
+      opts && opts.sig ? opts.sig : '';
+    elGroup.value = cur.group || '';
+    elName.value = cur.name || (opts && opts.suggestName) || '';
+    elMemo.value = cur.memo || '';
+    elSave.textContent = mode === 'register' ? '등록' : '저장';
     back.classList.add('show');
-    document.getElementById('edit-name').focus();
+    validate();
+    (elGroup.value ? elName : elGroup).focus();
   }
 
   function closeEdit(){ editing = null; back.classList.remove('show'); }
 
-  function saveEdit(){
-    if (!editing) return;
-    fetch('/tag-meta', { method: 'POST', body: JSON.stringify({
+  function editMeta(tagId){ openDialog('edit', tagId); }
+
+  function submitDialog(){
+    if (!editing || !validate()) return;
+    var payload = {
       tagId: editing,
-      name: document.getElementById('edit-name').value,
-      memo: document.getElementById('edit-memo').value,
-      group: document.getElementById('edit-group').value
-    }) });
-    closeEdit();
+      name: elName.value.trim(),
+      memo: elMemo.value.trim(),
+      group: elGroup.value
+    };
+    if (editMode === 'edit') {
+      fetch('/tag-meta', { method: 'POST', body: JSON.stringify(payload) });
+      closeEdit();
+      return;
+    }
+    elSave.disabled = true;
+    elSave.textContent = '…';
+    fetch('/register-tag', { method: 'POST', body: JSON.stringify(payload) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        elSave.textContent = '등록';
+        if (!d.ok) { elWarn.textContent = '등록 실패: ' + (d.error || '알 수 없는 오류'); elSave.disabled = false; return; }
+        // 다음 비콘 이름 자동 증가 (접두어를 쓰는 경우에만 의미가 있다)
+        var nextEl = document.getElementById('reg-next');
+        nextEl.value = String(Number(nextEl.value) + 1);
+        closeEdit();
+      })
+      .catch(function(err){
+        elSave.textContent = '등록';
+        elSave.disabled = false;
+        elWarn.textContent = '등록 실패: ' + err.message;
+      });
   }
 
-  document.getElementById('edit-save').addEventListener('click', saveEdit);
+  elSave.addEventListener('click', submitDialog);
   document.getElementById('edit-cancel').addEventListener('click', closeEdit);
   // 배경을 눌러도 닫히게 (상자 안을 누른 것은 통과)
   back.addEventListener('click', function(e){ if (e.target === back) closeEdit(); });
   document.addEventListener('keydown', function(e){
     if (!editing) return;
     if (e.key === 'Escape') closeEdit();
-    if (e.key === 'Enter') saveEdit();
+    if (e.key === 'Enter') submitDialog();
   });
   document.getElementById('tag-cards').addEventListener('click', function(e){
     var btn = e.target.closest('.edit');
@@ -341,33 +402,24 @@ export function monitorPageHtml(): string {
         + '<td class="tag">' + esc(u.tagId) + '</td>'
         + '<td class="gw">' + esc(u.gatewayId) + '</td>'
         + '<td class="muted" style="text-align:right">' + u.count + '회</td>'
-        + '<td style="text-align:right"><button class="btn reg" data-tag="' + esc(u.tagId) + '">등록</button></td>'
+        + '<td style="text-align:right"><button class="btn reg" data-tag="' + esc(u.tagId) + '"'
+        + ' data-sig="' + esc(u.rssi + ' dBm · ' + u.gatewayId + ' · ' + u.count + '회') + '">등록</button></td>'
         + '</tr>';
     }).join('') + '</tbody></table>';
   }
 
+  // 등록은 줄마다 입력창을 거친다 — 분류·이름·설명을 그 비콘에 맞게 정하고 나서 등록된다.
+  // (목록은 1초마다 다시 그려지므로 줄 안에 select·input 을 둘 수 없다. 그 자리에서
+  //  고르게 하려면 입력창을 목록 밖에 띄우는 수밖에 없다.)
   document.getElementById('unknown-body').addEventListener('click', function(e){
     var btn = e.target.closest('.reg');
     if (!btn) return;
-    var tagId = btn.getAttribute('data-tag');
-    var nextEl = document.getElementById('reg-next');
     var prefix = document.getElementById('reg-prefix').value.trim();
-    var name = (prefix ? prefix + ' ' : '') + nextEl.value;
-    btn.disabled = true;
-    btn.textContent = '…';
-    fetch('/register-tag', { method: 'POST', body: JSON.stringify({
-      tagId: tagId, name: name, group: document.getElementById('reg-group').value
-    }) })
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if (d.ok) { nextEl.value = String(Number(nextEl.value) + 1); return; }
-        btn.disabled = false; btn.textContent = '등록';
-        alert('등록 실패: ' + (d.error || '알 수 없는 오류'));
-      })
-      .catch(function(err){
-        btn.disabled = false; btn.textContent = '등록';
-        alert('등록 실패: ' + err.message);
-      });
+    var next = document.getElementById('reg-next').value;
+    openDialog('register', btn.getAttribute('data-tag'), {
+      suggestName: prefix ? prefix + ' ' + next : '',
+      sig: btn.getAttribute('data-sig') || ''
+    });
   });
 
   // ── 미등록 게이트웨이 → 구역 배정 ────────────────────────────────────────
