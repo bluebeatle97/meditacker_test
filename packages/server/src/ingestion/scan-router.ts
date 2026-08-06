@@ -27,6 +27,8 @@ interface UnknownGateway {
 
 export class ScanRouter {
   private acceptedScans = 0;
+  /** 등록됐지만 미배정이라 흘려보낸 스캔 수 (관제에서 창고 비콘 부하를 가늠) */
+  private idleScans = 0;
   /**
    * `gateways.json` 에 없는데 신호를 쏘고 있는 게이트웨이 (현장 설치 발견용).
    *
@@ -48,6 +50,16 @@ export class ScanRouter {
     private whitelistEnabled: boolean,
     /** 이 게이트웨이가 `gateways.json` 에 등록돼 있나 (등록 즉시 반영되도록 함수로 받는다) */
     private isKnownGateway: (gatewayId: string) => boolean = () => true,
+    /**
+     * 이 비콘이 **지금 누군가에게 배정돼 있나**.
+     *
+     * 등록(우리 하드웨어인가)과 별개다. 창고에 있는 비콘도 전원이 켜져 있어 신호를 계속
+     * 보내는데, 그건 사람이 아니므로 화면에 나오면 안 된다. 배정 즉시 반영돼야 해서
+     * 스냅샷이 아니라 함수로 받는다.
+     */
+    private isAssigned: (tagId: string) => boolean = () => true,
+    /** 배정 안 된 비콘의 마지막 신호만 싸게 적어둘 곳 (배터리·소재 확인용) */
+    private idleBeacons?: { note: (scan: ScanEvent) => void },
   ) {}
 
   route(scan: ScanEvent): void {
@@ -58,6 +70,16 @@ export class ScanRouter {
       this.unknownTags.note(scan); // 등록 화면에만 보이고, 판정·좌표·로그에는 안 들어간다
       return;
     }
+
+    // 등록은 됐는데 아무도 안 들고 있는 비콘 (창고 보관).
+    // ⚠️ 여기서 unknownTags 로 보내면 안 된다 — "미등록 신호" 패널은 새 비콘을 찾는
+    //    곳인데 창고 비콘 수십 개가 채우면 그 화면을 못 쓰게 된다.
+    if (!this.isAssigned(scan.tagId)) {
+      this.idleScans++;
+      this.idleBeacons?.note(scan);
+      return;
+    }
+
     this.acceptedScans++;
     this.onAccepted(scan);
   }
@@ -104,6 +126,8 @@ export class ScanRouter {
     acceptedScans: number;
     uniqueUnknownIds: number;
     droppedScans: number;
+    /** 등록됐지만 미배정이라 흘려보낸 스캔 — 창고 비콘이 만드는 부하 */
+    idleScans: number;
   } {
     const u = this.unknownTags.stats();
     return {
@@ -112,6 +136,7 @@ export class ScanRouter {
       acceptedScans: this.acceptedScans,
       uniqueUnknownIds: u.uniqueIds,
       droppedScans: u.droppedScans,
+      idleScans: this.idleScans,
     };
   }
 }

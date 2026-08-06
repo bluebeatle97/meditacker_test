@@ -180,6 +180,34 @@ export function releaseBeacon(db: Db, tagId: string): void {
   clearPatientProfile(db, open.personId);
 }
 
+export interface BeaconRow {
+  tagId: string;
+  label: string | null;
+  registeredAt: number;
+  /** 지금 배정돼 있으면 그 사람, 아니면 null (창고 보관) */
+  personId: string | null;
+  holder: string | null;
+  assignedAt: number | null;
+}
+
+/**
+ * 비콘 재고 전체 — 배정된 것과 창고에 있는 것을 한 번에.
+ * 태그 목록 화면의 원천이라 미배정도 같이 나와야 한다.
+ */
+export function listBeacons(db: Db): BeaconRow[] {
+  return db
+    .prepare(
+      `SELECT b.tag_id AS tagId, b.label, b.registered_at AS registeredAt,
+              a.person_id AS personId, p.display_name AS holder, a.assigned_at AS assignedAt
+       FROM beacons b
+       LEFT JOIN assignments a ON a.tag_id = b.tag_id AND a.released_at IS NULL
+       LEFT JOIN persons p ON p.person_id = a.person_id
+       WHERE b.retired = 0
+       ORDER BY b.tag_id`,
+    )
+    .all() as BeaconRow[];
+}
+
 /** 이 비콘을 **지금** 들고 있는 사람. 배정이 없으면 undefined (창고에 있는 비콘) */
 export function findPersonByTag(db: Db, tagId: string): Person | undefined {
   return db

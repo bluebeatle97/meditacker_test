@@ -20,6 +20,7 @@ import { WalkableMap } from './presence/walkable-map.js';
 import {
   assignBeacon,
   getOpenAssignment,
+  listBeacons,
   getPatientProfile,
   openDb,
   registerBeacon,
@@ -33,6 +34,8 @@ import { monitorPageHtml } from './monitor/monitor-page.js';
 import { createStaticHandler } from './web/static-files.js';
 import { TagMetaStore } from './presence/tag-meta-store.js';
 import { KnownTagStore } from './presence/known-tag-store.js';
+import { AssignedTagStore } from './presence/assigned-tag-store.js';
+import { IdleBeaconStore } from './presence/idle-beacon-store.js';
 import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
 import { ScanRouter } from './ingestion/scan-router.js';
 import { ScanRecorder } from './recording/scan-recorder.js';
@@ -86,6 +89,13 @@ const dirtyTags = new Set<string>();
 // 등록 태그 화이트리스트 + 미등록 신호 임시 보관함 (관제 "미등록 신호" 패널의 원천)
 const knownTags = new KnownTagStore(db);
 const unknownTags = new UnknownTagBuffer();
+/**
+ * 배정 여부 — 화면에 나갈 대상의 기준. 등록(화이트리스트)과 별개다.
+ * 창고 비콘도 전원이 켜져 있어 신호를 보내지만 사람이 아니므로 화면엔 안 나온다.
+ */
+const assignedTags = new AssignedTagStore(db);
+/** 미배정 비콘의 마지막 신호만 — 배터리 죽은 비콘·소재 확인용 (판정에는 안 태운다) */
+const idleBeacons = new IdleBeaconStore();
 
 // 현장 튜닝용 raw 스캔 녹화 (RECORD_SCANS 가 있을 때만)
 const recorder = SERVER_CONFIG.recordScans
@@ -108,6 +118,8 @@ const scanRouter = new ScanRouter(
   },
   SERVER_CONFIG.tagWhitelist,
   (gatewayId) => gatewayZoneMap.has(gatewayId),
+  (tagId) => assignedTags.has(tagId),
+  idleBeacons,
 );
 
 const ingestion = new MqttIngestion(
@@ -142,6 +154,11 @@ setInterval(() => {
   knownTags.reload();
   const after = knownTags.size();
   if (before !== after) console.log(`[server] 화이트리스트 갱신: ${before} → ${after}개`);
+  const beforeA = assignedTags.size();
+  assignedTags.reload();
+  if (beforeA !== assignedTags.size()) {
+    console.log(`[server] 배정 갱신: ${beforeA} → ${assignedTags.size()}개`);
+  }
 }, 30_000);
 
 // 자리비움 스윕 (ABSENT_TIMEOUT) + 오래 조용한 태그 메모리 정리 (EVICT_AFTER_MS)
@@ -224,6 +241,29 @@ const httpServer = createServer((req, res) => {
       'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify(loadZones()));
+    return;
+  }
+  /**
+   * 비콘 재고 — 배정된 것 + 창고에 있는 것 전부. 태그 목록 화면의 원천.
+   *
+   * 미배정 비콘은 판정 파이프라인을 안 타므로 존·좌표가 없다. 대신 유휴 기록에서
+   * 마지막 신호를 붙여 준다 — 배터리가 죽었는지, 창고에 있는지 이걸로 본다.
+   */
+  if (req.url === '/beacons') {
+    const rows = listBeacons(db).map((b) => {
+      const idle = b.personId ? undefined : idleBeacons.get(b.tagId);
+      return {
+        ...b,
+        assigned: b.personId !== null,
+        group: tagMeta.all()[b.tagId]?.group ?? 'unassigned',
+        name: tagMeta.all()[b.tagId]?.name ?? null,
+        lastSeen: idle?.lastSeen ?? null,
+        lastGateway: idle?.gatewayId ?? null,
+        lastRssi: idle?.rssi ?? null,
+      };
+    });
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify(rows));
     return;
   }
   // 게이트웨이 설치 위치 — 직원 화면의 '게이트웨이 범위' 보기가 쓴다.
@@ -348,6 +388,8 @@ const httpServer = createServer((req, res) => {
         // 기존 동작을 유지하기 위해서다. 인포의 배정/반납은 아래 별도 API 를 쓴다.
         registerBeacon(db, tagId, label);
         const { personId } = assignBeacon(db, { tagId, displayName: label, group: g });
+        assignedTags.reload(); // 배정 즉시 화면에 뜨게
+        idleBeacons.forget(tagId); // 이제 정식 파이프라인이 맡는다
         // 표시 이름은 캐시 일관성 때문에 스토어를 거친다 (관제·직원 화면으로 즉시 방송됨)
         tagMeta.set(tagId, label, (memo ?? '').trim(), g);
         knownTags.reload(); // 다음 스캔부터 통과
