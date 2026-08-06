@@ -371,6 +371,65 @@ const httpServer = createServer((req, res) => {
    * ⚠️ 인증 없음 — /tag-meta 와 같은 수준이다. 관제 인증을 붙일 때 이 세 엔드포인트
    *    (/tag-meta, /unknown-tags, /register-tag)를 한 번에 staff 토큰 뒤로 옮길 것.
    */
+  /**
+   * 환자 등록 — 비콘을 지금 온 사람에게 넘긴다 (인포 데스크).
+   *
+   * 이름은 **사람이 손으로 친다.** 베가스 CRM 연동은 나중이고, 그때도 이 자리를
+   * 자동으로 채워주는 것뿐이라 API 모양은 그대로 간다.
+   *
+   * 그룹은 비콘에 이미 붙어 있는 것을 쓴다 — 환자 팔찌는 patient, 간호사 배지는 nurse 로
+   * 하드웨어 등록 때 정해진다. 등록할 때마다 다시 고르게 하면 실수만 는다.
+   */
+  if (req.url === '/assign' && req.method === 'POST') {
+    readBody(req, 2_000, (body) => {
+      try {
+        const { tagId, name } = JSON.parse(body) as { tagId?: string; name?: string };
+        if (!tagId) throw new Error('tagId 없음');
+        const label = (name ?? '').trim();
+        if (!label) throw new Error('이름을 입력하세요');
+
+        const group = (tagMeta.all()[tagId]?.group ?? 'patient') as TagGroup;
+        const { personId } = assignBeacon(db, { tagId, displayName: label, group });
+        // 화면에 뜰 이름을 지금 사람 것으로. 메모는 비콘 설명이라 그대로 둔다
+        tagMeta.set(tagId, label, tagMeta.all()[tagId]?.memo ?? '', group);
+        assignedTags.reload(); // 다음 스캔부터 추적·화면 노출
+        idleBeacons.forget(tagId);
+
+        console.log(`[server] 환자 등록: ${tagId} → ${label} (${group}, ${personId})`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, personId }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+
+  /**
+   * 반납 — 비콘을 창고로. 배정이 닫히고 캐릭터 프로필이 지워진다.
+   * 표시 이름도 지운다: 다음 사람이 올 때까지 앞 환자 이름이 목록에 남아 있으면 안 된다.
+   */
+  if (req.url === '/release' && req.method === 'POST') {
+    readBody(req, 2_000, (body) => {
+      try {
+        const { tagId } = JSON.parse(body) as { tagId?: string };
+        if (!tagId) throw new Error('tagId 없음');
+        releaseBeacon(db, tagId);
+        tagMeta.set(tagId, '', tagMeta.all()[tagId]?.memo ?? '', tagMeta.all()[tagId]?.group);
+        assignedTags.reload();
+
+        console.log(`[server] 반납: ${tagId}`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+
   if (req.url === '/register-tag' && req.method === 'POST') {
     readBody(req, 4_000, (body) => {
       try {

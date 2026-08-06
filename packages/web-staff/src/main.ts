@@ -19,6 +19,7 @@ import type {
   Zone,
 } from '@meditracker/shared';
 import { AlertPanel, STUCK_ALERT_MS, type StuckAlert } from './alert-panel';
+import { BeaconAdmin } from './beacon-admin';
 import { escapeHtml } from './format';
 import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mode';
 import { GatewayLayer, type GatewayMode } from './gateway-layer';
@@ -282,6 +283,7 @@ class StaffMapScene extends Phaser.Scene {
     // 체류 시간·마지막 신호가 흐르므로 1초마다 다시 그린다
     this.time.addEvent({ delay: 1000, loop: true, callback: () => this.refreshPanel() });
 
+    this.setupBeaconAdmin();
     this.setupZoom();
     if (this.demo) {
       markDemoUi();
@@ -289,6 +291,24 @@ class StaffMapScene extends Phaser.Scene {
     } else {
       this.connect(io(`${SERVER_URL}/staff`, { auth: { token: await resolveToken() } }));
     }
+  }
+
+  /**
+   * 인포 데스크의 환자 등록/반납 화면.
+   *
+   * 시연 모드(서버 없음)에서는 등록할 서버가 없으므로 버튼을 내린다 — 눌러도 아무 일이
+   * 없는 버튼을 두면 고장으로 보인다.
+   */
+  private setupBeaconAdmin(): void {
+    const btn = document.getElementById('badmin-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    if (this.demo) {
+      btn.remove();
+      return;
+    }
+    // 등록·반납하면 목록이 즉시 달라져야 한다 (아바타는 다음 좌표 방송에 따라온다)
+    const admin = new BeaconAdmin(SERVER_URL, () => this.refreshPanel());
+    btn.onclick = () => admin.open();
   }
 
   /**
