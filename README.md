@@ -580,4 +580,5 @@ GATEWAYS_FILE=gateways.planned.json npm run gateway:plan -w @meditracker/server 
 환경변수: `TAG_WHITELIST=0` (화이트리스트 해제, 디버깅 전용) · `RECORD_SCANS=<이름>` (스캔 녹화) ·
 `ZONE_EVAL_MS` (판정 주기, 기본 200) · `PATIENT_SEES_EVERYONE=0` (환자 화면에서 타인 좌표 차단) ·
 `MQTT_SCAN_TOPIC` (구독 토픽, 쉼표로 여러 개 · 기본 `gw/+/scan,meditracker/scan`) ·
-`AB_MAC_REVERSE=1` (실장비 비콘 MAC 바이트 순서 뒤집기 — 위 "1. 게이트웨이 페이로드 포맷" 참고)
+`AB_MAC_REVERSE=1` (실장비 비콘 MAC 바이트 순서 뒤집기 — 위 "1. 게이트웨이 페이로드 포맷" 참고) ·
+`HYSTERESIS_DB` · `CONFIRM_COUNT` (존 전환 억제 — 재빌드 없이 현장에서 바로 바꿔 보라고 열어 뒀다)

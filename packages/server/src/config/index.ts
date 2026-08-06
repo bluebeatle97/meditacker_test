@@ -8,8 +8,19 @@ const here = dirname(fileURLToPath(import.meta.url));
 /** 존 판정 튜닝 파라미터 (설계서 6.2 — 현장 테스트로 실측 조정) */
 export const ZONE_ENGINE_CONFIG = {
   RSSI_WINDOW_MS: 3000, // 이 시간 내 스캔만 유효
-  HYSTERESIS_DB: 8, // 새 존이 현재 존보다 이만큼 세야 전환 후보
-  CONFIRM_COUNT: 3, // 후보존이 연속 N회 최강일 때 전환 확정
+  /**
+   * 새 존이 현재 존보다 이만큼 세야 전환 후보 (`HYSTERESIS_DB=12` 로 덮어쓸 수 있다).
+   *
+   * 현장에서 재보니 **비콘·게이트웨이가 둘 다 가만히 있어도 RSSI 가 6dB 넘게 출렁인다**
+   * (9분 연속 관측). 기본값 8 은 그 위에 겨우 2dB 얹은 값이라, 두 존의 세기 차이가
+   * 작은 자리(복도·문간)에서는 전환이 계속 뒤집힌다. 그런 자리가 많으면 올린다.
+   *
+   * 다만 값을 올리는 건 **증상 완화**다. 차이가 작은 진짜 이유는 그 지점을 충분히 세게
+   * 듣는 게이트웨이가 없다는 것이고, 그건 배치로만 풀린다.
+   */
+  HYSTERESIS_DB: Number(process.env.HYSTERESIS_DB ?? 8),
+  /** 후보존이 연속 N회 최강일 때 전환 확정 (판정 주기 × N 만큼 버틴다) */
+  CONFIRM_COUNT: Number(process.env.CONFIRM_COUNT ?? 3),
   ABSENT_TIMEOUT_MS: 15000, // 이 시간 신호 없으면 자리비움(null)
   /**
    * 이 시간 무신호면 상태를 **메모리에서 완전히 제거**한다 (자리비움과 다름).

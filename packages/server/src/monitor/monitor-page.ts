@@ -620,10 +620,14 @@ export function monitorPageHtml(): string {
       var badge = absent
         ? '<span class="badge absent">자리비움</span>'
         : '<span class="badge zone">' + esc(zoneName[t.zone] || t.zone) + '</span>';
+      // 막대 칸에 고정 너비를 준다. 카드마다 표가 따로라, 너비를 안 주면 그 카드에서
+      // 제일 긴 막대에 맞춰 열이 잡히고 카드끼리 시작점이 어긋난다 — 세기를 눈으로
+      // 비교하는 화면인데 기준선이 카드마다 다르면 비교가 안 된다. 막대 최대치가
+      // 100px(rssiWidth)이므로 110px 이면 잘리지 않는다.
       var bars = t.readings.slice(0, 6).map(function(r){
         return '<tr><td class="gw">' + esc(r.gatewayId) + '</td>'
           + '<td style="width:55px;text-align:right">' + r.rssi + '</td>'
-          + '<td><span class="rssi-bar" style="width:' + rssiWidth(r.rssi) + 'px;background:' + rssiColor(r.rssi) + '"></span></td></tr>';
+          + '<td style="width:110px"><span class="rssi-bar" style="width:' + rssiWidth(r.rssi) + 'px;background:' + rssiColor(r.rssi) + '"></span></td></tr>';
       }).join('') || '<tr><td class="muted" colspan="3">신호 없음</td></tr>';
       var named = meta[t.tagId] && meta[t.tagId].name;
       var memo = memoOf(t.tagId);
