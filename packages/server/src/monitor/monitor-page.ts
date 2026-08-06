@@ -245,6 +245,14 @@ export function monitorPageHtml(): string {
   function tagShort(t) { return t.length > 8 ? '…' + t.slice(-8) : t; }
   function clock(ts) { var d = new Date(ts); return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3,'0'); }
 
+  // 존 목록 <option> 묶음 — 게이트웨이 구역 변경 select 가 재사용한다 (init 에서 채움)
+  var zoneOptionsHtml = '';
+  /**
+   * 구역을 편집 중인 게이트웨이 id. 게이트웨이 표는 상태가 올 때마다(≈1초) 통째로
+   * 다시 그리는데, 편집 중에 갈아엎으면 고르던 select 가 사라진다. 그동안만 멈춘다.
+   */
+  var editingGw = null;
+
   // 복귀 버튼: ?back= 우선, 없으면 referrer, 그것도 없으면 기본 직원용 포트
   var backParam = new URLSearchParams(location.search).get('back');
   var backUrl = backParam || document.referrer || (location.protocol + '//' + location.hostname + ':5173');
@@ -263,6 +271,7 @@ export function monitorPageHtml(): string {
       return '<option value="' + esc(z.zoneId) + '">' + esc(z.name || z.zoneId) + '</option>';
     }).join('');
     document.getElementById('mark-zone').innerHTML = zoneOptions;
+    zoneOptionsHtml = zoneOptions;
     // 게이트웨이 등록용 — 첫 항목이 실수로 선택되지 않게 빈 값을 앞에 둔다
     document.getElementById('ugw-zone').innerHTML =
       '<option value="">— 구역 선택 —</option>' + zoneOptions;
@@ -460,6 +469,45 @@ export function monitorPageHtml(): string {
       .catch(function(err){ btn.disabled = false; btn.textContent = '등록'; alert('등록 실패: ' + err.message); });
   });
 
+  // ── 등록된 게이트웨이의 구역 변경 ────────────────────────────────────────
+  // 배치를 정하는 동안에는 같은 장비를 이 방 저 방으로 계속 옮긴다. 그때마다 JSON 을
+  // 고치고 서버를 재시작하면 측정 흐름이 끊기고, 무엇보다 옮긴 걸 반영하는 걸 잊는다 —
+  // 그러면 화면이 조용히 거짓말을 한다. /register-gateway 가 이미 기존 항목 덮어쓰기를
+  // 지원하므로(등록과 같은 경로) 여기서는 부르기만 한다.
+  document.getElementById('gw-table').addEventListener('click', function(e){
+    var move = e.target.closest('.gwmove');
+    if (move) {
+      editingGw = move.getAttribute('data-gw');
+      var cell = move.parentNode;
+      cell.innerHTML = '<select class="gwzone">' + zoneOptionsHtml + '</select>'
+        + ' <button class="btn gwsave">저장</button>'
+        + ' <button class="btn gwcancel">취소</button>';
+      // 지금 존을 미리 골라 둔다 — 실수로 저장해도 값이 안 바뀌게
+      cell.querySelector('.gwzone').value = move.getAttribute('data-zone') || '';
+      return;
+    }
+    if (e.target.closest('.gwcancel')) { editingGw = null; return; }
+    var save = e.target.closest('.gwsave');
+    if (!save) return;
+    var zoneId = save.parentNode.querySelector('.gwzone').value;
+    var gatewayId = editingGw;
+    save.disabled = true; save.textContent = '…';
+    fetch('/register-gateway', { method: 'POST', body: JSON.stringify({
+      gatewayId: gatewayId, zoneId: zoneId
+    }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        // 성공하면 편집을 풀기만 한다 — 다음 상태 수신 때 새 존으로 다시 그려진다
+        if (d.ok) { editingGw = null; return; }
+        save.disabled = false; save.textContent = '저장';
+        alert('구역 변경 실패: ' + (d.error || ''));
+      })
+      .catch(function(err){
+        save.disabled = false; save.textContent = '저장';
+        alert('구역 변경 실패: ' + err.message);
+      });
+  });
+
   // 저빈도 운영 동작이라 소켓에 태우지 않고 폴링한다
   setInterval(function(){
     fetch('/unknown-gateways').then(function(r){ return r.json(); }).then(renderUnknownGateways).catch(function(){});
@@ -540,22 +588,29 @@ export function monitorPageHtml(): string {
     if (st.ingest) document.getElementById('s-blocked').textContent = st.ingest.droppedScans;
 
     // 게이트웨이 테이블
+    // 집계는 편집 중에도 계속 갱신한다 — 멈추는 건 표 다시 그리기뿐이다.
     var online = 0, total = 0;
-    var rows = st.gateways.map(function(g){
+    st.gateways.forEach(function(g){
       total += g.count;
-      var alive = g.lastSeenMs != null && g.lastSeenMs < 10000;
-      if (alive) online++;
-      var color = g.lastSeenMs == null ? 'var(--muted)' : alive ? 'var(--ok)' : 'var(--bad)';
-      return '<tr><td class="gw">' + esc(g.gatewayId) + '</td>'
-        + '<td class="muted">' + esc(g.label || '') + '</td>'
-        + '<td>' + (zoneName[g.zoneId] || g.zoneId) + '</td>'
-        + '<td style="text-align:right">' + g.count + '</td>'
-        + '<td style="color:' + color + ';text-align:right">' + ago(g.lastSeenMs) + '</td></tr>';
+      if (g.lastSeenMs != null && g.lastSeenMs < 10000) online++;
     });
-    document.querySelector('#gw-table tbody').innerHTML =
-      '<tr><th>ID</th><th>라벨</th><th>존</th><th>스캔</th><th>최근</th></tr>' + rows.join('');
     document.getElementById('s-gw').textContent = online;
     document.getElementById('s-total').textContent = total;
+    if (!editingGw) {
+      var rows = st.gateways.map(function(g){
+        var alive = g.lastSeenMs != null && g.lastSeenMs < 10000;
+        var color = g.lastSeenMs == null ? 'var(--muted)' : alive ? 'var(--ok)' : 'var(--bad)';
+        return '<tr><td class="gw">' + esc(g.gatewayId) + '</td>'
+          + '<td class="muted">' + esc(g.label || '') + '</td>'
+          + '<td>' + esc(zoneName[g.zoneId] || g.zoneId)
+          + ' <button class="btn gwmove" data-gw="' + esc(g.gatewayId) + '"'
+          + ' data-zone="' + esc(g.zoneId || '') + '">구역 변경</button></td>'
+          + '<td style="text-align:right">' + g.count + '</td>'
+          + '<td style="color:' + color + ';text-align:right">' + ago(g.lastSeenMs) + '</td></tr>';
+      });
+      document.querySelector('#gw-table tbody').innerHTML =
+        '<tr><th>ID</th><th>라벨</th><th>존</th><th>스캔</th><th>최근</th></tr>' + rows.join('');
+    }
 
     // 태그 카드
     var cards = document.getElementById('tag-cards');

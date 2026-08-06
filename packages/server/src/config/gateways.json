@@ -1,17 +1,17 @@
 [
   {
     "gatewayId": "28:56:2F:79:B4:20",
-    "zoneId": "consult_3",
-    "label": "실장비 #1 — 상담실 3",
+    "zoneId": "consult_5",
+    "label": "상담실 5 게이트웨이",
     "tile": {
-      "x": 851,
-      "y": 548
+      "x": 1521,
+      "y": 1172
     }
   },
   {
     "gatewayId": "80:F3:DA:45:5A:10",
     "zoneId": "consult_1",
-    "label": "실장비 #2 — 상담실 1",
+    "label": "실장비 #2 — 상담실 1 (좌표는 방 기준점, 실측 아님)",
     "tile": {
       "x": 845,
       "y": 424
