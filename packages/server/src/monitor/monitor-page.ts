@@ -65,7 +65,17 @@ export function monitorPageHtml(): string {
   .zonecell > .zname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .zonecell > select { flex: 1; min-width: 0; }
   .card { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
-  .card .hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  /* 카드 머리줄: 이름 길이가 제각각이라(딸기 / 사원1 / 검증용 비콘) space-between 으로 두면
+     그룹·구역·버튼이 줄마다 다른 자리에 선다. 1초마다 다시 그려지는 화면이라 그 어긋남이
+     그대로 흔들림으로 보인다. 칸 폭을 고정해 세로로 줄을 맞춘다 (피드·게이트웨이 표와 같은 처리). */
+  .card .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .card .hd > * { flex: none; }
+  .card .hd .tag { width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .hd .grp { width: 52px; text-align: center; }
+  /* 가장 긴 방 이름이 'VIP 피부관리실 1'(11자) — 96px 면 대부분 들어가고, 넘치면 title 로 본다 */
+  .card .hd .badge { width: 96px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 최근 수신 시각은 오른쪽 끝에 붙이고, 숫자가 늘어도(0s → 12s) 버튼이 안 밀리게 폭을 준다 */
+  .card .hd .age { margin-left: auto; width: 62px; text-align: right; }
   .badge { padding: 1px 7px; border-radius: 10px; font-size: 11px; }
   .badge.zone { background: #1f6feb33; color: var(--accent); }
   .badge.absent { background: #f8514933; color: var(--bad); }
@@ -643,7 +653,8 @@ export function monitorPageHtml(): string {
       var absent = t.zone == null;
       var badge = absent
         ? '<span class="badge absent">자리비움</span>'
-        : '<span class="badge zone">' + esc(zoneName[t.zone] || t.zone) + '</span>';
+        : '<span class="badge zone" title="' + esc(zoneName[t.zone] || t.zone) + '">'
+          + esc(zoneName[t.zone] || t.zone) + '</span>';
       // 막대 칸에 고정 너비를 준다. 카드마다 표가 따로라, 너비를 안 주면 그 카드에서
       // 제일 긴 막대에 맞춰 열이 잡히고 카드끼리 시작점이 어긋난다 — 세기를 눈으로
       // 비교하는 화면인데 기준선이 카드마다 다르면 비교가 안 된다. 막대 최대치가
@@ -658,7 +669,7 @@ export function monitorPageHtml(): string {
       return '<div class="card"><div class="hd">'
         + '<b class="tag">' + esc(nameOf(t.tagId)) + '</b>' + groupChip(t.tagId) + badge
         + '<button class="edit" data-tag="' + esc(t.tagId) + '">✎ 이름/그룹</button>'
-        + '<span class="muted">최근 ' + ago(t.ageMs) + '</span></div>'
+        + '<span class="muted age">최근 ' + ago(t.ageMs) + '</span></div>'
         + (named ? '<div class="rawid">' + esc(t.tagId) + '</div>' : '')
         + (memo ? '<div class="memo">📝 ' + esc(memo) + '</div>' : '')
         + '<table>' + bars + '</table></div>';
