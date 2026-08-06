@@ -40,6 +40,9 @@ export function monitorPageHtml(): string {
      flex 가 남은 폭에 맞춰 칸을 줄이지 못하게 막는다. */
   .feed .row > span { flex: none; }
   .feed .tag { width: 80px; overflow: hidden; text-overflow: ellipsis; }
+  /* 존 전환 로그: 방 이름 길이가 제각각이라 화살표가 줄마다 다른 자리에 선다.
+     출발·도착 칸을 같은 폭으로 묶으면 화살표가 한 줄로 서서 훑기 쉬워진다. */
+  .feed .zfrom, .feed .zto { width: 92px; overflow: hidden; text-overflow: ellipsis; }
   .feed .t { color: var(--muted); }
   .gw { color: var(--accent); }
   .tag { color: #e3b341; }
@@ -47,6 +50,20 @@ export function monitorPageHtml(): string {
   table { width: 100%; border-collapse: collapse; }
   td, th { text-align: left; padding: 3px 6px; border-bottom: 1px solid #21262d; }
   th { color: var(--muted); font-weight: 500; }
+  /* 숫자는 자릿수가 달라도 자리를 지키게 (13382 와 9 가 같은 폭을 쓴다) */
+  td { font-variant-numeric: tabular-nums; }
+  /* 게이트웨이 표는 칸 폭을 내용에 맡기지 않는다. 라벨·방 이름 길이가 바뀔 때마다
+     열이 통째로 움직이면, 1초마다 다시 그려지는 표에서는 글자가 흔들리는 것처럼 보인다. */
+  #gw-table { table-layout: fixed; }
+  #gw-table th:nth-child(1), #gw-table td:nth-child(1) { width: 148px; }
+  #gw-table th:nth-child(3), #gw-table td:nth-child(3) { width: 188px; }
+  #gw-table th:nth-child(4), #gw-table td:nth-child(4) { width: 66px; }
+  #gw-table th:nth-child(5), #gw-table td:nth-child(5) { width: 52px; }
+  #gw-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 방 이름이 남은 폭을 다 먹게 해서 버튼을 열 오른쪽 끝에 고정한다 */
+  .zonecell { display: flex; align-items: center; gap: 6px; }
+  .zonecell > .zname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .zonecell > select { flex: 1; min-width: 0; }
   .card { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
   .card .hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
   .badge { padding: 1px 7px; border-radius: 10px; font-size: 11px; }
@@ -574,8 +591,9 @@ export function monitorPageHtml(): string {
     row.className = 'row';
     row.innerHTML = '<span class="t">' + clock(c.at) + '</span>'
       + '<span class="tag">' + esc(nameOf(c.tagId)) + '</span>'
-      + '<span class="muted">' + esc(from) + ' → </span>'
-      + '<span style="color:' + (c.toZone ? 'var(--accent)' : 'var(--bad)') + '">' + esc(to) + '</span>';
+      + '<span class="zfrom muted">' + esc(from) + '</span>'
+      + '<span class="muted">→</span>'
+      + '<span class="zto" style="color:' + (c.toZone ? 'var(--accent)' : 'var(--bad)') + '">' + esc(to) + '</span>';
     zoneFeed.insertBefore(row, zoneFeed.firstChild);
     while (zoneFeed.childNodes.length > 60) zoneFeed.removeChild(zoneFeed.lastChild);
   }
@@ -607,9 +625,10 @@ export function monitorPageHtml(): string {
         var color = g.lastSeenMs == null ? 'var(--muted)' : alive ? 'var(--ok)' : 'var(--bad)';
         return '<tr><td class="gw">' + esc(g.gatewayId) + '</td>'
           + '<td class="muted">' + esc(g.label || '') + '</td>'
-          + '<td>' + esc(zoneName[g.zoneId] || g.zoneId)
-          + ' <button class="btn gwmove" data-gw="' + esc(g.gatewayId) + '"'
-          + ' data-zone="' + esc(g.zoneId || '') + '">구역 변경</button></td>'
+          + '<td><span class="zonecell"><span class="zname">'
+          + esc(zoneName[g.zoneId] || g.zoneId) + '</span>'
+          + '<button class="btn gwmove" data-gw="' + esc(g.gatewayId) + '"'
+          + ' data-zone="' + esc(g.zoneId || '') + '">구역 변경</button></span></td>'
           + '<td style="text-align:right">' + g.count + '</td>'
           + '<td style="color:' + color + ';text-align:right">' + ago(g.lastSeenMs) + '</td></tr>';
       });
