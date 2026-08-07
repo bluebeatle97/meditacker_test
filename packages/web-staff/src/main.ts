@@ -281,6 +281,8 @@ class StaffMapScene extends Phaser.Scene {
       document.getElementById('sidebar')!,
       (tagId, name, memo, group) => this.saveMeta(tagId, name, memo, group),
       (tagId) => this.pickTag(tagId),
+      [...this.zones.values()].filter(isGuidableZone),
+      (tagId, zoneId) => void this.setGuide(tagId, zoneId),
     );
     // 장기체류 경고창 (DOM) — 이름을 누르면 맵에서 그 비콘을 찾아 준다
     this.alerts = new AlertPanel(
@@ -322,6 +324,20 @@ class StaffMapScene extends Phaser.Scene {
       (tagId) => this.guidance.get(tagId) ?? null,
     );
     btn.onclick = () => admin.open();
+  }
+
+  /** 방 안내 걸기/끄기 — 서버가 대상 환자에게만 전달하고, 도착하면 알아서 푼다 */
+  private async setGuide(tagId: string, zoneId: string | null): Promise<void> {
+    try {
+      const res = await fetch(`${SERVER_URL}/guide`, {
+        method: 'POST',
+        body: JSON.stringify({ tagId, zoneId }),
+      });
+      const d = (await res.json()) as { ok: boolean; error?: string };
+      if (!d.ok) window.alert(`방 안내 실패: ${d.error ?? '알 수 없는 오류'}`);
+    } catch (err) {
+      window.alert(`방 안내 실패: ${(err as Error).message}`);
+    }
   }
 
   /**
@@ -750,6 +766,7 @@ class StaffMapScene extends Phaser.Scene {
     this.socket.on('guide:all', (all: Guidance[]) => {
       this.guidance = new Map(all.map((g) => [g.tagId, g.zoneId]));
       this.drawGuideLines();
+      this.refreshPanel(); // 목록의 「→ 상담실 1」 표시가 바로 따라오게
     });
 
     this.socket.on('pos:update', (positions: PositionEstimate[]) => {
@@ -874,6 +891,7 @@ class StaffMapScene extends Phaser.Scene {
         enteredAt: zoneName === null ? 0 : since,
         lastSeen: st?.lastSeen ?? 0,
         alert: stuck,
+        guideZoneId: this.guidance.get(tagId) ?? null,
       };
     });
 

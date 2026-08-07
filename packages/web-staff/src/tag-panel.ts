@@ -1,4 +1,4 @@
-import type { TagGroup } from '@meditracker/shared';
+import type { TagGroup, Zone } from '@meditracker/shared';
 import { agoText, escapeHtml } from './format';
 
 /**
@@ -48,6 +48,8 @@ export interface TagRow {
   lastSeen: number;
   /** 장기체류 경고 중 — 빨간 ! 를 깜빡인다 (맵 배지·경고창과 같은 표시) */
   alert: boolean;
+  /** 안내 중인 목적지 방 (없으면 null). 환자 그룹에만 쓰인다 */
+  guideZoneId: string | null;
 }
 
 /** 신호가 이 시간 안이면 '정상', 그 뒤로는 '지연' → 이후는 자리비움 판정(서버 15초) */
@@ -69,12 +71,26 @@ function hex(color: number): string {
 
 interface RowEls {
   li: HTMLLIElement;
+  /** 방 안내 줄 — 환자 그룹에만 내용이 찬다 */
+  guide: HTMLDivElement;
   beacon: HTMLSpanElement;
   name: HTMLInputElement;
   memo: HTMLInputElement;
   group: HTMLSelectElement;
   status: HTMLDivElement;
 }
+
+/** 목적지 목록을 묶는 순서와 이름 */
+const DEST_GROUPS: Array<[string, string]> = [
+  ['consult', '상담'],
+  ['surgery', '수술·시술'],
+  ['laser', '레이저'],
+  ['skincare', '피부관리'],
+  ['recovery', '회복'],
+  ['waiting', '대기'],
+  ['reception', '접수'],
+  ['etc', '기타'],
+];
 
 export class TagPanel {
   private rows = new Map<string, RowEls>();
@@ -89,10 +105,17 @@ export class TagPanel {
   private shown: string[] = [];
   private latest = new Map<string, TagRow>();
 
+  /** 목적지 목록을 펼쳐 둔 비콘 (한 번에 하나만) */
+  private guidePickFor: string | null = null;
+
   constructor(
     root: HTMLElement,
     private onSave: (tagId: string, name: string, memo: string, group: TagGroup) => void,
     private onPick: (tagId: string) => void,
+    /** 안내 목적지 후보 — 서버와 같은 규칙(isGuidableZone)으로 걸러진 것 */
+    private destinations: Zone[] = [],
+    /** 방 안내 걸기/끄기. zoneId 가 null 이면 해제 */
+    private onGuide: (tagId: string, zoneId: string | null) => void = () => {},
   ) {
     this.root = root;
     this.list = root.querySelector('#tag-list') as HTMLUListElement;
@@ -216,6 +239,48 @@ export class TagPanel {
     els.status.title = d.lastSeen > 0 ? `마지막 신호 ${agoText(gap)} 전` : '신호 없음';
     els.li.classList.toggle('absent', absent);
     els.li.classList.toggle('alerted', d.alert);
+    this.paintGuide(els, d);
+  }
+
+  /**
+   * 방 안내 줄 — **환자에게만**. 직원은 환자용 화면을 안 써서 화살표를 볼 데가 없다.
+   *
+   * 도면에서 비콘을 누르면 이 줄로 오게 돼 있다(focusRow). 안내를 여기 두는 이유가
+   * 그것이다 — 지도에서 사람을 짚고 바로 "저 방으로" 가 이어져야 한다.
+   */
+  private paintGuide(els: RowEls, d: TagRow): void {
+    if (d.group !== 'patient') {
+      if (els.guide.innerHTML) els.guide.innerHTML = '';
+      return;
+    }
+    const open = this.guidePickFor === d.tagId;
+    let html = '';
+    if (d.guideZoneId) {
+      const name = this.destinations.find((z) => z.zoneId === d.guideZoneId)?.name ?? d.guideZoneId;
+      html =
+        `<span class="going">→ ${escapeHtml(name)}</span>` +
+        `<button class="gbtn stop" type="button" data-act="stop">안내 끝</button>`;
+    } else {
+      html = `<button class="gbtn go${open ? ' on' : ''}" type="button" data-act="open">🧭 방 안내</button>`;
+    }
+    if (open && !d.guideZoneId) html += this.destHtml();
+    // 편집 중 입력을 건드리지 않으려고 내용이 같으면 다시 안 그린다
+    if (els.guide.innerHTML !== html) els.guide.innerHTML = html;
+  }
+
+  /** 목적지 목록 — 방이 27개라 종류별로 묶지 않으면 못 찾는다 */
+  private destHtml(): string {
+    let html = '<div class="dests">';
+    for (const [type, label] of DEST_GROUPS) {
+      const rooms = this.destinations.filter((z) => z.type === type);
+      if (!rooms.length) continue;
+      html += `<div class="dl">${label}</div><div class="dg">`;
+      for (const z of rooms) {
+        html += `<button class="dbtn" type="button" data-zone="${escapeHtml(z.zoneId)}">${escapeHtml(z.name)}</button>`;
+      }
+      html += '</div>';
+    }
+    return html + '</div>';
   }
 
   private createRow(tagId: string): RowEls {
@@ -232,6 +297,7 @@ export class TagPanel {
         </div>
         <div class="status"></div>
         <input class="memo" type="text" spellcheck="false" placeholder="메모" />
+        <div class="guide"></div>
       </div>`;
     const els: RowEls = {
       li,
@@ -240,7 +306,23 @@ export class TagPanel {
       memo: li.querySelector('.memo') as HTMLInputElement,
       group: li.querySelector('.grp') as HTMLSelectElement,
       status: li.querySelector('.status') as HTMLDivElement,
+      guide: li.querySelector('.guide') as HTMLDivElement,
     };
+
+    // 버튼은 다시 그려질 때마다 새로 생기므로 위임으로 받는다
+    els.guide.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('button');
+      if (!btn) return;
+      if (btn.dataset.act === 'open') {
+        this.guidePickFor = this.guidePickFor === tagId ? null : tagId;
+        this.render([...this.latest.values()]);
+      } else if (btn.dataset.act === 'stop') {
+        this.onGuide(tagId, null);
+      } else if (btn.dataset.zone) {
+        this.guidePickFor = null;
+        this.onGuide(tagId, btn.dataset.zone);
+      }
+    });
 
     const save = (): void =>
       this.onSave(tagId, els.name.value, els.memo.value, els.group.value as TagGroup);
