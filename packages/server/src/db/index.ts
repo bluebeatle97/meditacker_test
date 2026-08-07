@@ -35,6 +35,75 @@ function migrate(db: Db): void {
     db.exec(`ALTER TABLE tag_meta ADD COLUMN tag_group TEXT`);
   }
   migrateTagsToBeacons(db);
+
+  // 팔찌 QR 을 처음 찍은 기기가 그 배정을 차지한다 (아래 claimAssignment 참고)
+  const acols = db.prepare(`PRAGMA table_info(assignments)`).all() as Array<{ name: string }>;
+  if (!acols.some((c) => c.name === 'claimed_at')) {
+    db.exec(`ALTER TABLE assignments ADD COLUMN claimed_at INTEGER`);
+  }
+}
+
+/** 팔찌에 인쇄되는 번호 — MAC 에서 구분기호를 뺀 뒤 뒤 6자리 */
+export function pinOf(tagId: string): string {
+  return tagId.replace(/[^0-9A-Fa-f]/g, '').slice(-6).toUpperCase();
+}
+
+/**
+ * 핀으로 비콘 찾기.
+ *
+ * 24비트(1,677만) 공간이라 비콘 100개로는 충돌이 사실상 없지만 0은 아니다. 겹치면
+ * **아무거나 고르면 안 된다** — 남의 화면이 열린다. 그래서 겹침을 따로 알린다.
+ */
+export function findBeaconByPin(
+  db: Db,
+  pin: string,
+): { tagId: string } | 'none' | 'ambiguous' {
+  const want = pin.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  if (want.length !== 6) return 'none';
+  const hits = (
+    db.prepare(`SELECT tag_id FROM beacons WHERE retired = 0`).all() as Array<{ tag_id: string }>
+  ).filter((b) => pinOf(b.tag_id) === want);
+  if (hits.length === 0) return 'none';
+  if (hits.length > 1) return 'ambiguous';
+  return { tagId: hits[0].tag_id };
+}
+
+/**
+ * 팔찌 QR 을 처음 찍은 기기가 이 배정을 차지한다.
+ *
+ * **왜 필요한가.** 핀은 팔찌에 인쇄돼 있어 안 바뀌는데 환자는 바뀐다. 아침 환자가
+ * 브라우저 기록에 남은 링크를 오후에 다시 누르면 그 팔찌를 지금 든 사람의 위치가
+ * 보인다. 먼저 찍은 기기에 묶어 두면, 데스크에서 팔찌를 받자마자 찍는 환자가 이기고
+ * 나중에 누르는 예전 환자는 거부된다.
+ *
+ * 기기 식별자를 브라우저에 저장하지는 않는다(불변식 B-5). 대신 **차지한 사실만** 여기
+ * 적어두고, 그 기기는 발급받은 토큰을 URL 에 지닌 채로 다닌다.
+ */
+export function claimAssignment(db: Db, tagId: string): 'ok' | 'already' | 'none' {
+  const open = getOpenAssignment(db, tagId);
+  if (!open) return 'none';
+  const row = db
+    .prepare(`SELECT claimed_at AS claimedAt FROM assignments WHERE id = ?`)
+    .get(open.assignmentId) as { claimedAt: number | null };
+  if (row.claimedAt) return 'already';
+  db.prepare(`UPDATE assignments SET claimed_at = ? WHERE id = ?`).run(Date.now(), open.assignmentId);
+  return 'ok';
+}
+
+/** 데스크용 — 환자가 폰을 바꾸거나 기록을 지웠을 때 다시 찍을 수 있게 푼다 */
+export function resetClaim(db: Db, tagId: string): void {
+  const open = getOpenAssignment(db, tagId);
+  if (open) db.prepare(`UPDATE assignments SET claimed_at = NULL WHERE id = ?`).run(open.assignmentId);
+}
+
+/** 이 배정이 이미 누군가에게 차지됐나 (목록 표시용) */
+export function isClaimed(db: Db, tagId: string): boolean {
+  const open = getOpenAssignment(db, tagId);
+  if (!open) return false;
+  const row = db
+    .prepare(`SELECT claimed_at AS claimedAt FROM assignments WHERE id = ?`)
+    .get(open.assignmentId) as { claimedAt: number | null };
+  return row.claimedAt !== null;
 }
 
 /**

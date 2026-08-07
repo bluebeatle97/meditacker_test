@@ -127,11 +127,39 @@ window.addEventListener('unhandledrejection', (e) => fatal('처리되지 않은 
 let DEMO = false;
 
 async function resolveToken(): Promise<string> {
-  const urlToken = new URLSearchParams(window.location.search).get('token');
+  const q = new URLSearchParams(window.location.search);
+  const urlToken = q.get('token');
   if (urlToken) return urlToken;
   if (DEMO) return 'demo'; // 검사할 서버가 없다 — 자리만 채운다
+
+  // 팔찌 QR 로 들어온 경우 — QR 에는 핀(비콘 뒷 6자리)이 들어 있다
+  const pin = q.get('pin');
+  if (pin) return claimByPin(pin);
+
   const res = await fetch(`${SERVER_URL}/dev-token?type=patient`);
   return (await res.json()).token;
+}
+
+/**
+ * 핀으로 입장. **처음 찍은 기기가 그 팔찌를 차지한다** — 팔찌의 핀은 안 바뀌는데 환자는
+ * 바뀌므로, 이게 없으면 예전 환자가 브라우저 기록의 링크로 다음 사람 위치를 본다.
+ *
+ * 받은 토큰은 주소창에 남긴다(`?pin=` → `?token=`). 새로고침해도 다시 차지하려 들지 않게
+ * 하려는 것이다 — 두 번째 요청은 '이미 사용 중' 으로 막히기 때문이다.
+ * ⚠️ 불변식 B-5: localStorage 같은 브라우저 저장소는 안 쓴다. 주소는 저장소가 아니다.
+ */
+async function claimByPin(pin: string): Promise<string> {
+  const res = await fetch(`${SERVER_URL}/patient-token`, {
+    method: 'POST',
+    body: JSON.stringify({ pin }),
+  });
+  const d = (await res.json()) as { ok: boolean; token?: string; error?: string };
+  if (!d.ok || !d.token) throw new Error(d.error ?? '입장할 수 없습니다');
+  const url = new URL(window.location.href);
+  url.searchParams.delete('pin');
+  url.searchParams.set('token', d.token);
+  window.history.replaceState(null, '', url.toString());
+  return d.token;
 }
 
 /** 첫 진입 커스터마이징 — 저장까지 끝나면 프로필을 돌려준다 */

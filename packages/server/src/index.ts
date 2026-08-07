@@ -19,8 +19,13 @@ import { PositionEstimator } from './presence/position-estimator.js';
 import { WalkableMap } from './presence/walkable-map.js';
 import {
   assignBeacon,
+  claimAssignment,
+  findBeaconByPin,
   getOpenAssignment,
+  isClaimed,
   listBeacons,
+  pinOf,
+  resetClaim,
   getPatientProfile,
   openDb,
   registerBeacon,
@@ -254,6 +259,8 @@ const httpServer = createServer((req, res) => {
       const idle = b.personId ? undefined : idleBeacons.get(b.tagId);
       return {
         ...b,
+        pin: pinOf(b.tagId),
+        claimed: b.personId !== null && isClaimed(db, b.tagId),
         assigned: b.personId !== null,
         group: tagMeta.all()[b.tagId]?.group ?? 'unassigned',
         name: tagMeta.all()[b.tagId]?.name ?? null,
@@ -371,6 +378,63 @@ const httpServer = createServer((req, res) => {
    * ⚠️ 인증 없음 — /tag-meta 와 같은 수준이다. 관제 인증을 붙일 때 이 세 엔드포인트
    *    (/tag-meta, /unknown-tags, /register-tag)를 한 번에 staff 토큰 뒤로 옮길 것.
    */
+  /**
+   * 팔찌 QR 로 환자 화면 들어오기.
+   *
+   * QR 에는 **핀(비콘 뒷 6자리)** 이 들어간다. 토큰을 넣으면 안 된다 — 토큰은 만료되는데
+   * 인쇄물은 안 바뀐다.
+   *
+   * **처음 찍은 기기가 그 배정을 차지한다.** 핀은 팔찌에 인쇄돼 안 바뀌는데 환자는
+   * 바뀌므로, 이게 없으면 아침 환자가 브라우저 기록의 링크를 오후에 눌러 지금 그 팔찌를
+   * 든 사람의 위치를 본다. 데스크에서 팔찌를 받자마자 찍게 하면 실질적으로 예전 환자가
+   * 이길 틈이 없다.
+   */
+  if (req.url === '/patient-token' && req.method === 'POST') {
+    readBody(req, 1_000, (body) => {
+      try {
+        const { pin } = JSON.parse(body) as { pin?: string };
+        const found = findBeaconByPin(db, pin ?? '');
+        if (found === 'none') throw new Error('없는 번호입니다');
+        if (found === 'ambiguous') throw new Error('번호가 겹칩니다 — 데스크에 문의하세요');
+
+        const claim = claimAssignment(db, found.tagId);
+        if (claim === 'none') throw new Error('아직 등록되지 않은 팔찌입니다');
+        if (claim === 'already') throw new Error('이미 사용 중인 팔찌입니다 — 데스크에 문의하세요');
+
+        const personId = patientForToken(found.tagId);
+        res.writeHead(200, CORS_JSON);
+        res.end(
+          JSON.stringify({
+            ok: true,
+            token: signToken({ personId, type: 'patient' }, SERVER_CONFIG.jwtSecret),
+          }),
+        );
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+
+  /** 데스크용 — 환자가 폰을 바꾸거나 기록을 지웠을 때 다시 찍게 풀어준다 */
+  if (req.url === '/reset-claim' && req.method === 'POST') {
+    readBody(req, 1_000, (body) => {
+      try {
+        const { tagId } = JSON.parse(body) as { tagId?: string };
+        if (!tagId) throw new Error('tagId 없음');
+        resetClaim(db, tagId);
+        console.log(`[server] 진입 초기화: ${tagId}`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+
   /**
    * 환자 등록 — 비콘을 지금 온 사람에게 넘긴다 (인포 데스크).
    *

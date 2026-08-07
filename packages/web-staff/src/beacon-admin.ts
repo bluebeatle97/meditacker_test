@@ -18,6 +18,10 @@ const REFRESH_MS = 5000;
 
 export interface BeaconRow {
   tagId: string;
+  /** 팔찌에 인쇄되는 번호 (MAC 뒷 6자리) */
+  pin: string;
+  /** 이미 어느 기기가 QR 로 입장했나 — 폰을 바꾸면 풀어줘야 한다 */
+  claimed: boolean;
   assigned: boolean;
   holder: string | null;
   name: string | null;
@@ -65,6 +69,7 @@ export class BeaconAdmin {
       if (!btn) return;
       const tagId = btn.dataset.tag!;
       if (btn.dataset.act === 'assign') this.promptAssign(tagId);
+      else if (btn.dataset.act === 'reset') this.resetClaim(tagId);
       else this.release(tagId);
     });
   }
@@ -107,6 +112,17 @@ export class BeaconAdmin {
       return;
     }
     void this.post('/release', { tagId });
+  }
+
+  /** 환자가 폰을 바꾸거나 기록을 지우면 다시 못 들어온다 — 데스크에서 풀어준다 */
+  private resetClaim(tagId: string): void {
+    const row = this.rows.find((r) => r.tagId === tagId);
+    if (!window.confirm(`${row?.holder ?? tail(tagId)} — 입장을 초기화할까요?
+
+팔찌 QR 을 다시 찍어야 들어옵니다.`)) {
+      return;
+    }
+    void this.post('/reset-claim', { tagId });
   }
 
   private async post(path: string, body: unknown): Promise<void> {
@@ -165,13 +181,19 @@ export class BeaconAdmin {
     const who = r.assigned
       ? `<b class="badmin-who">${escapeHtml(r.holder ?? r.name ?? '이름 없음')}</b>`
       : `<span class="badmin-idle">창고 · ${lastSeenText(r.lastSeen)}</span>`;
+    // 입장한 팔찌만 초기화가 의미 있다 (아직 안 찍었으면 그냥 찍으면 된다)
+    const reset =
+      r.assigned && r.claimed
+        ? `<button class="badmin-btn rst" data-act="reset" data-tag="${escapeHtml(r.tagId)}" title="환자가 폰을 바꿨을 때">입장 초기화</button>`
+        : '';
     const action = r.assigned
       ? `<button class="badmin-btn rel" data-act="release" data-tag="${escapeHtml(r.tagId)}">반납</button>`
       : `<button class="badmin-btn asg" data-act="assign" data-tag="${escapeHtml(r.tagId)}">환자 등록</button>`;
     return (
       `<div class="badmin-row">` +
-      `<code class="badmin-id" title="${escapeHtml(r.tagId)}">${tail(r.tagId)}</code>` +
+      `<code class="badmin-id" title="${escapeHtml(r.tagId)}">${escapeHtml(r.pin ?? tail(r.tagId))}</code>` +
       who +
+      reset +
       action +
       `</div>`
     );
