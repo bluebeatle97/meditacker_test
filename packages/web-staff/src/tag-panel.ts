@@ -105,9 +105,6 @@ export class TagPanel {
   private shown: string[] = [];
   private latest = new Map<string, TagRow>();
 
-  /** 목적지 목록을 펼쳐 둔 비콘 (한 번에 하나만) */
-  private guidePickFor: string | null = null;
-
   constructor(
     root: HTMLElement,
     private onSave: (tagId: string, name: string, memo: string, group: TagGroup) => void,
@@ -253,34 +250,34 @@ export class TagPanel {
       if (els.guide.innerHTML) els.guide.innerHTML = '';
       return;
     }
-    const open = this.guidePickFor === d.tagId;
-    let html = '';
-    if (d.guideZoneId) {
-      const name = this.destinations.find((z) => z.zoneId === d.guideZoneId)?.name ?? d.guideZoneId;
-      html =
-        `<span class="going">→ ${escapeHtml(name)}</span>` +
-        `<button class="gbtn stop" type="button" data-act="stop">안내 끝</button>`;
-    } else {
-      html = `<button class="gbtn go${open ? ' on' : ''}" type="button" data-act="open">🧭 방 안내</button>`;
-    }
-    if (open && !d.guideZoneId) html += this.destHtml();
-    // 편집 중 입력을 건드리지 않으려고 내용이 같으면 다시 안 그린다
+    const html = d.guideZoneId
+      ? `<span class="going">→ ${escapeHtml(this.nameOf(d.guideZoneId))}</span>` +
+        `<button class="gbtn stop" type="button" data-act="stop">안내 끝</button>`
+      : `<select class="gsel"><option value="">🧭 방 안내…</option>${this.destOptions()}</select>`;
+    // 내용이 같으면 다시 안 그린다 — 1초마다 새로 만들면 펼친 드롭다운이 닫혀 버린다
     if (els.guide.innerHTML !== html) els.guide.innerHTML = html;
   }
 
-  /** 목적지 목록 — 방이 27개라 종류별로 묶지 않으면 못 찾는다 */
-  private destHtml(): string {
-    let html = '<div class="dests">';
+  /**
+   * 목적지 27개를 종류별 묶음으로. 펼침 목록이 아니라 드롭다운인 이유는 자리다 —
+   * 줄마다 방 27개를 늘어놓으면 목록이 그것만으로 꽉 찬다.
+   */
+  private destOptions(): string {
+    let html = '';
     for (const [type, label] of DEST_GROUPS) {
       const rooms = this.destinations.filter((z) => z.type === type);
       if (!rooms.length) continue;
-      html += `<div class="dl">${label}</div><div class="dg">`;
+      html += `<optgroup label="${label}">`;
       for (const z of rooms) {
-        html += `<button class="dbtn" type="button" data-zone="${escapeHtml(z.zoneId)}">${escapeHtml(z.name)}</button>`;
+        html += `<option value="${escapeHtml(z.zoneId)}">${escapeHtml(z.name)}</option>`;
       }
-      html += '</div>';
+      html += '</optgroup>';
     }
-    return html + '</div>';
+    return html;
+  }
+
+  private nameOf(zoneId: string): string {
+    return this.destinations.find((z) => z.zoneId === zoneId)?.name ?? zoneId;
   }
 
   private createRow(tagId: string): RowEls {
@@ -309,19 +306,14 @@ export class TagPanel {
       guide: li.querySelector('.guide') as HTMLDivElement,
     };
 
-    // 버튼은 다시 그려질 때마다 새로 생기므로 위임으로 받는다
+    // 드롭다운·버튼은 다시 그려질 때마다 새로 생기므로 위임으로 받는다
+    els.guide.addEventListener('change', (e) => {
+      const sel = e.target as HTMLSelectElement;
+      if (sel.value) this.onGuide(tagId, sel.value);
+    });
     els.guide.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('button');
-      if (!btn) return;
-      if (btn.dataset.act === 'open') {
-        this.guidePickFor = this.guidePickFor === tagId ? null : tagId;
-        this.render([...this.latest.values()]);
-      } else if (btn.dataset.act === 'stop') {
-        this.onGuide(tagId, null);
-      } else if (btn.dataset.zone) {
-        this.guidePickFor = null;
-        this.onGuide(tagId, btn.dataset.zone);
-      }
+      if (btn?.dataset.act === 'stop') this.onGuide(tagId, null);
     });
 
     const save = (): void =>

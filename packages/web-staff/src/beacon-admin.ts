@@ -53,9 +53,6 @@ export class BeaconAdmin {
   private box: HTMLElement;
   private list: HTMLElement;
 
-  /** 「방 안내」 목적지 목록을 펼쳐 둔 비콘 (한 번에 하나만) */
-  private guidePickFor: string | null = null;
-
   constructor(
     private serverUrl: string,
     private onChanged: () => void,
@@ -90,15 +87,14 @@ export class BeaconAdmin {
       const act = btn.dataset.act;
       if (act === 'assign') this.promptAssign(tagId);
       else if (act === 'reset') this.resetClaim(tagId);
-      else if (act === 'guide') {
-        // 같은 버튼을 다시 누르면 접는다
-        this.guidePickFor = this.guidePickFor === tagId ? null : tagId;
-        this.render();
-      } else if (act === 'guide-stop') void this.post('/guide', { tagId, zoneId: null });
-      else if (act === 'guide-to') {
-        this.guidePickFor = null;
-        void this.post('/guide', { tagId, zoneId: btn.dataset.zone });
-      } else this.release(tagId);
+      else if (act === 'guide-stop') void this.post('/guide', { tagId, zoneId: null });
+      else this.release(tagId);
+    });
+    // 방 안내는 드롭다운 — 고르는 즉시 건다
+    this.list.addEventListener('change', (e) => {
+      const sel = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-tag]');
+      if (!sel?.value) return;
+      void this.post('/guide', { tagId: sel.dataset.tag, zoneId: sel.value });
     });
   }
 
@@ -200,30 +196,28 @@ export class BeaconAdmin {
       html +=
         `<div class="badmin-gh"><i style="background:${hex(groupColor(g.id))}"></i>` +
         `${g.label} <b>${inGroup.length}</b></div>`;
-      for (const r of inGroup) {
-        html += this.rowHtml(r);
-        if (this.guidePickFor === r.tagId) html += this.destHtml(r.tagId);
-      }
+      for (const r of inGroup) html += this.rowHtml(r);
     }
     this.list.innerHTML = html;
   }
 
-  /** 펼쳐진 목적지 목록 — 방 27개를 종류별로 묶어 보여준다 */
-  private destHtml(tagId: string): string {
-    const tag = escapeHtml(tagId);
-    let html = '<div class="badmin-dest">';
+  /**
+   * 목적지 27개를 종류별 묶음으로 — 펼침 목록이 아니라 드롭다운이다.
+   * 줄마다 방 27개를 늘어놓으면 목록이 그것만으로 꽉 찬다.
+   */
+  private destOptions(tagId: string): string {
+    let html = `<select class="badmin-gsel" data-tag="${escapeHtml(tagId)}">`;
+    html += '<option value="">🧭 방 안내…</option>';
     for (const [type, label] of DEST_GROUPS) {
       const rooms = this.destinations.filter((z) => z.type === type);
       if (!rooms.length) continue;
-      html += `<div class="badmin-dl">${label}</div><div class="badmin-dg">`;
+      html += `<optgroup label="${label}">`;
       for (const z of rooms) {
-        html +=
-          `<button class="badmin-dbtn" data-act="guide-to" data-tag="${tag}" ` +
-          `data-zone="${escapeHtml(z.zoneId)}">${escapeHtml(z.name)}</button>`;
+        html += `<option value="${escapeHtml(z.zoneId)}">${escapeHtml(z.name)}</option>`;
       }
-      html += '</div>';
+      html += '</optgroup>';
     }
-    return html + '</div>';
+    return html + '</select>';
   }
 
   private rowHtml(r: BeaconRow): string {
@@ -242,7 +236,7 @@ export class BeaconAdmin {
         ? going
           ? `<span class="badmin-going">→ ${escapeHtml(this.nameOf(going))}</span>` +
             `<button class="badmin-btn gst" data-act="guide-stop" data-tag="${escapeHtml(r.tagId)}">안내 끝</button>`
-          : `<button class="badmin-btn gd${this.guidePickFor === r.tagId ? ' on' : ''}" data-act="guide" data-tag="${escapeHtml(r.tagId)}">방 안내</button>`
+          : this.destOptions(r.tagId)
         : '';
     const action = r.assigned
       ? `<button class="badmin-btn rel" data-act="release" data-tag="${escapeHtml(r.tagId)}">반납</button>`

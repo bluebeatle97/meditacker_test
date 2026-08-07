@@ -137,28 +137,20 @@
       .gbtn {
         padding: 3px 9px; border-radius: 6px; cursor: pointer; font: 600 11px inherit;
       }
-      .gbtn.go { border: 1px solid #8c3b36; background: #2e1614; color: #ff9c94; }
-      .gbtn.go:hover, .gbtn.go.on { background: #4a201d; color: #fff; }
       .gbtn.stop { border: 1px solid #3a4658; background: none; color: #8fa0b8; margin-left: 6px; }
       .gbtn.stop:hover { background: #263141; color: #cfdcec; }
       .guide .going {
         padding: 2px 7px; border-radius: 5px;
         background: #ff3b3022; color: #ff9c94; font: 700 11px inherit;
       }
-      /* 목적지 목록 — 방이 27개라 종류별로 묶지 않으면 못 찾는다 */
-      .dests {
-        margin-top: 5px; padding: 7px 8px; border-radius: 7px;
-        background: #101725; border: 1px solid #26334a;
-      }
-      .dests .dl { margin: 5px 0 3px; color: #7f8ea6; font: 700 10px inherit; }
-      .dests .dl:first-child { margin-top: 0; }
-      .dests .dg { display: flex; flex-wrap: wrap; gap: 4px; }
-      .dbtn {
-        padding: 3px 7px; border-radius: 5px; cursor: pointer;
-        border: 1px solid #334054; background: #1a2432; color: #cfdcec;
+      /* 목적지 드롭다운 — 방이 27개라 펼쳐 놓으면 줄 하나가 목록을 다 먹는다 */
+      .gsel {
+        width: 100%; box-sizing: border-box; padding: 3px 6px; border-radius: 6px; cursor: pointer;
+        border: 1px solid #8c3b36; background: #2e1614; color: #ff9c94;
         font: 600 11px inherit;
       }
-      .dbtn:hover { background: #ff3b3033; border-color: #8c3b36; color: #fff; }
+      .gsel:hover { background: #4a201d; color: #fff; }
+      .gsel option, .gsel optgroup { background: #141a26; color: #dbe4f0; }
 
       /* ── 장기체류 경고 표시 ──────────────────────────────────────────
          빨간 ! 가 깜빡인다. 맵 위 비콘 배지 · 이 목록 · 경고창이 같은 표시를
@@ -298,28 +290,20 @@
       .badmin-btn.rst { border: 1px solid #3a4658; background: none; color: #8fa0b8; }
       .badmin-btn.rst:hover { background: #263141; color: #cfdcec; }
       /* 방 안내 — 환자 화면의 바닥 화살표와 같은 빨강으로 묶는다 */
-      .badmin-btn.gd { border: 1px solid #8c3b36; background: #2e1614; color: #ff9c94; }
-      .badmin-btn.gd:hover, .badmin-btn.gd.on { background: #4a201d; color: #fff; }
       .badmin-btn.gst { border: 1px solid #3a4658; background: none; color: #8fa0b8; }
       .badmin-btn.gst:hover { background: #263141; color: #cfdcec; }
       .badmin-going {
         flex: none; padding: 2px 8px; border-radius: 5px;
         background: #ff3b3022; color: #ff9c94; font: 700 11.5px inherit;
       }
-      /* 목적지 목록 — 방이 27개라 종류별로 묶지 않으면 못 찾는다 */
-      .badmin-dest {
-        margin: 2px 0 8px; padding: 8px 10px; border-radius: 8px;
-        background: #131c28; border: 1px solid #26334a;
-      }
-      .badmin-dl { margin: 6px 0 4px; color: #7f8ea6; font: 700 10.5px inherit; }
-      .badmin-dl:first-child { margin-top: 0; }
-      .badmin-dg { display: flex; flex-wrap: wrap; gap: 5px; }
-      .badmin-dbtn {
-        padding: 4px 9px; border-radius: 6px; cursor: pointer;
-        border: 1px solid #334054; background: #1a2432; color: #cfdcec;
+      /* 목적지 드롭다운 — 줄 안에서 자리를 안 넓히려고 폭을 고정한다 */
+      .badmin-gsel {
+        flex: none; width: 104px; padding: 3px 6px; border-radius: 6px; cursor: pointer;
+        border: 1px solid #8c3b36; background: #2e1614; color: #ff9c94;
         font: 600 11.5px inherit;
       }
-      .badmin-dbtn:hover { background: #ff3b3033; border-color: #8c3b36; color: #fff; }
+      .badmin-gsel:hover { background: #4a201d; color: #fff; }
+      .badmin-gsel option, .badmin-gsel optgroup { background: #141a26; color: #dbe4f0; }
 
       /* 게이트웨이 범위 보기 */
       #gw-btn { border: 1px solid #d3a13c; background: #2e2513; color: #ffd489; }
