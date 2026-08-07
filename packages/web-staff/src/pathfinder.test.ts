@@ -50,6 +50,43 @@ function clearanceCells(px: number, py: number): number {
   return 12;
 }
 
+/** 이 지점에서 그 방향으로 벽까지 몇 px (56px 에서 끊는다 — 그 이상은 복도가 아니다) */
+function freeDist(x: number, y: number, dx: number, dy: number): number {
+  const step = grid.cell / 2;
+  for (let d = step; d <= 56; d += step) {
+    const gx = Math.floor((x + dx * d) / grid.cell);
+    const gy = Math.floor((y + dy * d) / grid.cell);
+    if (!walkable(gx, gy)) return d - step;
+  }
+  return 56;
+}
+
+/**
+ * 이 구간이 복도 한가운데에서 얼마나 치우쳤나 (복도가 아니면 null).
+ * 구간을 따라 여러 군데서 재고 가운데값을 쓴다 — 방문 앞을 한 번 스치는 것에 안 흔들리게.
+ */
+function centerOffset(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  horiz: boolean,
+): number | null {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  const steps = Math.min(60, Math.max(2, Math.round(len / (grid.cell * 2))));
+  const off: number[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = a.x + (b.x - a.x) * t;
+    const y = a.y + (b.y - a.y) * t;
+    const lo = horiz ? freeDist(x, y, 0, -1) : freeDist(x, y, -1, 0);
+    const hi = horiz ? freeDist(x, y, 0, 1) : freeDist(x, y, 1, 0);
+    if (lo >= 56 && hi >= 56) continue; // 트인 곳엔 '가운데' 가 없다
+    off.push((hi - lo) / 2);
+  }
+  if (off.length < 2) return null;
+  off.sort((p, q) => p - q);
+  return off[off.length >> 1];
+}
+
 /** 방을 가로질러 다니는 실제 안내 조합들 */
 const ROUTES: Array<[string, string]> = [
   ['waiting_1', 'consult_1'],
@@ -98,6 +135,30 @@ describe('경로가 벽에 붙지 않는다', () => {
     }
     expect(total).toBeGreaterThan(5);
     expect(diagonal, `대각선 구간 ${diagonal}/${total}`).toBe(0);
+  });
+
+  it('복도를 지나는 구간은 복도 한가운데다', () => {
+    // 벽 근접 비용은 벽에서 떼어 놓을 뿐 가운데를 보장하지 않는다. 한쪽으로 치우친 채
+    // 복도를 지나가면 "이 길로" 가 아니라 "벽 쪽으로 붙어 가라" 로 보인다.
+    const off: number[] = [];
+    for (const [from, to] of ROUTES) {
+      const a = at(from);
+      const b = at(to);
+      const route = pf.findPath(a.x, a.y, b.x, b.y);
+      if (!route) continue;
+      const pts = pf.orthogonalize([a, ...route]);
+      // 처음·마지막 구간은 캐릭터 자리와 방 안 도착점이라 옮기지 않는다
+      for (let i = 1; i + 2 < pts.length; i++) {
+        const horiz = Math.abs(pts[i].y - pts[i + 1].y) < 1;
+        if (!horiz && Math.abs(pts[i].x - pts[i + 1].x) >= 1) continue;
+        const d = centerOffset(pts[i], pts[i + 1], horiz);
+        if (d !== null) off.push(Math.abs(d));
+      }
+    }
+    expect(off.length, '복도를 지나는 구간이 없다').toBeGreaterThan(3);
+    const avg = off.reduce((s, v) => s + v, 0) / off.length;
+    expect(avg, `평균 ${avg.toFixed(1)}px 치우침`).toBeLessThan(4); // 격자 한 칸
+    expect(Math.max(...off), '한 구간이 크게 치우쳤다').toBeLessThan(12);
   });
 
   it('편 경로도 벽을 뚫지 않는다', () => {

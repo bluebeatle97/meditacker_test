@@ -25,6 +25,10 @@ export interface WalkableGrid {
  */
 const CLEAR_CELLS = 4; // 격자 한 칸 4px → 16px, 캐릭터 폭만큼
 const CLEAR_WEIGHT = 1.6; // 벽에 딱 붙은 칸이 한가운데보다 2.6배 비싸진다
+/** 복도 가운데를 찾을 때 양옆으로 재 보는 최대 거리 — 이보다 넓으면 복도가 아니다 */
+const PROBE_PX = 56;
+/** 가운데로 미는 것을 몇 번까지 되풀이할지 — 실측상 6번이면 더 안 줄어든다 */
+const CENTER_PASSES = 6;
 
 export class Pathfinder {
   readonly cell: number;
@@ -369,7 +373,113 @@ export class Pathfinder {
       else out.push(...this.elbowVia(a, b, 3)); // 한 번에 못 펴면 잘라서 다시 시도
       out.push(b);
     }
-    return mergeCollinear(out);
+    return this.centerRuns(mergeCollinear(out));
+  }
+
+  /**
+   * 곧은 구간을 **복도 한가운데**로 옮긴다.
+   *
+   * 벽 근접 비용은 벽에서 떼어 놓기만 할 뿐 가운데를 보장하지 않는다 — 한쪽으로
+   * 치우친 채 복도를 지나가면 "이 길로 가라" 가 아니라 "벽 쪽으로 붙어 가라" 로 보인다.
+   * 구간을 따라 양옆으로 벽까지 재고, 좁은 쪽에 맞춰 가운데로 민다.
+   *
+   * 처음·마지막 구간은 건드리지 않는다 — 각각 캐릭터가 서 있는 자리와 방 안 도착점이라
+   * 옮기면 엉뚱한 데서 시작하거나 끝난다. 옮긴 뒤 벽에 걸리면 되돌린다.
+   */
+  private centerRuns(pts: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
+    // 한 번으로는 안 끝난다 — 구간을 옮기면 잇던 구간이 사라지면서 이웃끼리 합쳐지고,
+    // 합쳐진 긴 구간의 한가운데는 또 다른 자리다. 더 옮길 게 없을 때까지 돈다
+    let out = pts.map((p) => ({ ...p }));
+    for (let pass = 0; pass < CENTER_PASSES; pass++) {
+      const before = JSON.stringify(out);
+      out = mergeCollinear(this.centerPass(out));
+      if (JSON.stringify(out) === before) break;
+    }
+    return out;
+  }
+
+  private centerPass(out: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
+    for (let i = 1; i + 2 < out.length; i++) {
+      const a = out[i];
+      const b = out[i + 1];
+      const horiz = Math.abs(a.y - b.y) < 1;
+      if (!horiz && Math.abs(a.x - b.x) >= 1) continue; // 비스듬한 구간은 손대지 않는다
+      const want = this.centerShift(a, b, horiz);
+      if (!want) continue;
+      // 통째로 옮기면 벽에 걸리는 수가 있다 — 그럴 땐 갈 수 있는 데까지만 민다
+      for (const frac of [1, 0.75, 0.5, 0.25]) {
+        const shift = want * frac;
+        if (Math.abs(shift) < this.cell / 2) break;
+        if (horiz) {
+          a.y += shift;
+          b.y += shift;
+        } else {
+          a.x += shift;
+          b.x += shift;
+        }
+        if (this.chainClear(out, i)) break;
+        if (horiz) {
+          a.y -= shift;
+          b.y -= shift;
+        } else {
+          a.x -= shift;
+          b.x -= shift;
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 이 구간을 가운데로 옮기려면 얼마나 밀어야 하나 (0 = 그대로).
+   *
+   * 구간을 따라 여러 군데서 양옆 벽까지 재고 **가운데값(중앙값)** 을 쓴다. 처음엔
+   * 가장 좁은 자리에 맞췄는데, 복도를 지나며 방문 앞을 한 번만 스쳐도 그 한 점이
+   * 구간 전체를 끌고 가서 오히려 치우쳤다. 중앙값은 그런 한두 점에 안 흔들린다.
+   *
+   * 양옆이 다 트인 표본은 아예 뺀다 — 방 한가운데에는 '복도 중앙' 이라는 게 없다.
+   */
+  private centerShift(
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+    horiz: boolean,
+  ): number {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < this.cell) return 0;
+    const steps = Math.min(60, Math.max(2, Math.round(len / (this.cell * 2))));
+    const offsets: number[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = a.x + (b.x - a.x) * t;
+      const y = a.y + (b.y - a.y) * t;
+      const lo = this.freeDist(x, y, horiz ? 0 : -1, horiz ? -1 : 0);
+      const hi = this.freeDist(x, y, horiz ? 0 : 1, horiz ? 1 : 0);
+      if (lo >= PROBE_PX && hi >= PROBE_PX) continue; // 트인 곳
+      offsets.push((hi - lo) / 2);
+    }
+    if (offsets.length < 2) return 0;
+    offsets.sort((p, q) => p - q);
+    const shift = offsets[offsets.length >> 1];
+    return Math.abs(shift) < this.cell / 2 ? 0 : shift;
+  }
+
+  /** 이 지점에서 그 방향으로 벽까지 몇 px (PROBE_PX 에서 끊는다) */
+  private freeDist(x: number, y: number, dx: number, dy: number): number {
+    const step = this.cell / 2;
+    for (let d = step; d <= PROBE_PX; d += step) {
+      if (!this.isWalkable(x + dx * d, y + dy * d)) return d - step;
+    }
+    return PROBE_PX;
+  }
+
+  /** i 번째 구간과 그 양옆이 벽을 지나지 않는가 */
+  private chainClear(pts: Array<{ x: number; y: number }>, i: number): boolean {
+    for (let k = Math.max(1, i - 1); k <= Math.min(pts.length - 1, i + 2); k++) {
+      const a = pts[k - 1];
+      const b = pts[k];
+      if (!this.hasLineOfSight(a.x, a.y, b.x, b.y)) return false;
+    }
+    return true;
   }
 
   /**
