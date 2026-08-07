@@ -54,6 +54,11 @@ def main():
     dry = "--dry" in sys.argv
     if not os.path.exists(PLAN):
         sys.exit(f"도면을 못 찾음: {PLAN}")
+    # 벽은 **사람이 그린 벽 그림**이 정한다 (tools/build-wall-mask.py).
+    # 도면의 흰색/회색으로 판정하면 그려진 벽과 막힌 벽이 달라진다 — 그게 캐릭터 발이
+    # 벽에 박히던 원인이었다. 마스크가 없으면 예전 방식(도면 흰색)으로 돌아간다.
+    mask_path = os.path.join(CFG, "wall-mask.png")
+    use_mask = os.path.exists(mask_path)
     img = Image.open(PLAN).convert("RGB")
     W, H = img.size
     px = img.load()
@@ -67,27 +72,49 @@ def main():
             "floorplan.json 을 고치고 존 앵커부터 다시 뽑아야 한다."
         )
 
+    mpx = opx = None
+    if use_mask:
+        mask = Image.open(mask_path).convert("L")
+        outm = Image.open(os.path.join(CFG, "outside-mask.png")).convert("L")
+        if mask.size != (W, H):
+            sys.exit(f"wall-mask 크기가 도면과 다르다: {mask.size} vs {(W, H)}")
+        mpx, opx = mask.load(), outm.load()
+        print("벽 판정: wall-mask.png (사람이 그린 벽 그림)")
+    else:
+        print("벽 판정: 도면 흰색 (wall-mask.png 없음)")
+
     cols, rows = W // CELL, H // CELL
     grid = []
+    fgrid = []   # 그리기용 바닥 (도면 기준). 도트맵은 이걸 읽는다
     walk = 0
     for r in range(rows):
         row = []
+        frow = []
         for c in range(cols):
-            white = 0
+            white = 0     # 도면 기준 바닥 (그리기용)
+            clean = 0     # 벽 그림 기준 바닥 (설 수 있는 곳)
             for y in range(r * CELL, (r + 1) * CELL):
                 for x in range(c * CELL, (c + 1) * CELL):
                     if min(px[x, y]) >= WHITE_MIN:
                         white += 1
-            ok = white / (CELL * CELL) >= WHITE_RATIO
+                    if mpx is not None and mpx[x, y] == 0 and opx[x, y] == 0:
+                        clean += 1
+            drawable = white / (CELL * CELL) >= WHITE_RATIO
+            # 벽 그림을 쓸 때는 칸에 벽이 조금이라도 걸치면 못 선다 — 그려진 벽 위에
+            # 사람이 서지 않게 하는 것이 이 마스크를 쓰는 이유다
+            ok = (clean == CELL * CELL) if mpx is not None else drawable
+            frow.append("1" if drawable else "0")
             row.append("1" if ok else "0")
             walk += ok
         grid.append("".join(row))
+        fgrid.append("".join(frow))
 
-    # **그리기용 바닥** — 아래에서 빼는 것들이 반영되지 않은 원본.
-    # 도트맵은 이걸 읽어야 한다. 줄어든 격자를 읽으면 뺀 자리를 "건물 밖"으로 그려서
-    # 안내데스크 파티션이 새까맣게 나온다(실제로 그랬다).
+    # **그리기용 바닥** — 도면(흰색) 기준 그대로. 도트맵은 이걸 읽는다.
+    # ⚠️ 여기에 "설 수 없는 곳"(벽 그림·파티션)을 반영하면 안 된다. 도트맵이 그 자리를
+    #    건물 밖으로 보고 새까맣게 칠한다 — 두 번 그렇게 만들었다.
+    #    화면은 그대로 두고, 사람이 서는 자리만 좁히는 것이 이 분리의 목적이다.
     with open(FLOOR_OUT, "w", encoding="utf-8") as f:
-        json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": list(grid)}, f)
+        json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": fgrid}, f)
 
     # 사람이 설 수 없는 자리(안내데스크 파티션 옆면)를 뺀다.
     # 도면에는 흰 바닥으로 그려져 있어서 여기서 빼지 않으면 사람이 그 위에 선다.
