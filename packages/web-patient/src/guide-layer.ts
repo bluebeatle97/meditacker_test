@@ -153,7 +153,10 @@ export class GuideLayer {
     // 길찾기는 도면 좌표로 한다 — 화면 좌표를 그대로 넣으면 격자를 벗어난다
     const fx = selfX / this.d.scale;
     const fy = selfY / this.d.scale;
-    const found = this.d.pf.findPath(fx, fy, to.tilePosition.x, to.tilePosition.y);
+    // 안내 경로만 직원 전용 구역을 피해 돌아간다 (환자를 직원실로 보낼 수는 없다)
+    const found = this.d.pf.findPath(fx, fy, to.tilePosition.x, to.tilePosition.y, {
+      avoidStaff: true,
+    });
     if (!found || found.length < 1) return;
 
     // ⚠️ findPath 는 **꺾이는 지점만** 돌려준다 — 출발점은 안 들어 있다. 걸을 때는

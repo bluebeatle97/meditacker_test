@@ -32,6 +32,11 @@ const CLEAR_CELLS = 4; // 격자 한 칸 4px → 16px, 캐릭터 폭만큼
 const CLEAR_WEIGHT = 1.6; // 벽에 딱 붙은 칸이 한가운데보다 2.6배 비싸진다
 /** 복도 가운데를 찾을 때 양옆으로 재 보는 최대 거리 — 이보다 넓으면 복도가 아니다 */
 const PROBE_PX = 56;
+/**
+ * 직원 전용 구역 한 칸을 지나는 값. 한 칸이 보통 칸 열둘만큼 비싸다 —
+ * 조금 돌아가는 정도로는 안 지나가되, 유일한 길이면 그래도 지나간다.
+ */
+const AVOID_COST = 12;
 /** 가운데로 미는 것을 몇 번까지 되풀이할지 — 실측상 6번이면 더 안 줄어든다 */
 const CENTER_PASSES = 6;
 
@@ -42,6 +47,8 @@ export class Pathfinder {
   private walk: Uint8Array;
   /** 칸마다 더해지는 벽 근접 비용 (0 = 충분히 넓은 곳) */
   private wallCost: Float32Array;
+  /** 직원 전용 구역 (안내 경로가 피해 가야 할 칸). 없으면 비어 있다 */
+  private avoid = new Uint8Array(0);
 
   constructor(data: WalkableGrid) {
     this.cell = data.cell;
@@ -55,6 +62,35 @@ export class Pathfinder {
       }
     }
     this.wallCost = this.buildWallCost();
+  }
+
+  /**
+   * 피해 갈 구역을 등록한다 (직원 전용 구역).
+   *
+   * **막지 않고 비싸게만 한다.** 막아 버리면 그 안이 목적지일 때 길이 아예 안 나오고,
+   * 유일한 통로가 그 구역을 지날 때도 안내가 통째로 실패한다. 비싸게 두면 돌아갈 길이
+   * 있을 때만 돌아간다.
+   */
+  setAvoidMask(mask: WalkableGrid | null): void {
+    if (!mask || mask.cols !== this.cols || mask.rows !== this.rows) {
+      this.avoid = new Uint8Array(0);
+      return;
+    }
+    const a = new Uint8Array(this.cols * this.rows);
+    for (let gy = 0; gy < this.rows; gy++) {
+      const row = mask.grid[gy];
+      for (let gx = 0; gx < this.cols; gx++) {
+        if (row.charCodeAt(gx) === 49) a[gy * this.cols + gx] = 1;
+      }
+    }
+    this.avoid = a;
+  }
+
+  /** 이 지점이 피해야 할 구역 안인가 */
+  isAvoided(px: number, py: number): boolean {
+    if (!this.avoid.length) return false;
+    const i = this.idxOf(px, py);
+    return i >= 0 && this.avoid[i] === 1;
   }
 
   /**
@@ -220,8 +256,12 @@ export class Pathfinder {
     sy: number,
     tx: number,
     ty: number,
-    maxNodes = 60000,
+    opts: { maxNodes?: number; avoidStaff?: boolean } = {},
   ): Array<{ x: number; y: number }> | null {
+    const maxNodes = opts.maxNodes ?? 60000;
+    // 목적지가 그 구역 안이면 피할 도리가 없다 — 그때는 평소대로 간다
+    const dodge =
+      opts.avoidStaff === true && this.avoid.length > 0 && !this.isAvoided(tx, ty) ? AVOID_COST : 0;
     const s = this.nearestWalkable(sx, sy);
     const t = this.nearestWalkable(tx, ty);
     const startIdx = this.idxOf(s.x, s.y);
@@ -304,7 +344,10 @@ export class Pathfinder {
           }
           // 벽 근접 비용을 더한다 — 최단만 보면 벽을 스치는 경로가 나온다.
           // 휴리스틱은 거리만 보므로 여전히 하한이다(비용은 더해지기만 한다)
-          const step = (dx !== 0 && dy !== 0 ? Math.SQRT2 : 1) + this.wallCost[ni];
+          const step =
+            (dx !== 0 && dy !== 0 ? Math.SQRT2 : 1) +
+            this.wallCost[ni] +
+            (dodge && this.avoid[ni] ? dodge : 0);
           const tentative = gScore[cur] + step;
           if (tentative < gScore[ni]) {
             gScore[ni] = tentative;

@@ -96,6 +96,84 @@ const ROUTES: Array<[string, string]> = [
   ['waiting_2', 'skincare'],
 ];
 
+const staffArea = JSON.parse(
+  readFileSync(join(CONFIG, 'staff-area.json'), 'utf8'),
+) as WalkableGrid;
+
+/** 이 지점이 직원 전용 구역 안인가 */
+function inStaffArea(x: number, y: number): boolean {
+  const gx = Math.floor(x / staffArea.cell);
+  const gy = Math.floor(y / staffArea.cell);
+  return (
+    gx >= 0 &&
+    gy >= 0 &&
+    gx < staffArea.cols &&
+    gy < staffArea.rows &&
+    staffArea.grid[gy].charCodeAt(gx) === 49
+  );
+}
+
+/** 꺾은선을 따라 촘촘히 훑으며 직원 구역을 밟는 비율 */
+function staffShare(pts: Array<{ x: number; y: number }>): number {
+  let n = 0;
+  let hit = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const steps = Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / staffArea.cell));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      n++;
+      if (inStaffArea(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) hit++;
+    }
+  }
+  return hit / n;
+}
+
+const staffCells = staffArea.grid.reduce((n, row) => n + (row.match(/1/g)?.length ?? 0), 0);
+
+// 도면에 자홍색으로 칠하기 전에는 마스크가 비어 있다 — 검사할 게 없다
+describe.skipIf(staffCells === 0)('안내 경로는 직원 전용 구역을 피한다', () => {
+  const pfAvoid = new Pathfinder(grid);
+  pfAvoid.setAvoidMask(staffArea);
+
+  it('마스크가 통행 격자와 같은 크기다', () => {
+    expect([staffArea.cols, staffArea.rows, staffArea.cell]).toEqual([
+      grid.cols,
+      grid.rows,
+      grid.cell,
+    ]);
+  });
+
+  it('직원 구역을 밟는 비율이 크게 줄어든다', () => {
+    let plain = 0;
+    let dodged = 0;
+    let n = 0;
+    for (const [from, to] of ROUTES) {
+      const a = at(from);
+      const b = at(to);
+      const r1 = pf.findPath(a.x, a.y, b.x, b.y);
+      const r2 = pfAvoid.findPath(a.x, a.y, b.x, b.y, { avoidStaff: true });
+      if (!r1 || !r2) continue;
+      plain += staffShare([a, ...r1]);
+      dodged += staffShare([a, ...r2]);
+      n++;
+    }
+    expect(n).toBeGreaterThan(3);
+    expect(dodged / n, `우회 후에도 ${((dodged / n) * 100).toFixed(1)}% 를 밟는다`).toBeLessThan(
+      0.02,
+    );
+  });
+
+  it('직원 구역이 목적지면 그래도 길을 찾는다', () => {
+    // 막아 버리면 그 안이 목적지일 때 안내가 통째로 실패한다 — 비싸게만 해 둔 이유
+    const a = at('waiting_1');
+    const b = at('staff_room');
+    const r = pfAvoid.findPath(a.x, a.y, b.x, b.y, { avoidStaff: true });
+    expect(r, '직원실로 가는 길이 아예 안 나온다').not.toBeNull();
+  });
+});
+
 describe('경로가 벽에 붙지 않는다', () => {
   const all: number[] = [];
   for (const [from, to] of ROUTES) {

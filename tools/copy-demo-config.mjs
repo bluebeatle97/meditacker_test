@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const FROM = join(ROOT, 'packages/server/src/config');
-const FILES = ['floorplan.json', 'zones.json', 'walkable.json', 'gateways.json'];
+const FILES = ['floorplan.json', 'zones.json', 'walkable.json', 'gateways.json', 'staff-area.json'];
 const APPS = ['web-staff', 'web-patient'];
 
 for (const app of APPS) {

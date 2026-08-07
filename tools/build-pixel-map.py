@@ -39,6 +39,10 @@ CFG = os.path.join(ROOT, "packages", "server", "src", "config")
 OUT = os.path.join(ROOT, "packages", "web-patient", "public", "pixelmap.png")
 DEFAULT_ASSETS = r"C:\Users\LG gram\Desktop\메디트레커(가칭)\에셋\Modern tiles_Free"
 
+# 직원 전용 구역 바닥색 — 환자 화면에서 "못 들어가는 곳" 으로 읽혀야 하므로
+# 다른 방보다 확실히 어둡게 (완전 검정은 건물 밖(void)과 헷갈린다)
+STAFF_RGB = (26, 26, 30)
+
 T = 16          # 타일 한 변 (출력 px) — 에셋 타일 크기
 # 타일 한 칸이 담는 도면 px. 도면 1px ≈ 1.62cm 이므로 32px ≈ 52cm.
 # ⚠️ 이 값이 곧 '축척'이다. 너무 잘게 잡으면(8px≈13cm) 바닥 무늬가 캐릭터보다 커져
@@ -386,6 +390,41 @@ def main():
             )
     for mat, mask in masks.items():
         img.paste(layers[mat], (0, 0), mask)
+
+    # ── 3.5 직원 전용 구역을 검게 덮는다 ────────────────────────────────────
+    # 환자 화면에서 "여긴 못 들어가는 곳" 이 한눈에 보여야 한다. 바닥 무늬로만 구분하면
+    # (concrete) 그냥 다른 방으로 보인다.
+    #
+    # ⚠️ 구역을 **방 분할(segment_rooms)로 뽑지 않는다.** 한 번 그렇게 해봤는데 v2 도면은
+    #    문을 안 그려서 방이 복도로 새어 나갔고, 그 결과 복도까지 직원 구역으로 먹었다
+    #    (완전히 막고 재보니 환자 구역 56조합 중 42개가 서로 못 닿았다 = 복도가 끊겼다).
+    #    도면에 칠한 색으로 정한다 — 이 도면의 규칙이 원래 "색이 곧 의미" 다.
+    staff_mask_path = os.path.join(CFG, "staff-area.json")
+    if os.path.exists(staff_mask_path):
+        sm = json.load(open(staff_mask_path, encoding="utf-8"))
+        smask = Image.new("L", img.size, 0)
+        sdraw = ImageDraw.Draw(smask)
+        n_staff = 0
+        for r in range(min(sm["rows"], walk.rows)):
+            row = sm["grid"][r]
+            c = 0
+            while c < min(sm["cols"], walk.cols):
+                if row[c] != "1":
+                    c += 1
+                    continue
+                s0 = c
+                while c < min(sm["cols"], walk.cols) and row[c] == "1":
+                    n_staff += 1
+                    c += 1
+                sdraw.rectangle(
+                    [int(s0 * cpx), int(r * cpx), int(c * cpx) - 1, int((r + 1) * cpx) - 1],
+                    fill=255,
+                )
+        if n_staff:
+            black = Image.new("RGBA", img.size, STAFF_RGB + (255,))
+            black.putalpha(smask)
+            img.alpha_composite(black)
+        print(f"직원 전용 구역: {n_staff}칸 (staff-area.json)")
 
     counts = {}
     for i, z in enumerate(zones):

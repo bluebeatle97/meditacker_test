@@ -371,13 +371,19 @@ class PatientScene extends Phaser.Scene {
       DEMO ? localConfigUrl(local) : `${SERVER_URL}${route}`;
 
     this.token = TOKEN;
-    const [plan, zones, grid] = await Promise.all([
+    const [plan, zones, grid, staffArea] = await Promise.all([
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
       Promise.resolve(source.zones),
       fetch(from('/walkable', 'walkable')).then((r) => r.json() as Promise<WalkableGrid>),
+      // 직원 전용 구역 — 안내 경로가 여길 지나지 않게 돌아가는 데만 쓴다.
+      // 없어도(예전 배포) 동작해야 하므로 실패는 조용히 넘긴다
+      fetch(from('/staff-area', 'staff-area'))
+        .then((r) => (r.ok ? (r.json() as Promise<WalkableGrid>) : null))
+        .catch(() => null),
     ]);
     this.plan = plan;
     this.pf = new Pathfinder(grid);
+    this.pf.setAvoidMask(staffArea);
     for (const z of zones) this.zones.set(z.zoneId, z);
 
     // 캐릭터는 이 화면이 뜨기 전에 이미 다 만들어져 있다 (main 참고)
