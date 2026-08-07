@@ -422,7 +422,7 @@ class PatientScene extends Phaser.Scene {
       scene: this,
       pf: this.pf,
       zones: this.zones,
-      m: (v) => this.m(v),
+      scale: MAP_SCALE,
       depth: 0.5,
     });
 
@@ -835,7 +835,7 @@ class PatientScene extends Phaser.Scene {
       this.me.y - 30 + Math.sin(_time / ARROW_BOB_MS * Math.PI * 2) * ARROW_BOB_PX,
     );
     // 안내 화살표: 지나온 것은 흐려지고, 남은 것은 목적지 쪽으로 밝기가 흐른다
-    this.guide?.update(this.me.x, this.me.y, this.lastSelf?.zone ?? null, _time);
+    this.guide?.update(this.me.x, this.me.y, _time);
     this.crowd?.update(delta); // 다른 사람들도 같은 보행 속도로 좁힌다
   }
 }

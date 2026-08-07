@@ -343,9 +343,8 @@ class StaffMapScene extends Phaser.Scene {
   /**
    * 안내 중인 환자의 경로를 도면에 옅게 그린다.
    *
-   * 환자 화면과 **같은 A\*·같은 방 기준점**을 쓴다 — 다른 길을 그리면 "저기로 가라고
-   * 했는데 왜 딴 데로 가지" 를 직원이 화면 탓인지 환자 탓인지 구분할 수 없다.
-   * 안내 시작 시점의 방이 아니라 지금 있는 방에서 다시 그린다 (환자 화면과 같은 규칙).
+   * 환자 화면과 **같은 A\*·같은 출발점(환자 캐릭터 자리)** 을 쓴다 — 다른 길을 그리면
+   * "저기로 가라고 했는데 왜 딴 데로 가지" 를 직원이 화면 탓인지 환자 탓인지 알 수 없다.
    */
   private drawGuideLines(): void {
     for (const [tagId, g] of this.guideLines) {
@@ -355,8 +354,9 @@ class StaffMapScene extends Phaser.Scene {
       }
     }
     for (const [tagId, zoneId] of this.guidance) {
-      const from = this.states.get(tagId)?.currentZone;
-      const a = from ? this.zones.get(from) : undefined;
+      // 환자 화면은 캐릭터 발밑에서 길을 그린다 — 여기도 같은 자리에서 시작해야
+      // 두 화면이 같은 길을 보여준다. 아바타가 없으면(자리비움) 그릴 것이 없다
+      const from = this.lastPoint.get(tagId);
       const b = this.zones.get(zoneId);
       let line = this.guideLines.get(tagId);
       if (!line) {
@@ -365,13 +365,8 @@ class StaffMapScene extends Phaser.Scene {
         this.guideLines.set(tagId, line);
       }
       line.clear();
-      if (!a || !b) continue; // 복도(이동 중)면 그릴 기준이 없다 — 다음 갱신에 다시 잡힌다
-      const route = this.pf.findPath(
-        a.tilePosition.x,
-        a.tilePosition.y,
-        b.tilePosition.x,
-        b.tilePosition.y,
-      );
+      if (!from || !b) continue;
+      const route = this.pf.findPath(from.x, from.y, b.tilePosition.x, b.tilePosition.y);
       if (!route || route.length < 2) continue;
       // ⚠️ 길찾기는 도면 좌표로 하고, 그리기는 화면 좌표로 한다 (sx/sy).
       //    도면 좌표를 그대로 그리면 선이 엉뚱한 데 나타난다
@@ -737,15 +732,10 @@ class StaffMapScene extends Phaser.Scene {
     });
 
     this.socket.on('presence:update', (states: PresenceState[]) => {
-      let zoneChanged = false;
       for (const state of states) {
-        if (this.states.get(state.tagId)?.currentZone !== state.currentZone) zoneChanged = true;
         this.states.set(state.tagId, state);
         this.upsertAvatar(state);
       }
-      // 방이 바뀌었을 때만 다시 그린다 — 환자 화면의 화살표와 같은 규칙이라야
-      // 두 화면이 같은 길을 보여준다
-      if (zoneChanged && this.guidance.size) this.drawGuideLines();
       this.refreshPanel();
     });
 
@@ -792,6 +782,8 @@ class StaffMapScene extends Phaser.Scene {
           enteredAt: prev && prev.currentZone === p.zone ? prev.enteredAt : Date.now(),
         });
       }
+      // 안내선은 환자가 서 있는 자리에서 시작하므로 좌표가 오면 다시 그린다
+      if (this.guidance.size) this.drawGuideLines();
       this.refreshPanel();
     });
 

@@ -13,11 +13,26 @@ export interface WalkableGrid {
   grid: string[];
 }
 
+/**
+ * 벽에 붙지 않게 하는 값.
+ *
+ * 균일 비용 A* 는 **최단이기만 하면 어느 길이든 같은 값**이라, 타이브레이크에 따라
+ * 벽을 스치는 경로가 그대로 나온다. 사람은 복도 한가운데로 걷고, 길안내 화살표가
+ * 벽에 붙어 있으면 어디로 가라는 건지 읽히지 않는다. 벽에서 이 칸 수 안쪽이면
+ * 가까울수록 비용을 더해 가운데로 밀어낸다.
+ *
+ * 문처럼 좁은 곳은 어느 칸을 골라도 똑같이 비싸므로 그대로 통과한다 — 우회하지 않는다.
+ */
+const CLEAR_CELLS = 4; // 격자 한 칸 4px → 16px, 캐릭터 폭만큼
+const CLEAR_WEIGHT = 1.6; // 벽에 딱 붙은 칸이 한가운데보다 2.6배 비싸진다
+
 export class Pathfinder {
   readonly cell: number;
   readonly cols: number;
   readonly rows: number;
   private walk: Uint8Array;
+  /** 칸마다 더해지는 벽 근접 비용 (0 = 충분히 넓은 곳) */
+  private wallCost: Float32Array;
 
   constructor(data: WalkableGrid) {
     this.cell = data.cell;
@@ -30,6 +45,48 @@ export class Pathfinder {
         if (row.charCodeAt(gx) === 49) this.walk[gy * this.cols + gx] = 1;
       }
     }
+    this.wallCost = this.buildWallCost();
+  }
+
+  /**
+   * 벽에서 몇 칸 떨어졌는지를 벽에서 시작하는 너비우선 탐색으로 한 번에 구한다
+   * (칸마다 주변을 훑으면 격자가 412x397 이라 눈에 띄게 느리다).
+   */
+  private buildWallCost(): Float32Array {
+    const n = this.cols * this.rows;
+    const dist = new Int16Array(n).fill(-1);
+    let frontier: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (this.walk[i] === 0) {
+        dist[i] = 0;
+        frontier.push(i);
+      }
+    }
+    for (let d = 1; d <= CLEAR_CELLS && frontier.length; d++) {
+      const next: number[] = [];
+      for (const i of frontier) {
+        const gx = i % this.cols;
+        const gy = (i - gx) / this.cols;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = gx + dx;
+            const ny = gy + dy;
+            if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
+            const ni = ny * this.cols + nx;
+            if (dist[ni] !== -1) continue;
+            dist[ni] = d;
+            next.push(ni);
+          }
+        }
+      }
+      frontier = next;
+    }
+    const cost = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      // -1 = CLEAR_CELLS 보다 멀다 = 벽 신경 쓸 것 없음
+      if (dist[i] > 0) cost[i] = (CLEAR_WEIGHT * (CLEAR_CELLS - dist[i] + 1)) / CLEAR_CELLS;
+    }
+    return cost;
   }
 
   isWalkable(px: number, py: number): boolean {
@@ -236,7 +293,9 @@ export class Pathfinder {
               continue;
             }
           }
-          const step = dx !== 0 && dy !== 0 ? Math.SQRT2 : 1;
+          // 벽 근접 비용을 더한다 — 최단만 보면 벽을 스치는 경로가 나온다.
+          // 휴리스틱은 거리만 보므로 여전히 하한이다(비용은 더해지기만 한다)
+          const step = (dx !== 0 && dy !== 0 ? Math.SQRT2 : 1) + this.wallCost[ni];
           const tentative = gScore[cur] + step;
           if (tentative < gScore[ni]) {
             gScore[ni] = tentative;

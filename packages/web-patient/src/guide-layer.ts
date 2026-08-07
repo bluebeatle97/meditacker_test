@@ -5,17 +5,21 @@ import type { Pathfinder } from './pathfinder';
 /**
  * 방 안내 — 목적지까지 바닥에 빨간 화살표를 깔아 준다.
  *
- * **왜 발밑이 아니라 방 기준으로 그리나.** 게이트웨이가 2대뿐이라 위치는 방 단위로만
- * 안다. 매 좌표마다 경로를 다시 잡으면 신호가 튈 때마다 화살표가 통째로 흔들린다.
- * 그래서 **지금 있는 방 → 목적지 방** 으로 한 번 그리고, 방이 바뀔 때만 다시 그린다.
- * 게이트웨이를 더 깔면 방 판정이 촘촘해지면서 저절로 정밀해진다.
+ * **내 캐릭터 발밑에서 시작한다.** 처음엔 방 기준점에서 그렸는데(신호가 튀어도 안
+ * 흔들리라고), 화면에서는 화살표가 나와 상관없는 데서 뻗어 나가는 것으로 보였다.
+ * 어차피 위치가 틀리면 캐릭터도 같이 틀리므로, 보이는 것과 맞추는 편이 낫다.
  *
- * 복도에는 게이트웨이가 없어 '이동 중'(zone = null)이 된다. 그동안 경로를 지우면
- * 복도에 들어서는 순간 화살표가 사라진다 — 마지막 경로를 그대로 둔다.
+ * 대신 **매 프레임 다시 잡지는 않는다** — 캐릭터가 {@link REROUTE_PX} 만큼 움직였을
+ * 때만 다시 계산한다. 안 그러면 경로가 미세하게 떨린다.
+ *
+ * 복도에는 게이트웨이가 없어 '이동 중'이 되지만, 캐릭터 위치는 계속 있으므로
+ * 화살표도 계속 따라온다.
  */
 
-/** 화살표 간격 (도면 픽셀). 촘촘하면 선이 되고, 성기면 어디로 가는지 안 읽힌다 */
+/** 화살표 간격 (화면 픽셀). 촘촘하면 선이 되고, 성기면 어디로 가는지 안 읽힌다 */
 const STEP_PX = 13;
+/** 이만큼 움직여야 경로를 다시 잡는다 (화면 픽셀) — 매번 잡으면 화살표가 떨린다 */
+const REROUTE_PX = 18;
 const COLOR = 0xff3b30;
 /** 지나온 화살표는 지우지 않고 흐리게 — 어디서 왔는지가 남아야 방향이 읽힌다 */
 const ALPHA_PASSED = 0.16;
@@ -27,8 +31,8 @@ export interface GuideDeps {
   scene: Phaser.Scene;
   pf: Pathfinder;
   zones: Map<string, Zone>;
-  /** 도면 좌표 → 화면 좌표 */
-  m: (v: number) => number;
+  /** 도면 좌표 ↔ 화면 좌표 배율 */
+  scale: number;
   /** 그리기 층 — 바닥(0) 위, 사람(1) 아래 */
   depth: number;
 }
@@ -37,8 +41,8 @@ export class GuideLayer {
   private d: GuideDeps;
   private arrows: Phaser.GameObjects.Triangle[] = [];
   private target: string | null = null;
-  /** 경로를 뽑을 때 기준이 된 방 — 여기가 바뀌어야 다시 그린다 */
-  private routedFrom: string | null = null;
+  /** 경로를 뽑을 때 캐릭터가 서 있던 자리 (화면 좌표) */
+  private routedAt: { x: number; y: number } | null = null;
 
   constructor(deps: GuideDeps) {
     this.d = deps;
@@ -53,17 +57,19 @@ export class GuideLayer {
   setTarget(zoneId: string | null): void {
     if (zoneId === this.target) return;
     this.target = zoneId;
-    this.routedFrom = null; // 다음 갱신에서 새로 그린다
+    this.routedAt = null; // 다음 갱신에서 새로 그린다
     if (!zoneId) this.clear();
   }
 
   /**
-   * 매 프레임 호출. 방이 바뀌었으면 경로를 다시 깔고, 지나온 화살표를 흐리게 한다.
-   * `zone` 이 null(복도 이동 중)이면 마지막 경로를 유지한다.
+   * 매 프레임 호출. 캐릭터가 충분히 움직였으면 경로를 다시 깔고,
+   * 지나온 화살표를 흐리게 한다.
    */
-  update(selfX: number, selfY: number, zone: string | null, time: number): void {
+  update(selfX: number, selfY: number, time: number): void {
     if (!this.target) return;
-    if (zone && zone !== this.routedFrom) this.draw(zone);
+    const moved =
+      !this.routedAt || Math.hypot(selfX - this.routedAt.x, selfY - this.routedAt.y) > REROUTE_PX;
+    if (moved) this.draw(selfX, selfY);
     if (!this.arrows.length) return;
 
     // 내 위치에서 가장 가까운 화살표 — 그 앞은 흐리게, 뒤는 진하게
@@ -88,29 +94,33 @@ export class GuideLayer {
     }
   }
 
-  private draw(fromZone: string): void {
+  private draw(selfX: number, selfY: number): void {
     this.clear();
-    this.routedFrom = fromZone;
-    const from = this.d.zones.get(fromZone);
+    this.routedAt = { x: selfX, y: selfY };
     const to = this.target ? this.d.zones.get(this.target) : undefined;
-    if (!from || !to) return;
+    if (!to) return;
 
-    const route = this.d.pf.findPath(
-      from.tilePosition.x,
-      from.tilePosition.y,
-      to.tilePosition.x,
-      to.tilePosition.y,
-    );
-    if (!route || route.length < 2) return;
+    // 길찾기는 도면 좌표로 한다 — 화면 좌표를 그대로 넣으면 격자를 벗어난다
+    const fx = selfX / this.d.scale;
+    const fy = selfY / this.d.scale;
+    const route = this.d.pf.findPath(fx, fy, to.tilePosition.x, to.tilePosition.y);
+    if (!route || route.length < 1) return;
+
+    // ⚠️ findPath 는 **꺾이는 지점만** 돌려준다 — 출발점은 안 들어 있다. 걸을 때는
+    //    캐릭터가 이미 그 자리라 상관없지만, 길을 그릴 때 그대로 쓰면 화살표가 내
+    //    발밑이 아니라 첫 모퉁이에서 시작한다. 여기서 출발점을 앞에 붙인다.
+    //    (단순화가 출발점에서 첫 지점까지 가시선을 보장하므로 벽을 뚫지 않는다)
+    const pts = [{ x: fx, y: fy }, ...route];
 
     // 경로 꺾은선을 일정 간격으로 훑으며 진행 방향으로 돌린 화살표를 놓는다
     let carry = 0;
-    for (let i = 1; i < route.length; i++) {
-      const ax = this.d.m(route[i - 1].x);
-      const ay = this.d.m(route[i - 1].y);
-      const bx = this.d.m(route[i].x);
-      const by = this.d.m(route[i].y);
+    for (let i = 1; i < pts.length; i++) {
+      const ax = pts[i - 1].x * this.d.scale;
+      const ay = pts[i - 1].y * this.d.scale;
+      const bx = pts[i].x * this.d.scale;
+      const by = pts[i].y * this.d.scale;
       const seg = Math.hypot(bx - ax, by - ay);
+      if (seg < 0.01) continue; // 같은 자리면 방향을 못 정한다
       const angle = Math.atan2(by - ay, bx - ax);
       for (let at = carry; at < seg; at += STEP_PX) {
         const t = at / seg;
