@@ -156,9 +156,19 @@ id 해시로 고정해 프레임마다 안 바뀐다). 규칙은 `src/pose.ts` �
 
 - 타일 1칸(16px) = 도면 32px ≈ **52cm**. 이 축척이 캐릭터(16×32 = 두 칸 키 ≈ 104cm)와 맞아야 도트맵으로 보인다 — 더 잘게 잡으면 바닥 무늬가 캐릭터보다 커진다.
 - 방 구분은 좌표 추측이 아니라 `walkable.json` 에서 **방 사각형 실측**(`pathfinder.roomBoxAt` 과 같은 방식). 연결영역 BFS 는 문으로 색이 번져서 못 쓴다.
-- 첫 진입 시 캐릭터를 고른다. 선택값은 **서버**(`patient_profiles`)에 저장한다 — 불변식 B-5(브라우저 스토리지 금지) 때문. 태그 반납(`releaseTag`) 시 초기화된다.
+- 첫 진입 시 캐릭터를 **만든다** — 몸·눈·옷·머리·장식을 골라 시트 한 장으로 합성한다(432파츠). 선택값은 `몸|눈|옷|머리|장식` 문자열로 **서버**(`patient_profiles`)에 저장한다 — 불변식 B-5(브라우저 스토리지 금지) 때문. 태그 반납(`releaseTag`) 시 초기화된다.
 
-> ⚠️ **에셋 라이선스**: 지금 쓰는 LimeZu *Modern Interiors* 는 **무료판 = 비상업 프로젝트 전용**이다. 실제 병원 운영에 올리려면 유료(전체)판을 구매해야 한다 — 타일·가구 종류도 훨씬 많아진다. `packages/web-patient/public/characters/ASSET-LICENSE.txt` 참고.
+파츠는 **커밋하지 않는다**(재배포 금지). 기기마다 한 번 만든다:
+
+```bash
+python tools/build-charparts.py "<Character Generator 2.0 .../Character Pieces 폴더>"
+```
+
+> 없으면 화면이 죽지 않고 **고정 4종 고르기**로 떨어진다 (공개 시연판이 이 상태다).
+
+> ⚠️ **에셋 라이선스**: LimeZu *Modern Interiors* **유료(전체)판** — 상업 프로젝트 사용 가능,
+> **크레딧 표기 필요**(limezu.itch.io), **에셋 재배포 금지**. 마지막 항목 때문에 파츠 432개를
+> 공개 저장소·GitHub Pages 에 올리지 않는다. 원본 사본: `moderninteriors-win/LICENSE.txt`.
 
 ### 실시간 관제 페이지 (하드웨어 디버깅/튜닝)
 

@@ -120,6 +120,21 @@ export type TagMetaMap = Record<string, TagMeta>;
 export const PATIENT_CHARACTERS = ['adam', 'alex', 'amelia', 'bob'] as const;
 export type PatientCharacter = (typeof PATIENT_CHARACTERS)[number];
 
+/**
+ * 조합형 캐릭터 id — 파츠 이름 5개를 `|` 로 이은 것
+ * (`몸|눈|옷|머리|장식`, 만드는 쪽은 web-patient/char-builder.ts).
+ * 장식은 '없음' 이 정상이라 뒤 4칸은 비어 있어도 된다.
+ *
+ * ⚠️ 이 값은 화면에서 **파일 경로**(`charparts/<칸>/<이름>.png`)가 된다.
+ *    글자를 영숫자·밑줄로 묶어 두는 것이 경로를 벗어나지 못하게 하는 유일한 장치다.
+ */
+const COMPOSED_CHAR_ID = /^\w{1,40}(\|\w{0,40}){4}$/;
+
+/** 저장해도 되는 캐릭터 id 인가 (예전 고정 4종 + 조합형) */
+export function isValidCharId(id: string): boolean {
+  return PATIENT_CHARACTERS.includes(id as PatientCharacter) || COMPOSED_CHAR_ID.test(id);
+}
+
 export interface PatientProfile {
   charId: PatientCharacter | string;
   nickname: string | null;

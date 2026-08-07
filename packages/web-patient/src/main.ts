@@ -13,6 +13,18 @@ import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mod
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { Crowd, type CrowdUnit } from './crowd';
 import { poseFor, sittableAt } from './pose';
+import {
+  PART_ORDER,
+  composeSheet,
+  decodeChoice,
+  encodeChoice,
+  isComposed,
+  fixedThumbStyle,
+  thumbStyle,
+  type CharChoice,
+  type Manifest,
+  type PartKey,
+} from './char-builder';
 
 /** 익명 id → 캐릭터 고르기용 (같은 사람은 늘 같은 캐릭터로 보이게) */
 function hashCode(s: string): number {
@@ -98,11 +110,15 @@ const CHARACTERS = [
 /** 스프라이트 시트 24프레임 = 6프레임 × 4방향 (오른쪽·위·왼쪽·아래 순서) */
 const DIR_ROW = { right: 0, up: 1, left: 2, down: 3 } as const;
 /**
- * 앉기 시트는 방향이 없다 — 6프레임짜리 두 벌(총 12)이고 자세 차이가 거의 없다.
+ * 앉기는 12프레임 = **오른쪽 6 + 왼쪽 6**. 뒤 6장은 앞 6장을 좌우로 뒤집은 것이다
+ * (픽셀 단위로 대조해 확인 — 512픽셀 전부 동일). 위·아래를 향해 앉는 그림은 없다.
  * 원본이 32px 프레임에 사람을 16px 폭으로 넣어 둔 것을 추출 때 16px 로 다시 담는다
  * (`tools/build-characters.py`). 그 처리가 없으면 사람이 반으로 쪼개져 보인다.
  */
 const SIT_FRAMES = 6;
+
+/** 조합한 내 캐릭터 시트의 텍스처 키 (군중은 기존 4종 시트를 그대로 쓴다) */
+const ME_SHEET = 'me-sheet';
 type Dir = keyof typeof DIR_ROW;
 
 
@@ -212,46 +228,156 @@ async function claimByPin(pin: string): Promise<string> {
 }
 
 /** 첫 진입 커스터마이징 — 저장까지 끝나면 프로필을 돌려준다 */
-function runSetup(token: string): Promise<PatientProfile> {
+/**
+ * 첫 진입 커스터마이징 — 파츠를 골라 내 캐릭터를 만든다.
+ *
+ * 미리보기는 **원본 파츠를 받지 않고** 묶음 이미지에서 한 칸씩 잘라 겹쳐 그린다
+ * (머리만 200개라 다 받으면 대기실 와이파이로 감당이 안 된다). 실제 시트는
+ * 고른 것만 받아 합성한다.
+ */
+function runSetup(token: string, manifest: Manifest | null): Promise<PatientProfile> {
   return new Promise((resolve) => {
     const wrap = document.getElementById('setup')!;
-    const grid = document.getElementById('chars')!;
+    const doll = document.getElementById('cc-doll')!;
+    const grid = document.getElementById('cc-grid')!;
     const nick = document.getElementById('nick') as HTMLInputElement;
     const start = document.getElementById('start') as HTMLButtonElement;
-    let picked: string | null = null;
+    const tabs = document.getElementById('cc-tabs')!;
 
-    for (const c of CHARACTERS) {
-      const el = document.createElement('div');
-      el.className = 'char';
-      el.innerHTML = `<div class="pic" style="background-image:url(${ASSETS}characters/${c.id}-idle.png)"></div>
-                      <div class="nm">${c.label}</div>`;
-      el.addEventListener('click', () => {
-        picked = c.id;
-        for (const other of Array.from(grid.children)) other.classList.remove('sel');
-        el.classList.add('sel');
-        start.disabled = false;
+    // 파츠가 없으면(공개 시연판 — 에셋 재배포 금지) 고정 4종에서 고른다
+    if (!manifest) {
+      runFixedSetup(token, resolve);
+      return;
+    }
+
+    // 첫 화면이 비어 보이지 않게 기본 조합을 넣어 둔다 (액세서리만 없음)
+    const choice: CharChoice = {
+      body: manifest.body[0],
+      eyes: manifest.eyes[0],
+      outfit: manifest.outfit[0],
+      hair: manifest.hair[0],
+      accessory: '',
+    };
+    let tab: PartKey = 'hair';
+
+    const drawDoll = (): void => {
+      doll.innerHTML = PART_ORDER.filter((k) => choice[k])
+        .map((k) => {
+          const i = manifest[k].indexOf(choice[k]);
+          return `<i style="${thumbStyle(ASSETS, k, i, 3)}"></i>`;
+        })
+        .join('');
+    };
+
+    const drawGrid = (): void => {
+      const ids = manifest[tab];
+      // 액세서리는 '없음' 이 정상적인 선택지다
+      const none =
+        tab === 'accessory'
+          ? `<div class="opt none${choice.accessory ? '' : ' sel'}" data-i="-1">없음</div>`
+          : '';
+      grid.innerHTML =
+        none +
+        ids
+          .map(
+            (id, i) =>
+              `<div class="opt${choice[tab] === id ? ' sel' : ''}" data-i="${i}" ` +
+              `style="${thumbStyle(ASSETS, tab, i, 3)}"></div>`,
+          )
+          .join('');
+      grid.scrollTop = 0;
+    };
+
+    grid.addEventListener('click', (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>('.opt');
+      if (!el) return;
+      const i = Number(el.dataset.i);
+      choice[tab] = i < 0 ? '' : manifest[tab][i];
+      drawGrid();
+      drawDoll();
+    });
+
+    for (const b of Array.from(tabs.querySelectorAll<HTMLButtonElement>('button'))) {
+      b.addEventListener('click', () => {
+        tab = b.dataset.k as PartKey;
+        for (const o of Array.from(document.querySelectorAll('#cc-tabs button'))) {
+          o.classList.toggle('on', o === b);
+        }
+        drawGrid();
       });
-      grid.appendChild(el);
     }
 
     start.addEventListener('click', async () => {
-      if (!picked) return;
       start.disabled = true;
+      const charId = encodeChoice(choice);
       // 시연 모드는 저장할 서버가 없다 — 고른 값은 이 페이지에만 남는다
       // (⚠️ 불변식 B-5: 브라우저 스토리지 금지 → 새로고침하면 다시 고른다)
       if (!DEMO) {
         start.textContent = '저장 중…';
         await fetch(`${SERVER_URL}/patient-profile`, {
           method: 'POST',
-          body: JSON.stringify({ token, charId: picked, nickname: nick.value }),
+          body: JSON.stringify({ token, charId, nickname: nick.value }),
         });
       }
       wrap.classList.remove('show');
-      resolve({ charId: picked, nickname: nick.value.trim() || null });
+      resolve({ charId, nickname: nick.value.trim() || null });
     });
 
+    drawDoll();
+    drawGrid();
+    start.disabled = false; // 기본 조합이 이미 유효하다
     wrap.classList.add('show');
   });
+}
+
+/**
+ * 파츠 없이 고정 4종에서 고르는 화면.
+ *
+ * 원본 에셋은 **재배포 금지**라 파츠 432개를 공개 저장소·공개 배포에 올리지 않는다
+ * (`tools/build-charparts.py` 로 각 기기에서 만든다). 그래서 공개 시연판에는
+ * 파츠가 없고, 그때도 입장은 되어야 하므로 이 화면으로 떨어진다.
+ */
+function runFixedSetup(token: string, resolve: (p: PatientProfile) => void): void {
+  const wrap = document.getElementById('setup')!;
+  const doll = document.getElementById('cc-doll')!;
+  const grid = document.getElementById('cc-grid')!;
+  const nick = document.getElementById('nick') as HTMLInputElement;
+  const start = document.getElementById('start') as HTMLButtonElement;
+  document.getElementById('cc-tabs')!.style.display = 'none'; // 고를 부위가 없다
+
+  let picked: string = CHARACTERS[0].id;
+  const draw = (): void => {
+    doll.innerHTML = `<i style="${fixedThumbStyle(ASSETS, picked)}"></i>`;
+    grid.innerHTML = CHARACTERS.map(
+      (c) =>
+        `<div class="opt${c.id === picked ? ' sel' : ''}" data-id="${c.id}" ` +
+        `style="${fixedThumbStyle(ASSETS, c.id)}"></div>`,
+    ).join('');
+  };
+
+  grid.addEventListener('click', (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>('.opt');
+    if (!el) return;
+    picked = el.dataset.id!;
+    draw();
+  });
+
+  start.addEventListener('click', async () => {
+    start.disabled = true;
+    if (!DEMO) {
+      start.textContent = '저장 중…';
+      await fetch(`${SERVER_URL}/patient-profile`, {
+        method: 'POST',
+        body: JSON.stringify({ token, charId: picked, nickname: nick.value }),
+      });
+    }
+    wrap.classList.remove('show');
+    resolve({ charId: picked, nickname: nick.value.trim() || null });
+  });
+
+  draw();
+  start.disabled = false;
+  wrap.classList.add('show');
 }
 
 class PatientScene extends Phaser.Scene {
@@ -266,6 +392,8 @@ class PatientScene extends Phaser.Scene {
   private meRing?: Phaser.GameObjects.Ellipse;
   private meArrow?: Phaser.GameObjects.Triangle;
   private profile!: PatientProfile;
+  /** 조합 시트의 동작별 [시작 프레임, 개수] — charparts/manifest.json 에서 온다 */
+  private meFrames: Record<string, [number, number]> = {};
   private token!: string;
   private plan!: FloorplanMeta;
   /** 픽셀맵 실제 크기 (타일 경계까지 채워져 도면 × MAP_SCALE 보다 조금 클 수 있다) */
@@ -363,8 +491,28 @@ class PatientScene extends Phaser.Scene {
     this.pf = new Pathfinder(grid);
     for (const z of zones) this.zones.set(z.zoneId, z);
 
-    // 첫 진입이면 캐릭터를 고르고 나서 시작
-    this.profile = profile ?? (await runSetup(this.token));
+    // 첫 진입이면 캐릭터를 고르고 나서 시작.
+    // 파츠는 기기마다 따로 만든다(재배포 금지) — 없으면 고정 4종으로 떨어진다
+    const manifest = await fetch(`${ASSETS}charparts/manifest.json`)
+      .then((r) => (r.ok ? (r.json() as Promise<Manifest>) : null))
+      .catch(() => null);
+    this.profile = profile ?? (await runSetup(this.token, manifest));
+
+    // 고른 파츠를 겹쳐 시트 한 장으로 만들어 텍스처로 등록한다.
+    // 예전 고정 캐릭터('adam' 등)로 저장된 프로필도 있으므로 조합형일 때만 만든다.
+    const choice = manifest && decodeChoice(this.profile.charId);
+    if (choice) {
+      // 프레임 배치는 manifest 가 원본이다 — 여기 숫자를 따로 적어두면 추출기를
+      // 고칠 때 조용히 어긋난다 (앉기 프레임이 반으로 잘렸던 것과 같은 종류의 사고)
+      this.meFrames = manifest.frames;
+      const total = Object.values(manifest.frames).reduce((n, [, c]) => n + c, 0);
+      const canvas = await composeSheet(ASSETS, choice, total);
+      this.textures.addSpriteSheet(
+        ME_SHEET,
+        canvas as unknown as HTMLImageElement,
+        { frameWidth: 16, frameHeight: 32 },
+      );
+    }
 
     this.makeAnims();
 
@@ -387,7 +535,7 @@ class PatientScene extends Phaser.Scene {
     // 시작 위치: 접수데스크 (아직 신호가 없을 때의 기본값)
     const start = this.zones.get('reception') ?? [...this.zones.values()][0];
     this.me = this.add
-      .sprite(this.m(start.tilePosition.x), this.m(start.tilePosition.y), `${this.profile.charId}-idle`)
+      .sprite(this.m(start.tilePosition.x), this.m(start.tilePosition.y), this.meSheetKey())
       .setScale(CHAR_SCALE)
       .setOrigin(0.5, 0.85) // 발끝이 좌표에 오도록
       .setDepth(2); // 다른 사람(1) 위
@@ -495,6 +643,24 @@ class PatientScene extends Phaser.Scene {
     };
   }
 
+  /**
+   * 합성 시트를 실제로 만들었는가.
+   *
+   * 조합형 프로필인데 그 기기에 파츠가 없을 수 있다 — 파츠는 재배포 금지라 기기마다
+   * 따로 만들고, 공개 시연판에는 아예 없다. 그때 조합형인 것만 보고 없는 텍스처를
+   * 집으면 캐릭터 자리에 초록 네모가 뜬다.
+   */
+  private composed(): boolean {
+    return isComposed(this.profile.charId) && this.textures.exists(ME_SHEET);
+  }
+
+  /** 내 캐릭터가 쓸 텍스처. 합성이 안 됐으면 고정 4종의 첫 번째로 대신한다 */
+  private meSheetKey(): string {
+    if (this.composed()) return ME_SHEET;
+    const fallback = isComposed(this.profile.charId) ? CHARACTERS[0].id : this.profile.charId;
+    return `${fallback}-idle`;
+  }
+
   private makeAnims(): void {
     // 다른 사람들용 — 캐릭터 4종 모두. 정면 idle + 우향 걷기(왼쪽은 flipX)
     for (const c of CHARACTERS) {
@@ -510,8 +676,9 @@ class PatientScene extends Phaser.Scene {
         frameRate: 10,
         repeat: -1,
       });
-      // ⚠️ 앉기는 걷기와 배치가 다르다 — 4방향이 아니라 **6프레임 x 2벌**(총 12)이다.
+      // ⚠️ 앉기는 걷기와 배치가 다르다 — 4방향이 아니라 **오른쪽 6 + 왼쪽 6**(총 12)이다.
       //    걷기와 같다고 보고 18~23 을 집으면 없는 프레임이라 아무것도 안 나온다.
+      //    군중은 방향을 추적하지 않으므로 오른쪽 벌만 쓴다.
       this.anims.create({
         key: `${c.id}-c-sit`,
         frames: this.anims.generateFrameNumbers(`${c.id}-sit`, { start: 0, end: SIT_FRAMES - 1 }),
@@ -526,29 +693,40 @@ class PatientScene extends Phaser.Scene {
         repeat: -1,
       });
     }
+    // 조합 시트는 네 동작이 한 장에 이어져 있어 시작 프레임만 다르다.
+    // 예전 고정 캐릭터는 동작마다 파일이 나뉘어 있으므로 키와 오프셋이 둘 다 달라진다.
+    const composed = this.composed();
+    const base0 = this.meSheetKey().replace(/-idle$/, '');
+    const sheet = (kind: 'idle' | 'run' | 'sit'): string =>
+      composed ? ME_SHEET : `${base0}-${kind}`;
+    const base = (kind: 'idle' | 'run' | 'sit'): number =>
+      composed ? this.meFrames[kind === 'run' ? 'walk' : kind][0] : 0;
+
     for (const [dir, row] of Object.entries(DIR_ROW)) {
       for (const kind of ['idle', 'run'] as const) {
         this.anims.create({
           key: `${kind}-${dir}`,
-          frames: this.anims.generateFrameNumbers(`${this.profile.charId}-${kind}`, {
-            start: row * 6,
-            end: row * 6 + 5,
+          frames: this.anims.generateFrameNumbers(sheet(kind), {
+            start: base(kind) + row * 6,
+            end: base(kind) + row * 6 + 5,
           }),
           frameRate: kind === 'run' ? 10 : 6,
           repeat: -1,
         });
       }
     }
-    // 본인 앉기는 방향이 없다 — 시트에 4방향이 없다. 앉은 사람은 어차피 안 돈다.
-    this.anims.create({
-      key: 'sit',
-      frames: this.anims.generateFrameNumbers(`${this.profile.charId}-sit`, {
-        start: 0,
-        end: SIT_FRAMES - 1,
-      }),
-      frameRate: 4,
-      repeat: -1,
-    });
+    // 앉기는 좌·우 두 벌뿐이다. 위·아래로 걷다 앉으면 오른쪽 것을 쓴다.
+    for (const [dir, half] of [['right', 0] as const, ['left', 1] as const]) {
+      this.anims.create({
+        key: `sit-${dir}`,
+        frames: this.anims.generateFrameNumbers(sheet('sit'), {
+          start: base('sit') + half * SIT_FRAMES,
+          end: base('sit') + half * SIT_FRAMES + SIT_FRAMES - 1,
+        }),
+        frameRate: 4,
+        repeat: -1,
+      });
+    }
   }
 
   private connect(): void {
@@ -732,7 +910,10 @@ class PatientScene extends Phaser.Scene {
     // lastPoint 가 도면 좌표 — 화면 좌표로 존을 찾으면 축척만큼 어긋난다.
     const still =
       !moved && !!this.lastPoint && sittableAt(this.zones.values(), this.lastPoint.x, this.lastPoint.y);
-    const want = still ? 'sit' : `${moved ? 'run' : 'idle'}-${this.facing}`;
+    // 앉기는 좌·우만 있다 — 위·아래를 보고 있었으면 오른쪽으로 앉힌다
+    const want = still
+      ? `sit-${this.facing === 'left' ? 'left' : 'right'}`
+      : `${moved ? 'run' : 'idle'}-${this.facing}`;
     if (this.me.anims.currentAnim?.key !== want) this.me.play(want, true);
     this.nameTag?.setPosition(this.me.x, this.me.y + 6);
     // 강조 표시는 캐릭터를 옮긴 뒤에 따라붙인다 (먼저 하면 한 프레임 뒤처진다)

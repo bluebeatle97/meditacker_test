@@ -15,3 +15,7 @@ data/*.db-journal
 packages/server/data/
 mosquitto/data/
 mosquitto/log/
+
+# 캐릭터 파츠 — 원본 에셋 재배포 금지라 커밋하지 않는다.
+# 각 기기에서: python tools/build-charparts.py "<Character Pieces 폴더>"
+packages/web-patient/public/charparts/

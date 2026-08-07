@@ -45,11 +45,10 @@ import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
 import { ScanRouter } from './ingestion/scan-router.js';
 import { ScanRecorder } from './recording/scan-recorder.js';
 import {
-  PATIENT_CHARACTERS,
+  isValidCharId,
   TAG_GROUP_IDS,
   ZoneDwellFilter,
   ZONE_DWELL_MS,
-  type PatientCharacter,
   type TagGroup,
 } from '@meditracker/shared';
 
@@ -343,8 +342,9 @@ const httpServer = createServer((req, res) => {
             nickname?: string;
           };
           const claims = verifyToken(token, SERVER_CONFIG.jwtSecret);
-          // 모르는 캐릭터 id 는 거절 (클라이언트 입력을 그대로 신뢰하지 않음)
-          if (!claims || !PATIENT_CHARACTERS.includes(charId as PatientCharacter)) {
+          // 모르는 캐릭터 id 는 거절 (클라이언트 입력을 그대로 신뢰하지 않음).
+          // 조합형은 파츠 432개 조합이라 목록으로 못 막는다 — 형식으로 막는다
+          if (!claims || typeof charId !== 'string' || !isValidCharId(charId)) {
             res.writeHead(claims ? 400 : 401, cors);
             res.end(JSON.stringify({ ok: false }));
             return;
