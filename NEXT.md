@@ -92,4 +92,4 @@ npm run dev:all -- --no-mock     # 실장비 2대 구성
 - 이력에서 DB blob 90MB 제거 + 강제 푸시 완료 → **기존 클론은 `git reset --hard` 필요**
 - 백업: `C:\Users\LG gram\meditracker-backup-20260806-1831.bundle`
 - 앉기 자세는 넣었으나 **화면 확인 미완** (원본 스프라이트에 의자가 없어 어색할 수 있음)
-- 테스트 70개 통과
+- 테스트 82개 통과
