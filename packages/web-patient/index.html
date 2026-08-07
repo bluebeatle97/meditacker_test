@@ -65,61 +65,83 @@
       #setup.show { display: flex; }
       #pin-gate .card,
       #setup .card {
-        width: 100%; max-width: 420px; padding: 22px;
+        width: 100%; max-width: 420px; padding: 18px;
+        /* 항목이 5줄이라 작은 폰에서는 넘친다 — 카드 안에서 스크롤시킨다 */
+        max-height: calc(100dvh - 32px); overflow-y: auto;
         background: #141d2e; border: 1px solid #2b3a52;
         border-radius: 14px; box-shadow: 0 16px 40px #000a;
       }
-      #pin-gate h2, #setup h2 { margin: 0 0 4px; font-size: 20px; }
+      #pin-gate h2, #setup h2 { margin: 0 0 10px; font-size: 19px; }
       #pin-gate p, #setup p { margin: 0 0 18px; font-size: 13px; color: #9fb0c6; line-height: 1.55; }
       #pin-gate p b { color: #cfe0f5; }
-      /* 조합 미리보기 — 고른 파츠를 겹쳐 정면 한 장으로 보여준다 */
-      #cc-preview {
-        display: flex; align-items: flex-end; justify-content: center;
-        height: 108px; margin-bottom: 12px; border-radius: 10px; background: #101827;
+      /* 미리보기 무대 — 캐릭터가 가운데 크게 서서 움직인다 */
+      #cc-stage {
+        position: relative; display: flex; align-items: flex-end; justify-content: center;
+        height: 176px; margin-bottom: 9px; border-radius: 10px;
+        background: radial-gradient(ellipse at 50% 88%, #1b2a41 0%, #101827 62%);
       }
-      #cc-doll { width: 48px; height: 96px; position: relative; image-rendering: pixelated; }
-      #cc-doll i {
-        position: absolute; inset: 0; display: block;
-        background-repeat: no-repeat; background-size: auto 96px;
-        image-rendering: pixelated;
+      #cc-view { image-rendering: pixelated; margin-bottom: 14px; }
+      /* 발밑 그림자 — 없으면 캐릭터가 허공에 뜬 것처럼 보인다 */
+      #cc-stage::after {
+        content: ''; position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+        width: 54px; height: 12px; border-radius: 50%; background: #0007;
       }
-      #cc-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
-      #cc-tabs button {
-        flex: 1; padding: 6px 0; border-radius: 8px; cursor: pointer;
-        border: 1px solid #253046; background: #101827; color: #9fb0c6; font: 700 12px inherit;
+      /* 자세 버튼은 왼쪽에 세로로 몰아둔다 — 가운데를 비워야 캐릭터가 잘 보인다 */
+      #cc-poses {
+        position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+        display: flex; flex-direction: column; gap: 5px;
       }
-      #cc-tabs button.on { background: #22405f; border-color: #3f6f9e; color: #fff; }
-      /* 머리만 200개다 — 스크롤 격자로 두고 높이를 고정해 카드가 안 늘어나게 한다 */
-      #cc-grid {
-        display: grid; grid-template-columns: repeat(auto-fill, 48px); gap: 6px;
-        max-height: 208px; overflow-y: auto; padding: 6px;
-        border-radius: 10px; background: #0f1725;
+      #cc-poses button {
+        padding: 7px 12px; border-radius: 8px; cursor: pointer;
+        border: 1px solid #253046; background: #0f1725cc; color: #90a2b8; font: 700 12px inherit;
       }
-      #cc-grid .opt {
-        width: 48px; height: 96px; border-radius: 6px; cursor: pointer;
-        border: 2px solid transparent; background-color: #131c2b;
+      #cc-poses button.on { background: #22405f; border-color: #3f6f9e; color: #fff; }
+
+      /* 항목 줄 — 손가락으로 누르는 화면이다 (환자 본인 폰에서 QR 로 들어온다).
+         이름+화살표가 윗줄, 색 동그라미가 아랫줄. 한 줄에 다 넣으면 누를 것들이
+         전부 20px 짜리가 돼서 못 누른다. */
+      #cc-rows { display: flex; flex-direction: column; gap: 4px; }
+      .cc-row {
+        display: grid; grid-template-columns: 1fr auto; align-items: center;
+        row-gap: 6px; padding: 5px 0; border-top: 1px solid #1e2a3e;
       }
-      #cc-grid .opt:hover { border-color: #35496a; }
-      #cc-grid .opt.sel { border-color: #58a6ff; background-color: #17263c; }
-      #cc-grid .opt.none {
-        display: flex; align-items: center; justify-content: center;
-        color: #6d7d94; font-size: 11px; font-weight: 700;
+      .cc-row:first-child { border-top: none; }
+      .cc-row .nm { font-size: 13.5px; font-weight: 700; color: #b9c8dc; }
+      .cc-row .pick {
+        display: grid; grid-template-columns: 44px 66px 44px; align-items: center;
+        border-radius: 10px; background: #0f1725; border: 1px solid #223047;
       }
-      #chars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-      .char {
-        padding: 10px 4px 8px; border-radius: 10px; cursor: pointer;
-        background: #101827; border: 2px solid #253046; text-align: center;
+      .cc-row .arw {
+        border: none; background: none; cursor: pointer; height: 34px; padding: 0;
+        color: #9db2cc; font-size: 15px; line-height: 1; border-radius: 9px;
       }
-      .char:hover { background: #162033; }
-      .char.sel { border-color: #58a6ff; background: #17263c; }
-      /* 스프라이트 시트에서 '정면(아래)' 프레임 한 장만 잘라 보여준다 */
-      .char .pic {
-        width: 48px; height: 96px; margin: 0 auto 6px;
-        background-repeat: no-repeat; background-size: 1152px 96px;   /* 384x32 을 3배 */
-        background-position: -864px 0;                                /* 19번째 프레임 = 정면 */
-        image-rendering: pixelated;
+      .cc-row .arw:hover { color: #fff; background: #1b2942; }
+      .cc-row .arw:active { background: #24395c; }
+      .cc-row .cnt {
+        text-align: center; font: 700 13px ui-monospace, "Consolas", monospace; color: #9fb0c6;
       }
-      .char .nm { font-size: 11px; color: #b9c8dc; font-weight: 700; }
+      /* 색은 작게 두되 **한 줄에 다 보이게** 한다 — 가장 많은 게 10색이고,
+         제 줄을 통째로 쓰면 20px 짜리 10개가 줄바꿈 없이 들어간다.
+         고르는 것보다 "무슨 색들이 있나" 를 한눈에 보는 게 먼저다. */
+      /* 장식을 '없음' 에서 고르면 없던 줄이 생겨 카드가 스크롤된다 —
+         비어 있어도 자리를 잡아 두면 높이가 안 흔들린다 */
+      .cc-row .sw {
+        grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; min-height: 20px;
+      }
+      .cc-row .sw i {
+        width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
+        border: 2px solid #2b3a52; box-sizing: border-box;
+      }
+      .cc-row .sw i:hover { border-color: #5b7ba6; }
+      .cc-row .sw i.on { border-color: #fff; box-shadow: 0 0 0 2px #58a6ff; }
+      /* 무대 안 빈 자리(우측 상단)에 얹어서 세로 한 줄을 통째로 아낀다 */
+      #cc-random {
+        position: absolute; right: 8px; top: 8px; z-index: 1;
+        padding: 7px 12px; border-radius: 8px; cursor: pointer;
+        border: 1px solid #35496a; background: #17233acc; color: #a9bdd6;
+        font: 700 12px inherit;
+      }
+      #cc-random:hover { background: #22314d; color: #fff; }
       #nick {
         width: 100%; box-sizing: border-box; margin: 16px 0 4px; padding: 10px 12px;
         border-radius: 9px; border: 1px solid #2b3a52; background: #0f1725;
@@ -127,11 +149,16 @@
       }
       #nick:focus { outline: none; border-color: #58a6ff; }
       #setup .hint { font-size: 11px; color: #6d7d94; }
-      #start {
-        width: 100%; margin-top: 16px; padding: 12px; border-radius: 10px; cursor: pointer;
+      #start, #go {
+        width: 100%; margin-top: 12px; padding: 12px; border-radius: 10px; cursor: pointer;
         border: none; background: #2f6fd0; color: #fff; font: 800 15px inherit;
       }
       #start:disabled { background: #26334a; color: #6d7d94; cursor: default; }
+      #back {
+        width: 100%; margin-top: 8px; padding: 10px; border-radius: 10px; cursor: pointer;
+        border: 1px solid #2b3a52; background: none; color: #8fa3bb; font: 700 13px inherit;
+      }
+      #back:hover { background: #131d2e; color: #cfe3f7; }
 
       /* 오류가 나면 빈 화면만 남아 원인을 알 수 없다 — 화면에 그대로 띄운다 */
       #fatal {
@@ -195,21 +222,26 @@
 
     <div id="setup">
       <div class="card">
-        <h2>내 캐릭터 고르기</h2>
-        <p>대기 화면에서 나를 나타낼 캐릭터입니다.<br />별칭은 다른 환자에게 보이지 않습니다.</p>
-        <!-- 조합 미리보기 — 고를 때마다 여기 캐릭터가 바뀐다 -->
-        <div id="cc-preview"><div id="cc-doll"></div></div>
-        <div id="cc-tabs">
-          <button data-k="hair" class="on">머리</button>
-          <button data-k="outfit">옷</button>
-          <button data-k="body">피부</button>
-          <button data-k="eyes">눈</button>
-          <button data-k="accessory">장식</button>
+        <h2 id="cc-title">내 캐릭터 만들기</h2>
+        <!-- 미리보기 — 고를 때마다 바로 바뀌고, 서 있는 동안 숨을 쉰다.
+             별명 단계에서도 그대로 두고 아래만 바꾼다 -->
+        <div id="cc-stage">
+          <canvas id="cc-view"></canvas>
+          <button id="cc-random" type="button">🎲 아무거나</button>
+          <div id="cc-poses"></div>
         </div>
-        <div id="cc-grid"></div>
-        <input id="nick" type="text" maxlength="12" placeholder="별칭 (선택)" spellcheck="false" />
-        <div class="hint">진료가 끝나고 비콘을 반납하면 초기화됩니다.</div>
-        <button id="start" type="button" disabled>시작하기</button>
+        <!-- 1단계: 캐릭터 만들기. 항목 줄은 화면 쪽에서 채운다 -->
+        <div id="cc-step1">
+          <div id="cc-rows"></div>
+          <button id="start" type="button" disabled>다음</button>
+        </div>
+        <!-- 2단계: 별명. 캐릭터를 다 만든 뒤에 묻는다 -->
+        <div id="cc-step2" hidden>
+          <input id="nick" type="text" maxlength="12" placeholder="별명 (선택)" spellcheck="false" />
+          <div class="hint">별명은 다른 환자에게 보이지 않습니다. 비콘을 반납하면 초기화됩니다.</div>
+          <button id="go" type="button">시작하기</button>
+          <button id="back" type="button">캐릭터 다시 만들기</button>
+        </div>
       </div>
     </div>
 

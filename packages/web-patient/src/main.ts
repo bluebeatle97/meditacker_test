@@ -13,18 +13,8 @@ import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mod
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { Crowd, type CrowdUnit } from './crowd';
 import { poseFor, sittableAt } from './pose';
-import {
-  PART_ORDER,
-  composeSheet,
-  decodeChoice,
-  encodeChoice,
-  isComposed,
-  fixedThumbStyle,
-  thumbStyle,
-  type CharChoice,
-  type Manifest,
-  type PartKey,
-} from './char-builder';
+import { composeSheet, decodeChoice, isComposed, type Manifest } from './char-builder';
+import { mountCharPicker } from './char-picker';
 
 /** 익명 id → 캐릭터 고르기용 (같은 사람은 늘 같은 캐릭터로 보이게) */
 function hashCode(s: string): number {
@@ -118,7 +108,7 @@ const DIR_ROW = { right: 0, up: 1, left: 2, down: 3 } as const;
 const SIT_FRAMES = 6;
 
 /** 조합한 내 캐릭터 시트의 텍스처 키 (군중은 기존 4종 시트를 그대로 쓴다) */
-const ME_SHEET = 'me-sheet';
+const ME_SHEET_KEY = 'me-sheet';
 type Dir = keyof typeof DIR_ROW;
 
 
@@ -227,157 +217,57 @@ async function claimByPin(pin: string): Promise<string> {
   return d.token;
 }
 
-/** 첫 진입 커스터마이징 — 저장까지 끝나면 프로필을 돌려준다 */
 /**
- * 첫 진입 커스터마이징 — 파츠를 골라 내 캐릭터를 만든다.
+ * 첫 진입 — 캐릭터를 만들고(1단계) 별명을 받는다(2단계).
  *
- * 미리보기는 **원본 파츠를 받지 않고** 묶음 이미지에서 한 칸씩 잘라 겹쳐 그린다
- * (머리만 200개라 다 받으면 대기실 와이파이로 감당이 안 된다). 실제 시트는
- * 고른 것만 받아 합성한다.
+ * 두 단계로 나눈 것은 화면 높이 때문만이 아니다. 캐릭터를 다 만든 다음에 이름을
+ * 물어야 "이 캐릭터의 이름" 이 된다. 고르는 부분은 `char-picker.ts` 가 맡는다.
  */
 function runSetup(token: string, manifest: Manifest | null): Promise<PatientProfile> {
   return new Promise((resolve) => {
     const wrap = document.getElementById('setup')!;
-    const doll = document.getElementById('cc-doll')!;
-    const grid = document.getElementById('cc-grid')!;
+    const title = document.getElementById('cc-title')!;
+    const step1 = document.getElementById('cc-step1')!;
+    const step2 = document.getElementById('cc-step2')!;
     const nick = document.getElementById('nick') as HTMLInputElement;
-    const start = document.getElementById('start') as HTMLButtonElement;
-    const tabs = document.getElementById('cc-tabs')!;
+    const next = document.getElementById('start') as HTMLButtonElement;
+    const go = document.getElementById('go') as HTMLButtonElement;
+    const back = document.getElementById('back') as HTMLButtonElement;
 
-    // 파츠가 없으면(공개 시연판 — 에셋 재배포 금지) 고정 4종에서 고른다
-    if (!manifest) {
-      runFixedSetup(token, resolve);
-      return;
-    }
+    const picker = mountCharPicker(
+      ASSETS,
+      manifest,
+      CHARACTERS.map((c) => c.id),
+    );
+    wrap.classList.add('show');
 
-    // 첫 화면이 비어 보이지 않게 기본 조합을 넣어 둔다 (액세서리만 없음)
-    const choice: CharChoice = {
-      body: manifest.body[0],
-      eyes: manifest.eyes[0],
-      outfit: manifest.outfit[0],
-      hair: manifest.hair[0],
-      accessory: '',
+    // 미리보기 무대는 두 단계에 걸쳐 그대로 둔다 — 별명을 지을 때도 캐릭터가 보여야 한다
+    const step = (second: boolean): void => {
+      step1.hidden = second;
+      step2.hidden = !second;
+      title.textContent = second ? '별명 정하기' : '내 캐릭터 만들기';
+      if (second) nick.focus();
     };
-    let tab: PartKey = 'hair';
+    next.addEventListener('click', () => step(true));
+    back.addEventListener('click', () => step(false));
 
-    const drawDoll = (): void => {
-      doll.innerHTML = PART_ORDER.filter((k) => choice[k])
-        .map((k) => {
-          const i = manifest[k].indexOf(choice[k]);
-          return `<i style="${thumbStyle(ASSETS, k, i, 3)}"></i>`;
-        })
-        .join('');
-    };
-
-    const drawGrid = (): void => {
-      const ids = manifest[tab];
-      // 액세서리는 '없음' 이 정상적인 선택지다
-      const none =
-        tab === 'accessory'
-          ? `<div class="opt none${choice.accessory ? '' : ' sel'}" data-i="-1">없음</div>`
-          : '';
-      grid.innerHTML =
-        none +
-        ids
-          .map(
-            (id, i) =>
-              `<div class="opt${choice[tab] === id ? ' sel' : ''}" data-i="${i}" ` +
-              `style="${thumbStyle(ASSETS, tab, i, 3)}"></div>`,
-          )
-          .join('');
-      grid.scrollTop = 0;
-    };
-
-    grid.addEventListener('click', (e) => {
-      const el = (e.target as HTMLElement).closest<HTMLElement>('.opt');
-      if (!el) return;
-      const i = Number(el.dataset.i);
-      choice[tab] = i < 0 ? '' : manifest[tab][i];
-      drawGrid();
-      drawDoll();
-    });
-
-    for (const b of Array.from(tabs.querySelectorAll<HTMLButtonElement>('button'))) {
-      b.addEventListener('click', () => {
-        tab = b.dataset.k as PartKey;
-        for (const o of Array.from(document.querySelectorAll('#cc-tabs button'))) {
-          o.classList.toggle('on', o === b);
-        }
-        drawGrid();
-      });
-    }
-
-    start.addEventListener('click', async () => {
-      start.disabled = true;
-      const charId = encodeChoice(choice);
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      const charId = picker.charId();
       // 시연 모드는 저장할 서버가 없다 — 고른 값은 이 페이지에만 남는다
-      // (⚠️ 불변식 B-5: 브라우저 스토리지 금지 → 새로고침하면 다시 고른다)
+      // (⚠️ 불변식 B-5: 브라우저 스토리지 금지 → 새로고침하면 다시 만든다)
       if (!DEMO) {
-        start.textContent = '저장 중…';
+        go.textContent = '저장 중…';
         await fetch(`${SERVER_URL}/patient-profile`, {
           method: 'POST',
           body: JSON.stringify({ token, charId, nickname: nick.value }),
         });
       }
+      picker.stop();
       wrap.classList.remove('show');
       resolve({ charId, nickname: nick.value.trim() || null });
     });
-
-    drawDoll();
-    drawGrid();
-    start.disabled = false; // 기본 조합이 이미 유효하다
-    wrap.classList.add('show');
   });
-}
-
-/**
- * 파츠 없이 고정 4종에서 고르는 화면.
- *
- * 원본 에셋은 **재배포 금지**라 파츠 432개를 공개 저장소·공개 배포에 올리지 않는다
- * (`tools/build-charparts.py` 로 각 기기에서 만든다). 그래서 공개 시연판에는
- * 파츠가 없고, 그때도 입장은 되어야 하므로 이 화면으로 떨어진다.
- */
-function runFixedSetup(token: string, resolve: (p: PatientProfile) => void): void {
-  const wrap = document.getElementById('setup')!;
-  const doll = document.getElementById('cc-doll')!;
-  const grid = document.getElementById('cc-grid')!;
-  const nick = document.getElementById('nick') as HTMLInputElement;
-  const start = document.getElementById('start') as HTMLButtonElement;
-  document.getElementById('cc-tabs')!.style.display = 'none'; // 고를 부위가 없다
-
-  let picked: string = CHARACTERS[0].id;
-  const draw = (): void => {
-    doll.innerHTML = `<i style="${fixedThumbStyle(ASSETS, picked)}"></i>`;
-    grid.innerHTML = CHARACTERS.map(
-      (c) =>
-        `<div class="opt${c.id === picked ? ' sel' : ''}" data-id="${c.id}" ` +
-        `style="${fixedThumbStyle(ASSETS, c.id)}"></div>`,
-    ).join('');
-  };
-
-  grid.addEventListener('click', (e) => {
-    const el = (e.target as HTMLElement).closest<HTMLElement>('.opt');
-    if (!el) return;
-    picked = el.dataset.id!;
-    draw();
-  });
-
-  start.addEventListener('click', async () => {
-    start.disabled = true;
-    if (!DEMO) {
-      start.textContent = '저장 중…';
-      await fetch(`${SERVER_URL}/patient-profile`, {
-        method: 'POST',
-        body: JSON.stringify({ token, charId: picked, nickname: nick.value }),
-      });
-    }
-    wrap.classList.remove('show');
-    resolve({ charId: picked, nickname: nick.value.trim() || null });
-  });
-
-  draw();
-  start.disabled = false;
-  wrap.classList.add('show');
 }
 
 class PatientScene extends Phaser.Scene {
@@ -476,42 +366,23 @@ class PatientScene extends Phaser.Scene {
       DEMO ? localConfigUrl(local) : `${SERVER_URL}${route}`;
 
     this.token = TOKEN;
-    const [plan, zones, grid, profile] = await Promise.all([
+    const [plan, zones, grid] = await Promise.all([
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
       Promise.resolve(source.zones),
       fetch(from('/walkable', 'walkable')).then((r) => r.json() as Promise<WalkableGrid>),
-      // 저장해 둘 서버가 없으니 시연 모드는 늘 캐릭터 선택부터 시작한다
-      DEMO
-        ? Promise.resolve(null)
-        : fetch(`${SERVER_URL}/patient-profile?token=${encodeURIComponent(this.token)}`)
-            .then((r) => r.json() as Promise<PatientProfile | null>)
-            .catch(() => null),
     ]);
     this.plan = plan;
     this.pf = new Pathfinder(grid);
     for (const z of zones) this.zones.set(z.zoneId, z);
 
-    // 첫 진입이면 캐릭터를 고르고 나서 시작.
-    // 파츠는 기기마다 따로 만든다(재배포 금지) — 없으면 고정 4종으로 떨어진다
-    const manifest = await fetch(`${ASSETS}charparts/manifest.json`)
-      .then((r) => (r.ok ? (r.json() as Promise<Manifest>) : null))
-      .catch(() => null);
-    this.profile = profile ?? (await runSetup(this.token, manifest));
-
-    // 고른 파츠를 겹쳐 시트 한 장으로 만들어 텍스처로 등록한다.
-    // 예전 고정 캐릭터('adam' 등)로 저장된 프로필도 있으므로 조합형일 때만 만든다.
-    const choice = manifest && decodeChoice(this.profile.charId);
-    if (choice) {
-      // 프레임 배치는 manifest 가 원본이다 — 여기 숫자를 따로 적어두면 추출기를
-      // 고칠 때 조용히 어긋난다 (앉기 프레임이 반으로 잘렸던 것과 같은 종류의 사고)
-      this.meFrames = manifest.frames;
-      const total = Object.values(manifest.frames).reduce((n, [, c]) => n + c, 0);
-      const canvas = await composeSheet(ASSETS, choice, total);
-      this.textures.addSpriteSheet(
-        ME_SHEET,
-        canvas as unknown as HTMLImageElement,
-        { frameWidth: 16, frameHeight: 32 },
-      );
+    // 캐릭터는 이 화면이 뜨기 전에 이미 다 만들어져 있다 (main 참고)
+    this.profile = PROFILE;
+    this.meFrames = ME_FRAMES;
+    if (ME_SHEET) {
+      this.textures.addSpriteSheet(ME_SHEET_KEY, ME_SHEET as unknown as HTMLImageElement, {
+        frameWidth: 16,
+        frameHeight: 32,
+      });
     }
 
     this.makeAnims();
@@ -651,12 +522,12 @@ class PatientScene extends Phaser.Scene {
    * 집으면 캐릭터 자리에 초록 네모가 뜬다.
    */
   private composed(): boolean {
-    return isComposed(this.profile.charId) && this.textures.exists(ME_SHEET);
+    return isComposed(this.profile.charId) && this.textures.exists(ME_SHEET_KEY);
   }
 
   /** 내 캐릭터가 쓸 텍스처. 합성이 안 됐으면 고정 4종의 첫 번째로 대신한다 */
   private meSheetKey(): string {
-    if (this.composed()) return ME_SHEET;
+    if (this.composed()) return ME_SHEET_KEY;
     const fallback = isComposed(this.profile.charId) ? CHARACTERS[0].id : this.profile.charId;
     return `${fallback}-idle`;
   }
@@ -698,7 +569,7 @@ class PatientScene extends Phaser.Scene {
     const composed = this.composed();
     const base0 = this.meSheetKey().replace(/-idle$/, '');
     const sheet = (kind: 'idle' | 'run' | 'sit'): string =>
-      composed ? ME_SHEET : `${base0}-${kind}`;
+      composed ? ME_SHEET_KEY : `${base0}-${kind}`;
     const base = (kind: 'idle' | 'run' | 'sit'): number =>
       composed ? this.meFrames[kind === 'run' ? 'walk' : kind][0] : 0;
 
@@ -936,11 +807,41 @@ class PatientScene extends Phaser.Scene {
  */
 let TOKEN = '';
 
+/** 만들어 둔 내 캐릭터 — Phaser 가 뜨기 전에 정해진다 */
+let PROFILE: PatientProfile;
+let ME_SHEET: HTMLCanvasElement | null = null;
+let ME_FRAMES: Record<string, [number, number]> = {};
+
 async function main(): Promise<void> {
   const source = await resolveZones(SERVER_URL);
   DEMO = source.demo;
   if (DEMO) markDemoUi();
   TOKEN = await resolveToken();
+
+  // 캐릭터 만들기는 Phaser 를 기다리지 않는다. 순수 DOM + 2D 캔버스라 엔진이 필요 없고,
+  // 환자 폰에서 도면·스프라이트가 받아지는 동안 먼저 보여 주는 편이 훨씬 빠르게 느껴진다.
+  // 파츠는 기기마다 따로 만든다(재배포 금지) — 없으면 고정 4종으로 떨어진다
+  const manifest = await fetch(`${ASSETS}charparts/manifest.json`)
+    .then((r) => (r.ok ? (r.json() as Promise<Manifest>) : null))
+    .catch(() => null);
+  // 저장해 둘 서버가 없으니 시연 모드는 늘 캐릭터 만들기부터 시작한다
+  const saved = DEMO
+    ? null
+    : await fetch(`${SERVER_URL}/patient-profile?token=${encodeURIComponent(TOKEN)}`)
+        .then((r) => r.json() as Promise<PatientProfile | null>)
+        .catch(() => null);
+  PROFILE = saved ?? (await runSetup(TOKEN, manifest));
+
+  // 고른 파츠를 겹쳐 시트 한 장으로. 예전 고정 캐릭터로 저장된 프로필도 있으므로
+  // 조합형일 때만 만든다
+  const choice = manifest && decodeChoice(PROFILE.charId);
+  if (choice && manifest) {
+    // 프레임 배치는 manifest 가 원본이다 — 여기 숫자를 따로 적어두면 추출기를 고칠 때
+    // 조용히 어긋난다 (앉기 프레임이 반으로 잘렸던 것과 같은 종류의 사고)
+    ME_FRAMES = manifest.frames;
+    const total = Object.values(manifest.frames).reduce((n, [, c]) => n + c, 0);
+    ME_SHEET = await composeSheet(ASSETS, choice, total);
+  }
   startGame();
 }
 

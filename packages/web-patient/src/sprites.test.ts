@@ -67,8 +67,9 @@ const PARTS_DIR = join(here, '../public/charparts');
 /** 이 값들은 앱이 아니라 manifest 가 정한다 — 앱은 manifest 를 읽어 쓴다 */
 const PART_SHEET_FRAMES = 72; // idle 24 + 걷기 24 + 앉기 12 + 폰 12
 
-interface PartManifest extends Record<string, unknown> {
+interface PartManifest {
   frames: Record<string, [number, number]>;
+  parts: Record<string, Array<{ id: string; colors: Array<{ id: string; hex: string }> }>>;
 }
 
 // 파츠는 원본 재배포 금지라 커밋하지 않는다 — 만들지 않은 기기에서는 검사할 게 없다
@@ -95,21 +96,27 @@ describe.skipIf(!existsSync(join(PARTS_DIR, 'manifest.json')))('캐릭터 파츠
 
   for (const key of keys) {
     it(`${key}: 모든 파츠가 ${FRAME_W}x${FRAME_H} x ${PART_SHEET_FRAMES}프레임`, () => {
-      const ids = manifest[key] as string[];
-      expect(ids.length, `${key} 파츠가 없음`).toBeGreaterThan(0);
-      for (const id of ids) {
-        const { w, h } = pngSize(join(PARTS_DIR, key, `${id}.png`));
-        expect(h, `${key}/${id} 높이`).toBe(FRAME_H);
-        expect(w / FRAME_W, `${key}/${id} 프레임 수`).toBe(PART_SHEET_FRAMES);
+      const shapes = manifest.parts[key];
+      expect(shapes?.length, `${key} 파츠가 없음`).toBeGreaterThan(0);
+      for (const shape of shapes) {
+        for (const c of shape.colors) {
+          const { w, h } = pngSize(join(PARTS_DIR, key, `${c.id}.png`));
+          expect(h, `${key}/${c.id} 높이`).toBe(FRAME_H);
+          expect(w / FRAME_W, `${key}/${c.id} 프레임 수`).toBe(PART_SHEET_FRAMES);
+        }
       }
     });
 
-    it(`${key}: 미리보기 묶음의 칸 수가 파츠 수와 같다`, () => {
-      // 어긋나면 목록에서 엉뚱한 그림을 고르게 된다 (고른 값은 맞는데 그림만 다름)
-      const ids = manifest[key] as string[];
-      const { w, h } = pngSize(join(PARTS_DIR, `${key}-thumbs.png`));
-      expect(h).toBe(FRAME_H);
-      expect(w / FRAME_W).toBe(ids.length);
+    it(`${key}: 색 동그라미가 모양마다 서로 다른 색이다`, () => {
+      // 대표색을 밝기로 뽑았더니 외곽선이 걸려 옷·장식 동그라미가 전부 같은 색으로 나온 적이
+      // 있다. 화면상 "색이 안 바뀌는" 것처럼 보이는데 저장값은 멀쩡해서 알아채기 어렵다.
+      for (const shape of manifest.parts[key]) {
+        for (const c of shape.colors) expect(c.hex, `${c.id} 색`).toMatch(/^#[0-9a-f]{6}$/);
+        if (shape.colors.length < 2) continue;
+        const uniq = new Set(shape.colors.map((c) => c.hex));
+        expect(uniq.size, `${shape.id}: ${shape.colors.length}색이 전부 같은 색으로 나옴`)
+          .toBeGreaterThan(1);
+      }
     });
   }
 });

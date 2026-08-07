@@ -6,8 +6,8 @@
  * 파츠당 한 줄(72프레임)로 만들어 두었으므로, 여기서는 **한 번만 겹치면** idle·걷기·
  * 앉기·폰이 다 나온다.
  *
- * 고르는 화면에서는 파츠 원본을 다 받지 않는다 — 머리만 200개다. 미리보기 묶음
- * (`*-thumbs.png`, 다 합쳐 57KB)만 받고, **고른 것만** 원본을 받아 합성한다.
+ * 고르는 화면은 파츠를 **고른 것만** 받는다 (머리만 200개다). 미리보기가 곧 합성
+ * 결과라 목록용 축소 이미지는 따로 두지 않는다.
  *
  * ⚠️ 라이선스: Modern Interiors 유료판 — 상업 이용 가능, 크레딧(limezu.itch.io) 필요,
  *    에셋 재배포 금지.
@@ -22,18 +22,28 @@ const FH = 32;
 export const PART_ORDER = ['body', 'eyes', 'outfit', 'hair', 'accessory'] as const;
 export type PartKey = (typeof PART_ORDER)[number];
 
+/** 같은 모양의 색 변형 하나. `hex` 는 파츠에서 직접 뽑은 대표색 (고르는 화면의 동그라미) */
+export interface PartColor {
+  id: string;
+  hex: string;
+}
+/** 모양 하나 + 그 모양의 색들. 피부·눈은 모양이 1종이고 색만 여럿이다 */
+export interface PartShape {
+  id: string;
+  colors: PartColor[];
+}
+
 export interface Manifest {
-  body: string[];
-  eyes: string[];
-  outfit: string[];
-  hair: string[];
-  accessory: string[];
   /** 동작 → [시작 프레임, 프레임 수] */
   frames: Record<string, [number, number]>;
+  parts: Record<PartKey, PartShape[]>;
 }
 
 /** 고른 파츠. 액세서리만 비어 있을 수 있다 */
 export type CharChoice = Record<PartKey, string>;
+
+/** 미리보기가 돌릴 동작 → [시작 프레임, 프레임 수] */
+export type PoseFrames = Record<string, [number, number]>;
 
 /**
  * DB 에 넣을 문자열. `patient_profiles.char_id` 가 TEXT 라 그대로 들어간다.
@@ -65,55 +75,121 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/**
- * 고른 파츠를 겹쳐 시트 한 장으로.
- * ⚠️ 도트가 뭉개지지 않게 `imageSmoothingEnabled = false` 를 반드시 끈다.
- */
-export async function composeSheet(
-  assetBase: string,
-  choice: CharChoice,
-  frameCount: number,
-): Promise<HTMLCanvasElement> {
+/** ⚠️ 도트가 뭉개지지 않게 보간을 반드시 끈다 */
+function sheetCanvas(frameCount: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const canvas = document.createElement('canvas');
   canvas.width = frameCount * FW;
   canvas.height = FH;
   const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
+  return [canvas, ctx];
+}
 
-  for (const key of PART_ORDER) {
-    const id = choice[key];
-    if (!id) continue; // 액세서리 '없음'
-    const img = await loadImage(`${assetBase}charparts/${key}/${id}.png`);
-    ctx.drawImage(img, 0, 0);
-  }
+/** 고른 파츠를 겹쳐 시트 한 장으로 */
+export async function composeSheet(
+  assetBase: string,
+  choice: CharChoice,
+  frameCount: number,
+): Promise<HTMLCanvasElement> {
+  const [canvas, ctx] = sheetCanvas(frameCount);
+  // 순서대로 기다리면 파츠 5개가 줄서서 받아진다 — 화살표를 누를 때마다 그러면 굼뜨다
+  const layers = await Promise.all(
+    PART_ORDER.map((key) =>
+      choice[key] ? loadImage(`${assetBase}charparts/${key}/${choice[key]}.png`) : null,
+    ),
+  );
+  for (const img of layers) if (img) ctx.drawImage(img, 0, 0);
+  return canvas;
+}
+
+/** 고정 4종은 동작마다 파일이 나뉘어 있다 — 조합형과 같은 배치로 이어 붙여 한 장으로 */
+export const FIXED_POSES: PoseFrames = { idle: [0, 24], walk: [24, 24], sit: [48, 12] };
+
+export async function composeFixedSheet(
+  assetBase: string,
+  charId: string,
+): Promise<HTMLCanvasElement> {
+  const [canvas, ctx] = sheetCanvas(60);
+  const files: Array<[string, string]> = [
+    ['idle', 'idle'],
+    ['run', 'walk'],
+    ['sit', 'sit'],
+  ];
+  const imgs = await Promise.all(
+    files.map(([f]) => loadImage(`${assetBase}characters/${charId}-${f}.png`)),
+  );
+  imgs.forEach((img, i) => ctx.drawImage(img, FIXED_POSES[files[i][1]][0] * FW, 0));
   return canvas;
 }
 
 /**
- * 파츠가 없을 때 쓰는 고정 캐릭터 4종의 미리보기.
- * idle 시트(384x32)의 정면 프레임(18번) 한 장만 잘라 쓴다.
+ * 미리보기 재생기 — 시트 한 장을 받아 캔버스에 한 동작을 돌린다.
+ *
+ * 고르는 동안 캐릭터가 서서 숨을 쉬어야 "내 캐릭터" 로 보인다. 정지 그림이면
+ * 그냥 아이콘 고르는 화면이 된다.
  */
-export function fixedThumbStyle(assetBase: string, charId: string, zoom = 3): string {
-  return [
-    `background-image:url(${assetBase}characters/${charId}-idle.png)`,
-    `background-position:-${18 * FW * zoom}px 0`,
-    `background-size:auto ${FH * zoom}px`,
-    'background-repeat:no-repeat',
-    'image-rendering:pixelated',
-    `width:${FW * zoom}px`,
-    `height:${FH * zoom}px`,
-  ].join(';');
-}
+export class CharPreview {
+  private ctx: CanvasRenderingContext2D;
+  private sheet: HTMLCanvasElement | null = null;
+  private frames: PoseFrames = {};
+  private pose = 'idle';
+  private raf = 0;
+  private last = 0;
+  private at = 0;
+  private readonly zoom: number;
 
-/** 미리보기 묶음에서 한 칸만 잘라 배경 이미지로 (파츠 원본을 안 받고 목록을 그린다) */
-export function thumbStyle(assetBase: string, key: PartKey, index: number, zoom = 3): string {
-  return [
-    `background-image:url(${assetBase}charparts/${key}-thumbs.png)`,
-    `background-position:-${index * FW * zoom}px 0`,
-    `background-size:auto ${FH * zoom}px`,
-    'background-repeat:no-repeat',
-    'image-rendering:pixelated',
-    `width:${FW * zoom}px`,
-    `height:${FH * zoom}px`,
-  ].join(';');
+  constructor(canvas: HTMLCanvasElement, zoom = 5) {
+    this.zoom = zoom;
+    canvas.width = FW * zoom;
+    canvas.height = FH * zoom;
+    this.ctx = canvas.getContext('2d')!;
+    this.ctx.imageSmoothingEnabled = false;
+  }
+
+  setSheet(sheet: HTMLCanvasElement, frames: PoseFrames): void {
+    this.sheet = sheet;
+    this.frames = frames;
+    if (!this.frames[this.pose]) this.pose = 'idle';
+    this.draw();
+  }
+
+  setPose(pose: string): void {
+    if (!this.frames[pose]) return;
+    this.pose = pose;
+    this.at = 0;
+    this.draw();
+  }
+
+  /** 동작마다 속도가 다르다 — 걷기가 숨쉬기보다 빨라야 걷는 것으로 보인다 */
+  private rate(): number {
+    return this.pose === 'walk' ? 100 : this.pose === 'sit' ? 250 : 166;
+  }
+
+  private draw(): void {
+    const [start, count] = this.frames[this.pose] ?? [0, 1];
+    // 서기·걷기는 4방향이 붙어 있다 — 정면(아래)이 4번째 묶음이라 18칸 뒤에서 시작한다.
+    // 앉기는 좌·우 두 벌뿐이라 앞의 오른쪽 벌을 쓴다.
+    const offset = count === 24 ? 18 : 0;
+    const len = Math.min(6, count);
+    const f = start + offset + (this.at % len);
+    const z = this.zoom;
+    this.ctx.clearRect(0, 0, FW * z, FH * z);
+    if (this.sheet) this.ctx.drawImage(this.sheet, f * FW, 0, FW, FH, 0, 0, FW * z, FH * z);
+  }
+
+  start(): void {
+    const step = (t: number): void => {
+      if (t - this.last >= this.rate()) {
+        this.last = t;
+        this.at++;
+        this.draw();
+      }
+      this.raf = requestAnimationFrame(step);
+    };
+    this.raf = requestAnimationFrame(step);
+  }
+
+  stop(): void {
+    cancelAnimationFrame(this.raf);
+  }
 }
