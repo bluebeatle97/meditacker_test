@@ -82,6 +82,29 @@ def main():
             walk += ok
         grid.append("".join(row))
 
+    # 못 서는 자리(안내데스크 안쪽·파티션·붙박이 가구)를 뺀다.
+    # 도면에는 흰 바닥으로 그려져 있어서 여기서 빼지 않으면 사람이 그 위에 선다.
+    # 표시는 사람이 한다 — config/staff-area.png 에 청록색 (build-staff-areas.py)
+    blocked_path = os.path.join(CFG, "blocked-area.json")
+    if os.path.exists(blocked_path):
+        bm = json.load(open(blocked_path, encoding="utf-8"))
+        if (bm["cols"], bm["rows"], bm["cell"]) == (cols, rows, CELL):
+            cut = 0
+            for r in range(rows):
+                if "1" not in bm["grid"][r]:
+                    continue
+                row = list(grid[r])
+                for c in range(cols):
+                    if bm["grid"][r][c] == "1" and row[c] == "1":
+                        row[c] = "0"
+                        cut += 1
+                grid[r] = "".join(row)
+            walk -= cut
+            if cut:
+                print(f"못 서는 자리로 뺀 셀: {cut:,}")
+        else:
+            print("⚠️ blocked-area.json 격자 크기가 안 맞는다 — 무시함")
+
     total = cols * rows
     print(f"격자 {cols}x{rows} (셀 {CELL}px) — 통행가능 {walk:,}셀 = {100 * walk / total:.1f}%")
 

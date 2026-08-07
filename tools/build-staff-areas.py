@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""손님 통제구역(직원 전용) 마스크 만들기.
+"""칠한 그림 → 구역 마스크.
 
     python tools/build-staff-areas.py
 
 입력:  packages/server/src/config/staff-area.png   ← **사람이 칠한 그림**
-출력:  packages/server/src/config/staff-area.json  (통행 격자와 같은 칸 배열)
+출력:  packages/server/src/config/staff-area.json    자홍색 = 손님 통제구역
+       packages/server/src/config/blocked-area.json  청록색 = 아무도 못 서는 자리
+
+## 두 색의 차이
+
+    자홍 #FF00FF  손님 통제구역 — **직원은 다닌다**. 환자 화면에서 벽처럼 덮고,
+                  안내 경로가 피해 간다. 통행 격자는 그대로 (직원 좌표가 살아 있어야 한다)
+    청록 #00FFFF  아무도 못 서는 자리 — 안내데스크 안쪽, 파티션, 붙박이 가구.
+                  **통행 격자에서 아예 뺀다**. 사람이 그 위에 서 있으면 안 되는 곳이다
 
 ## 왜 도면에 안 칠하는가
 
@@ -36,12 +44,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = os.path.join(ROOT, "packages", "server", "src", "config")
 MARK = os.path.join(CFG, "staff-area.png")
 OUT = os.path.join(CFG, "staff-area.json")
+BLOCKED_OUT = os.path.join(CFG, "blocked-area.json")
 CELL = 4  # walkable.json 과 같아야 한다
 
 
-def is_mark(p):
+def is_staff(p):
     r, g, b = p[:3]
     return r > 200 and g < 80 and b > 200
+
+
+def is_blocked(p):
+    r, g, b = p[:3]
+    return r < 120 and g > 180 and b > 180
 
 
 def main():
@@ -59,24 +73,39 @@ def main():
 
     px = img.load()
     cols, rows = W // CELL, H // CELL
-    grid = []
-    n = 0
+    out = {"staff": ([], 0), "blocked": ([], 0)}
+    sgrid, bgrid = [], []
+    ns = nb = 0
     for r in range(rows):
-        row = []
+        srow, brow = [], []
         for c in range(cols):
-            k = 0
+            ks = kb = 0
             for y in range(r * CELL, (r + 1) * CELL):
                 for x in range(c * CELL, (c + 1) * CELL):
-                    if is_mark(px[x, y]):
-                        k += 1
-            on = k / (CELL * CELL) >= 0.5
-            row.append("1" if on else "0")
-            n += on
-        grid.append("".join(row))
+                    p = px[x, y]
+                    if is_staff(p):
+                        ks += 1
+                    elif is_blocked(p):
+                        kb += 1
+            n = CELL * CELL
+            # 못 서는 자리는 **한 픽셀이라도 걸치면** 막는다. 파티션은 얇아서 절반
+            # 기준으로 재면 통째로 사라진다 — 얇게 그은 선이 그대로 살아야 한다
+            s_on = ks / n >= 0.5
+            b_on = kb > 0
+            srow.append("1" if s_on else "0")
+            brow.append("1" if b_on else "0")
+            ns += s_on
+            nb += b_on
+        sgrid.append("".join(srow))
+        bgrid.append("".join(brow))
 
+    area = lambda k: k * CELL * CELL * 1.62 * 1.62 / 10000
     with open(OUT, "w", encoding="utf-8") as f:
-        json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": grid}, f)
-    print(f"통제구역 {n:,}칸 = {n * CELL * CELL * 1.62 * 1.62 / 10000:.1f}m^2 → {OUT}")
+        json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": sgrid}, f)
+    print(f"손님 통제구역 {ns:,}칸 = {area(ns):.1f}m^2 → {OUT}")
+    with open(BLOCKED_OUT, "w", encoding="utf-8") as f:
+        json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": bgrid}, f)
+    print(f"못 서는 자리 {nb:,}칸 = {area(nb):.1f}m^2 → {BLOCKED_OUT}")
 
 
 if __name__ == "__main__":

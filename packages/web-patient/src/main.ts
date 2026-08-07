@@ -92,6 +92,8 @@ const TRANSIT_ZONE_ID = '__transit';
 const TRANSIT_ZONE_LABEL = '복도 이동 중';
 /** 도착 문구를 띄워 두는 시간 — 너무 짧으면 못 보고, 길면 다음 안내를 가린다 */
 const GUIDE_DONE_MS = 4000;
+/** 벽면 덮개의 그리기 층 — 사람(1·2) 위, 내 위치 화살표(3) 아래 */
+const WALL_FACE_DEPTH = 2.6;
 
 const CHARACTERS = [
   { id: 'adam', label: '민준' },
@@ -342,6 +344,8 @@ class PatientScene extends Phaser.Scene {
    */
   preload(): void {
     this.load.image('pixelmap', `${ASSETS}pixelmap.png`);
+    // 캐릭터 위에 덮을 벽면 층 (2.5D) — 없으면 그냥 안 그린다
+    this.load.image('pixelmap-over', `${ASSETS}pixelmap-over.png`);
     for (const c of CHARACTERS) {
       // 포즈 4종 모두 (한 장 3~6KB). sit·phone 은 머무는 사람에게 쓴다 —
       // 대기실에 전원이 서 있으면 그것만으로 화면이 어색하다.
@@ -406,6 +410,17 @@ class PatientScene extends Phaser.Scene {
       throw new Error('pixelmap.png 을 불러오지 못했습니다 (tools/build-pixel-map.py 로 생성)');
     }
     this.add.image(0, 0, 'pixelmap').setOrigin(0, 0).setDepth(0); // 그리기 층: 배경 0
+    /**
+     * 벽면(2.5D)을 **캐릭터 위에** 한 번 더 덮는다.
+     *
+     * 도면은 완전 2D 지만 이 화면은 2.5D 다 — 벽·안내데스크에 남쪽으로 높이가 그려진다.
+     * 그 띠는 그림상 벽이면서 바닥이기도 해서(벽 앞 20cm 에 서는 건 정상), 배경만
+     * 그리면 사람이 안내데스크 **위에 올라탄 것처럼** 보인다. 위에 다시 덮으면 뒤에
+     * 서 있는 것으로 보인다.
+     */
+    if (this.textures.exists('pixelmap-over')) {
+      this.add.image(0, 0, 'pixelmap-over').setOrigin(0, 0).setDepth(WALL_FACE_DEPTH);
+    }
     this.cameras.main.setBounds(0, 0, this.mapW, this.mapH);
     this.cameras.main.setBackgroundColor('#0e1420');
     // ⚠️ pixelArt: true 는 게임 설정의 roundPixels 를 강제로 켠다. 그대로 두면 카메라와
