@@ -1,3 +1,4 @@
+import type { Guidance } from '@meditracker/shared';
 import type { Namespace } from 'socket.io';
 import type { PresenceService } from '../presence/presence-service.js';
 import type { Db } from '../db/index.js';
@@ -9,7 +10,13 @@ import { findPersonByTag, findTagByPerson } from '../db/index.js';
  * namespace: /staff (설계서 7)
  * 모든 push 는 visibleTargets() 를 거친다 — 권한 필터링은 100% 서버에서.
  */
-export function registerStaffNamespace(ns: Namespace, presence: PresenceService, db: Db): void {
+export function registerStaffNamespace(
+  ns: Namespace,
+  presence: PresenceService,
+  db: Db,
+  /** 지금 걸려 있는 방 안내 — 새로고침해도 표시가 남아야 한다 */
+  guidanceAll: () => Guidance[],
+): void {
   const tagOwner = (tagId: string) => {
     const p = findPersonByTag(db, tagId);
     return p ? { personId: p.personId, dept: p.dept } : null;
@@ -20,6 +27,8 @@ export function registerStaffNamespace(ns: Namespace, presence: PresenceService,
 
     // 접속 직후 현재 스냅샷 (권한 내)
     socket.emit('presence:update', visibleTargets(socket.claims, presence.getAllStates(), tagOwner));
+    // 방 안내는 바뀔 때만 방송한다 — 그 사이에 들어온 화면은 이걸 못 받으므로 여기서 한 번
+    socket.emit('guide:all', guidanceAll());
 
     socket.on('person:locate', ({ personId }: { personId: string }) => {
       const tagId = findTagByPerson(db, personId);

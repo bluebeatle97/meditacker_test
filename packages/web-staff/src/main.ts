@@ -129,8 +129,8 @@ class StaffMapScene extends Phaser.Scene {
   private zones = new Map<string, Zone>();
   /** 진행 중인 방 안내 (tagId → 목적지 zoneId) — 서버가 소켓으로 계속 알려준다 */
   private guidance = new Map<string, string>();
-  /** 안내 경로를 옅게 그린 선 — 환자가 제대로 가고 있는지 직원이 본다 */
-  private guideLines = new Map<string, Phaser.GameObjects.Graphics>();
+  /** 강조한 비콘의 안내 경로 — 여러 개를 한꺼번에 그리면 도면이 선으로 덮인다 */
+  private guideLine?: Phaser.GameObjects.Graphics;
   private avatars = new Map<string, Phaser.GameObjects.Container>();
   private avatarLabels = new Map<string, Phaser.GameObjects.Text>();
   private lastPosAt = new Map<string, number>();
@@ -341,47 +341,54 @@ class StaffMapScene extends Phaser.Scene {
   }
 
   /**
-   * 안내 중인 환자의 경로를 도면에 옅게 그린다.
+   * 안내 경로를 도면에 그린다 — **강조한 비콘 하나만**.
    *
-   * 환자 화면과 **같은 A\*·같은 출발점(환자 캐릭터 자리)** 을 쓴다 — 다른 길을 그리면
-   * "저기로 가라고 했는데 왜 딴 데로 가지" 를 직원이 화면 탓인지 환자 탓인지 알 수 없다.
+   * 동시에 여러 명을 안내하면 선이 도면 위에서 뒤엉켜 아무것도 안 읽힌다.
+   * 목록이나 도면에서 그 사람을 짚었을 때만 그 사람 길이 나온다.
+   *
+   * 환자 화면과 **같은 A\*·같은 출발점(눈에 보이는 점)·같은 직선화** 를 쓴다 —
+   * 다른 길을 그리면 "저기로 가라고 했는데 왜 딴 데로 가지" 를 직원이 화면 탓인지
+   * 환자 탓인지 알 수 없다.
    */
   private drawGuideLines(): void {
-    for (const [tagId, g] of this.guideLines) {
-      if (!this.guidance.has(tagId)) {
-        g.destroy();
-        this.guideLines.delete(tagId);
-      }
+    if (!this.guideLine) {
+      this.guideLine = this.add.graphics().setDepth(0.6);
+      this.uiCam?.ignore(this.guideLine);
     }
-    for (const [tagId, zoneId] of this.guidance) {
-      // 환자 화면은 **눈에 보이는 캐릭터** 발밑에서 길을 그린다. 여기도 서버 좌표가
-      // 아니라 도면 위 점이 있는 자리에서 시작해야 두 화면이 같은 길을 보여준다
-      const avatar = this.avatars.get(tagId);
-      const from = avatar
-        ? { x: (avatar.x - this.offX) / this.worldScale, y: (avatar.y - this.offY) / this.worldScale }
-        : this.lastPoint.get(tagId);
-      const b = this.zones.get(zoneId);
-      let line = this.guideLines.get(tagId);
-      if (!line) {
-        line = this.add.graphics().setDepth(0.6);
-        this.uiCam?.ignore(line);
-        this.guideLines.set(tagId, line);
-      }
-      line.clear();
-      if (!from || !b) continue;
-      const route = this.pf.findPath(from.x, from.y, b.tilePosition.x, b.tilePosition.y);
-      if (!route || route.length < 2) continue;
-      // ⚠️ 길찾기는 도면 좌표로 하고, 그리기는 화면 좌표로 한다 (sx/sy).
-      //    도면 좌표를 그대로 그리면 선이 엉뚱한 데 나타난다
-      line.lineStyle(2, GUIDE_LINE_COLOR, 0.5);
-      line.beginPath();
-      line.moveTo(this.sx(route[0].x), this.sy(route[0].y));
-      for (const p of route.slice(1)) line.lineTo(this.sx(p.x), this.sy(p.y));
-      line.strokePath();
-      // 목적지에 점을 찍어 어느 쪽이 끝인지 보이게
-      line.fillStyle(GUIDE_LINE_COLOR, 0.75);
-      line.fillCircle(this.sx(b.tilePosition.x), this.sy(b.tilePosition.y), 5);
-    }
+    this.guideLine.clear();
+
+    const tagId = this.pickedTag;
+    const zoneId = tagId ? this.guidance.get(tagId) : undefined;
+    if (!tagId || !zoneId) return;
+
+    // 서버 좌표가 아니라 **도면 위 점이 있는 자리**에서 시작한다 (환자 화면과 같은 규칙).
+    // ⚠️ 자리비움이면 아바타가 도면 **밖** 구석에 치워져 있다 — 거기서 길을 그리면
+    //    어느 쪽으로 펴도 벽이라 첫 구간이 비스듬한 채로 남는다. 통행 가능한 자리일
+    //    때만 아바타를 쓰고, 아니면 마지막 서버 좌표로, 그것도 아니면 안 그린다
+    const avatar = this.avatars.get(tagId);
+    const at = avatar
+      ? { x: (avatar.x - this.offX) / this.worldScale, y: (avatar.y - this.offY) / this.worldScale }
+      : undefined;
+    const from = at && this.pf.isWalkable(at.x, at.y) ? at : this.lastPoint.get(tagId);
+    const to = this.zones.get(zoneId);
+    if (!from || !to || !this.pf.isWalkable(from.x, from.y)) return;
+
+    const route = this.pf.findPath(from.x, from.y, to.tilePosition.x, to.tilePosition.y);
+    if (!route || route.length < 1) return;
+    // findPath 는 꺾이는 지점만 준다 — 서 있는 자리를 앞에 붙여야 선이 첫 모퉁이가
+    // 아니라 그 사람한테서 시작한다. 가로·세로로 펴는 것까지 환자 화면과 똑같이 한다
+    const pts = this.pf.orthogonalize([from, ...route]);
+
+    // ⚠️ 길찾기는 도면 좌표로, 그리기는 화면 좌표로 (sx/sy). 도면 좌표를 그대로
+    //    그리면 선이 엉뚱한 데 나타난다
+    this.guideLine.lineStyle(2.5, GUIDE_LINE_COLOR, 0.85);
+    this.guideLine.beginPath();
+    this.guideLine.moveTo(this.sx(pts[0].x), this.sy(pts[0].y));
+    for (const p of pts.slice(1)) this.guideLine.lineTo(this.sx(p.x), this.sy(p.y));
+    this.guideLine.strokePath();
+    // 목적지에 점을 찍어 어느 쪽이 끝인지 보이게
+    this.guideLine.fillStyle(GUIDE_LINE_COLOR, 0.9);
+    this.guideLine.fillCircle(this.sx(to.tilePosition.x), this.sy(to.tilePosition.y), 5);
   }
 
   /**
@@ -914,6 +921,7 @@ class StaffMapScene extends Phaser.Scene {
   /** 목록의 비콘 아이콘을 누르면 맵에서 그 아바타를 링으로 강조 (다시 누르면 해제) */
   private pickTag(tagId: string): void {
     this.pickedTag = this.pickedTag === tagId ? undefined : tagId;
+    this.drawGuideLines(); // 강조한 사람의 길만 보이므로 고를 때마다 다시 그린다
     if (!this.pickRing) {
       // 도면 배경이 흰색이라 흰 링은 아예 안 보인다 → 빨강 + 두껍게
       this.pickRing = this.add.circle(0, 0, 16).setStrokeStyle(3.5, PICK_RING_COLOR, 1);

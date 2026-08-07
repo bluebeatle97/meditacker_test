@@ -684,6 +684,7 @@ const { io, patient } = createWsServer(
   db,
   tagMeta,
   (tagId) => guidance.get(tagId)?.zoneId ?? null,
+  () => guidance.all(),
 );
 
 // 안내가 바뀌면 직원 화면 전체에 알린다 (누가 어디로 가는 중인지 목록·도면에 표시)

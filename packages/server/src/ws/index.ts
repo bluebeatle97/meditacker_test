@@ -1,6 +1,6 @@
 import { Server, type Socket } from 'socket.io';
 import type { Server as HttpServer } from 'node:http';
-import type { AuthClaims } from '@meditracker/shared';
+import type { AuthClaims, Guidance } from '@meditracker/shared';
 import { verifyToken } from '../auth/jwt.js';
 import type { PresenceService } from '../presence/presence-service.js';
 import type { Db } from '../db/index.js';
@@ -31,8 +31,9 @@ export function createWsServer(
   presence: PresenceService,
   db: Db,
   tagMeta: TagMetaStore,
-  /** 접속 시점에 이미 걸려 있는 방 안내 (환자가 화면을 새로고침해도 화살표가 남게) */
+  /** 접속 시점에 이미 걸려 있는 방 안내 (화면을 새로고침해도 남아 있게) */
   guideOf: (tagId: string) => string | null,
+  guidanceAll: () => Guidance[],
 ): { io: Server; patient: PatientBroadcast } {
   const io = new Server(httpServer, { cors: { origin: true } });
 
@@ -42,7 +43,7 @@ export function createWsServer(
 
   const staffNs = io.of('/staff');
   staffNs.use(jwtMiddleware(jwtSecret, 'staff'));
-  registerStaffNamespace(staffNs, presence, db);
+  registerStaffNamespace(staffNs, presence, db, guidanceAll);
 
   return { io, patient };
 }
