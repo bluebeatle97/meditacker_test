@@ -268,6 +268,29 @@
       .badmin-btn.rel:hover { background: #3a3115; color: #fff; }
       .badmin-btn.rst { border: 1px solid #3a4658; background: none; color: #8fa0b8; }
       .badmin-btn.rst:hover { background: #263141; color: #cfdcec; }
+      /* 방 안내 — 환자 화면의 바닥 화살표와 같은 빨강으로 묶는다 */
+      .badmin-btn.gd { border: 1px solid #8c3b36; background: #2e1614; color: #ff9c94; }
+      .badmin-btn.gd:hover, .badmin-btn.gd.on { background: #4a201d; color: #fff; }
+      .badmin-btn.gst { border: 1px solid #3a4658; background: none; color: #8fa0b8; }
+      .badmin-btn.gst:hover { background: #263141; color: #cfdcec; }
+      .badmin-going {
+        flex: none; padding: 2px 8px; border-radius: 5px;
+        background: #ff3b3022; color: #ff9c94; font: 700 11.5px inherit;
+      }
+      /* 목적지 목록 — 방이 27개라 종류별로 묶지 않으면 못 찾는다 */
+      .badmin-dest {
+        margin: 2px 0 8px; padding: 8px 10px; border-radius: 8px;
+        background: #131c28; border: 1px solid #26334a;
+      }
+      .badmin-dl { margin: 6px 0 4px; color: #7f8ea6; font: 700 10.5px inherit; }
+      .badmin-dl:first-child { margin-top: 0; }
+      .badmin-dg { display: flex; flex-wrap: wrap; gap: 5px; }
+      .badmin-dbtn {
+        padding: 4px 9px; border-radius: 6px; cursor: pointer;
+        border: 1px solid #334054; background: #1a2432; color: #cfdcec;
+        font: 600 11.5px inherit;
+      }
+      .badmin-dbtn:hover { background: #ff3b3033; border-color: #8c3b36; color: #fff; }
 
       /* 게이트웨이 범위 보기 */
       #gw-btn { border: 1px solid #d3a13c; background: #2e2513; color: #ffd489; }

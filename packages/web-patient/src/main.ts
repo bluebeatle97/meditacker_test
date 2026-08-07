@@ -15,6 +15,7 @@ import { Crowd, type CrowdUnit } from './crowd';
 import { poseFor, sittableAt } from './pose';
 import { composeSheet, decodeChoice, isComposed, type Manifest } from './char-builder';
 import { mountCharPicker } from './char-picker';
+import { GuideLayer } from './guide-layer';
 
 /** 익명 id → 캐릭터 고르기용 (같은 사람은 늘 같은 캐릭터로 보이게) */
 function hashCode(s: string): number {
@@ -89,6 +90,8 @@ const ARRIVE_EPS = ARRIVE_EPS_PX * MAP_SCALE;
  */
 const TRANSIT_ZONE_ID = '__transit';
 const TRANSIT_ZONE_LABEL = '복도 이동 중';
+/** 도착 문구를 띄워 두는 시간 — 너무 짧으면 못 보고, 길면 다음 안내를 가린다 */
+const GUIDE_DONE_MS = 4000;
 
 const CHARACTERS = [
   { id: 'adam', label: '민준' },
@@ -280,6 +283,8 @@ class PatientScene extends Phaser.Scene {
   private nameTag?: Phaser.GameObjects.Text;
   /** 내 캐릭터 강조 — 발밑 링과 머리 위 화살표 (겹쳐도 내가 누군지 보이게) */
   private meRing?: Phaser.GameObjects.Ellipse;
+  /** 방 안내 — 목적지까지 바닥에 깔리는 빨간 화살표 */
+  private guide?: GuideLayer;
   private meArrow?: Phaser.GameObjects.Triangle;
   private profile!: PatientProfile;
   /** 조합 시트의 동작별 [시작 프레임, 개수] — charparts/manifest.json 에서 온다 */
@@ -411,6 +416,15 @@ class PatientScene extends Phaser.Scene {
       .setOrigin(0.5, 0.85) // 발끝이 좌표에 오도록
       .setDepth(2); // 다른 사람(1) 위
     this.me.play('idle-down');
+
+    // 방 안내 화살표는 바닥(0) 위, 사람(1) 아래에 깔린다
+    this.guide = new GuideLayer({
+      scene: this,
+      pf: this.pf,
+      zones: this.zones,
+      m: (v) => this.m(v),
+      depth: 0.5,
+    });
 
     // 사람이 겹쳐도 내 캐릭터를 바로 찾을 수 있게 — 발밑 링 + 머리 위 화살표.
     // 도면 팔레트(회색·크림·우드·벽돌)에 없는 청록이라 어느 바닥에서도 눈에 띈다.
@@ -661,11 +675,38 @@ class PatientScene extends Phaser.Scene {
     // 다른 사람들의 위치 — 직원용과 같은 좌표. 익명 id·좌표·손님/직원 구분만 온다
     this.socket.on('crowd:positions', (units: CrowdUnit[]) => this.crowd?.sync(units));
 
+    // 직원이 건 방 안내 — 나에게만 온다. null 이면 해제(도착했거나 직원이 껐거나)
+    this.socket.on('guide:set', (g: { zoneId: string } | null) => {
+      this.guide?.setTarget(g?.zoneId ?? null);
+      this.setGuideBar(g?.zoneId ?? null);
+      this.setHud(this.lastSelf ?? null);
+    });
+
     this.socket.on('zone:actions', (_actions: ZoneAction[]) => {
       // TODO Phase 4: 구역 액션 버튼 (체크인 등) — 설계서 6.4
     });
 
     this.socket.on('connect_error', (err) => console.error('[ws] connect error:', err.message));
+  }
+
+  /**
+   * 상단 안내 띠 — 화살표만으로는 "어디로 가라는 건지" 를 못 읽는다.
+   * 도착하면(zoneId=null) 잠깐 '도착했습니다' 를 남기고 사라진다.
+   */
+  private setGuideBar(zoneId: string | null): void {
+    const bar = document.getElementById('guide-bar')!;
+    if (zoneId) {
+      const zone = this.zones.get(zoneId);
+      bar.innerHTML = `<b>${zone ? zone.name : zoneId}</b> 으로 가주세요`;
+      bar.className = 'show';
+      return;
+    }
+    if (!bar.classList.contains('show')) return; // 애초에 안내 중이 아니었다
+    bar.innerHTML = '<b>도착했습니다</b>';
+    bar.className = 'show done';
+    window.setTimeout(() => {
+      if (bar.classList.contains('done')) bar.className = '';
+    }, GUIDE_DONE_MS);
   }
 
   private setHud(
@@ -793,6 +834,8 @@ class PatientScene extends Phaser.Scene {
       this.me.x,
       this.me.y - 30 + Math.sin(_time / ARROW_BOB_MS * Math.PI * 2) * ARROW_BOB_PX,
     );
+    // 안내 화살표: 지나온 것은 흐려지고, 남은 것은 목적지 쪽으로 밝기가 흐른다
+    this.guide?.update(this.me.x, this.me.y, this.lastSelf?.zone ?? null, _time);
     this.crowd?.update(delta); // 다른 사람들도 같은 보행 속도로 좁힌다
   }
 }

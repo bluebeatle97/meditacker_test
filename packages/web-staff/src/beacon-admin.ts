@@ -1,6 +1,6 @@
 import { GROUPS, groupColor } from './tag-panel';
 import { escapeHtml } from './format';
-import type { TagGroup } from '@meditracker/shared';
+import type { TagGroup, Zone } from '@meditracker/shared';
 
 /**
  * 환자 등록 / 반납 — 인포 데스크가 쓰는 화면.
@@ -34,6 +34,18 @@ export interface BeaconRow {
 
 type Filter = 'all' | 'assigned' | 'idle';
 
+/** 목적지 목록을 묶는 순서와 이름 — 방이 27개라 한 줄로 늘어놓으면 못 찾는다 */
+const DEST_GROUPS: Array<[string, string]> = [
+  ['consult', '상담'],
+  ['surgery', '수술·시술'],
+  ['laser', '레이저'],
+  ['skincare', '피부관리'],
+  ['recovery', '회복'],
+  ['waiting', '대기'],
+  ['reception', '접수'],
+  ['etc', '기타'],
+];
+
 export class BeaconAdmin {
   private rows: BeaconRow[] = [];
   private filter: Filter = 'all';
@@ -41,9 +53,16 @@ export class BeaconAdmin {
   private box: HTMLElement;
   private list: HTMLElement;
 
+  /** 「방 안내」 목적지 목록을 펼쳐 둔 비콘 (한 번에 하나만) */
+  private guidePickFor: string | null = null;
+
   constructor(
     private serverUrl: string,
     private onChanged: () => void,
+    /** 안내 목적지 후보 — 서버와 같은 규칙(isGuidableZone)으로 이미 걸러진 것 */
+    private destinations: Zone[],
+    /** 지금 안내 중인 방 (직원용 화면이 소켓으로 받아 둔 것) */
+    private guidanceOf: (tagId: string) => string | null,
   ) {
     this.box = document.getElementById('badmin')!;
     this.list = document.getElementById('badmin-list')!;
@@ -68,9 +87,18 @@ export class BeaconAdmin {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]');
       if (!btn) return;
       const tagId = btn.dataset.tag!;
-      if (btn.dataset.act === 'assign') this.promptAssign(tagId);
-      else if (btn.dataset.act === 'reset') this.resetClaim(tagId);
-      else this.release(tagId);
+      const act = btn.dataset.act;
+      if (act === 'assign') this.promptAssign(tagId);
+      else if (act === 'reset') this.resetClaim(tagId);
+      else if (act === 'guide') {
+        // 같은 버튼을 다시 누르면 접는다
+        this.guidePickFor = this.guidePickFor === tagId ? null : tagId;
+        this.render();
+      } else if (act === 'guide-stop') void this.post('/guide', { tagId, zoneId: null });
+      else if (act === 'guide-to') {
+        this.guidePickFor = null;
+        void this.post('/guide', { tagId, zoneId: btn.dataset.zone });
+      } else this.release(tagId);
     });
   }
 
@@ -172,9 +200,30 @@ export class BeaconAdmin {
       html +=
         `<div class="badmin-gh"><i style="background:${hex(groupColor(g.id))}"></i>` +
         `${g.label} <b>${inGroup.length}</b></div>`;
-      for (const r of inGroup) html += this.rowHtml(r);
+      for (const r of inGroup) {
+        html += this.rowHtml(r);
+        if (this.guidePickFor === r.tagId) html += this.destHtml(r.tagId);
+      }
     }
     this.list.innerHTML = html;
+  }
+
+  /** 펼쳐진 목적지 목록 — 방 27개를 종류별로 묶어 보여준다 */
+  private destHtml(tagId: string): string {
+    const tag = escapeHtml(tagId);
+    let html = '<div class="badmin-dest">';
+    for (const [type, label] of DEST_GROUPS) {
+      const rooms = this.destinations.filter((z) => z.type === type);
+      if (!rooms.length) continue;
+      html += `<div class="badmin-dl">${label}</div><div class="badmin-dg">`;
+      for (const z of rooms) {
+        html +=
+          `<button class="badmin-dbtn" data-act="guide-to" data-tag="${tag}" ` +
+          `data-zone="${escapeHtml(z.zoneId)}">${escapeHtml(z.name)}</button>`;
+      }
+      html += '</div>';
+    }
+    return html + '</div>';
   }
 
   private rowHtml(r: BeaconRow): string {
@@ -186,6 +235,15 @@ export class BeaconAdmin {
       r.assigned && r.claimed
         ? `<button class="badmin-btn rst" data-act="reset" data-tag="${escapeHtml(r.tagId)}" title="환자가 폰을 바꿨을 때">입장 초기화</button>`
         : '';
+    // 방 안내는 **환자에게만**. 직원은 환자용 화면을 안 쓰므로 화살표를 볼 데가 없다
+    const going = this.guidanceOf(r.tagId);
+    const guide =
+      r.assigned && r.group === 'patient'
+        ? going
+          ? `<span class="badmin-going">→ ${escapeHtml(this.nameOf(going))}</span>` +
+            `<button class="badmin-btn gst" data-act="guide-stop" data-tag="${escapeHtml(r.tagId)}">안내 끝</button>`
+          : `<button class="badmin-btn gd${this.guidePickFor === r.tagId ? ' on' : ''}" data-act="guide" data-tag="${escapeHtml(r.tagId)}">방 안내</button>`
+        : '';
     const action = r.assigned
       ? `<button class="badmin-btn rel" data-act="release" data-tag="${escapeHtml(r.tagId)}">반납</button>`
       : `<button class="badmin-btn asg" data-act="assign" data-tag="${escapeHtml(r.tagId)}">환자 등록</button>`;
@@ -193,10 +251,15 @@ export class BeaconAdmin {
       `<div class="badmin-row">` +
       `<code class="badmin-id" title="${escapeHtml(r.tagId)}">${escapeHtml(r.pin ?? tail(r.tagId))}</code>` +
       who +
+      guide +
       reset +
       action +
       `</div>`
     );
+  }
+
+  private nameOf(zoneId: string): string {
+    return this.destinations.find((z) => z.zoneId === zoneId)?.name ?? zoneId;
   }
 }
 

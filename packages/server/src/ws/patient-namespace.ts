@@ -9,6 +9,11 @@ import type { TagMetaStore } from '../presence/tag-meta-store.js';
 
 /** index.ts 가 위치 브로드캐스트를 밀어 넣는 창구 */
 export interface PatientBroadcast {
+  /**
+   * 방 안내를 **그 환자 한 명에게만** 보낸다.
+   * `zoneId` 가 null 이면 안내 해제 (도착했거나 직원이 껐거나).
+   */
+  guide(tagId: string, zoneId: string | null): void;
   positions(
     list: Array<{
       tagId: string;
@@ -40,6 +45,7 @@ export function registerPatientNamespace(
   presence: PresenceService,
   db: Db,
   tagMeta: TagMetaStore,
+  guideOf: (tagId: string) => string | null,
 ): PatientBroadcast {
   /**
    * 환자 화면에 보일 수 있는 태그인가 = **손님 비콘만**.
@@ -99,7 +105,11 @@ export function registerPatientNamespace(
       estimatedWaitSec: 0,
     });
     socket.emit('zone:crowd', crowd()); // 접속 직후 1회 — 주기 방송을 기다리지 않게
-    ownTag.set(socket.id, tagOf(personId));
+    const own = tagOf(personId);
+    ownTag.set(socket.id, own);
+    // 안내 중에 환자가 화면을 새로고침하면 화살표가 사라진다 — 접속하자마자 다시 준다
+    const already = own ? guideOf(own) : null;
+    if (already) socket.emit('guide:set', { zoneId: already });
 
     socket.on('reaction:send', ({ emoji }: { emoji: string }) => {
       if (!isAllowedReaction(emoji)) return;
@@ -166,6 +176,18 @@ export function registerPatientNamespace(
   }
 
   return {
+    /**
+     * 방 안내 — 지시받은 비콘을 들고 있는 소켓에만 간다.
+     * 남의 안내를 다른 환자가 볼 이유가 없다(불변식 B-1 과 같은 결).
+     */
+    guide(tagId: string, zoneId: string | null): void {
+      for (const [, rawSocket] of ns.sockets) {
+        const socket = rawSocket as AuthedSocket;
+        if (ownTag.get(socket.id) !== tagId) continue;
+        socket.emit('guide:set', zoneId ? { zoneId } : null);
+      }
+    },
+
     /**
      * 환자 화면으로 위치를 보낸다.
      *

@@ -21,6 +21,16 @@
       #hud .who { font-size: 13px; color: #8fd3c7; font-weight: 700; }
       #hud .where { margin-top: 2px; font-size: 19px; font-weight: 800; letter-spacing: -.01em; }
       #hud .sub { margin-top: 3px; font-size: 12px; color: #9fb0c6; }
+      /* 방 안내 띠 — 바닥 화살표와 같은 빨강이라 둘이 한 쌍으로 읽힌다 */
+      #guide-bar { display: none; }
+      #guide-bar.show {
+        display: block; margin-top: 8px; padding: 9px 13px; border-radius: 9px;
+        background: #ff3b3022; border: 1px solid #ff3b3088; color: #ffd9d6;
+        font-size: 14px; font-weight: 700;
+      }
+      #guide-bar b { color: #ff8a80; font-size: 16px; }
+      #guide-bar.done { background: #1f6b4a33; border-color: #4fae7f88; color: #cdf3e0; }
+      #guide-bar.done b { color: #7fe0ae; }
 
       /* ── 우하단 버튼 ──────────────────────────────────────────────────── */
       #ctrls { position: fixed; right: 12px; bottom: 14px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
@@ -190,6 +200,8 @@
       <div class="who" id="hud-who"></div>
       <div class="where" id="hud-where">위치를 확인하는 중…</div>
       <div class="sub" id="hud-sub"></div>
+      <!-- 방 안내 띠 — 화살표만으로는 어느 방인지 안 읽힌다 -->
+      <div id="guide-bar"></div>
     </div>
 
     <div id="ctrls">

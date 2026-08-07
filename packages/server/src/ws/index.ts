@@ -31,12 +31,14 @@ export function createWsServer(
   presence: PresenceService,
   db: Db,
   tagMeta: TagMetaStore,
+  /** 접속 시점에 이미 걸려 있는 방 안내 (환자가 화면을 새로고침해도 화살표가 남게) */
+  guideOf: (tagId: string) => string | null,
 ): { io: Server; patient: PatientBroadcast } {
   const io = new Server(httpServer, { cors: { origin: true } });
 
   const patientNs = io.of('/patient');
   patientNs.use(jwtMiddleware(jwtSecret, 'patient'));
-  const patient = registerPatientNamespace(patientNs, presence, db, tagMeta);
+  const patient = registerPatientNamespace(patientNs, presence, db, tagMeta, guideOf);
 
   const staffNs = io.of('/staff');
   staffNs.use(jwtMiddleware(jwtSecret, 'staff'));

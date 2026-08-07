@@ -5,12 +5,14 @@ import {
   UpdateClock,
   ZoneDwellFilter,
   ZONE_DWELL_MS,
+  isGuidableZone,
   paceForPath,
   pathLengthPx,
 } from '@meditracker/shared';
 import type {
   FloorplanMeta,
   Gateway,
+  Guidance,
   MapAnnotation,
   PositionEstimate,
   PresenceState,
@@ -99,6 +101,8 @@ const ROOM_MAX_PX = 420;
 const NAME_MAX_SHIFT_PX = 60;
 /** 선택한 비콘 강조 링 색 — 흰 도면 위라 어떤 그룹 색과도 안 겹치는 빨강 */
 const PICK_RING_COLOR = 0xff2f45;
+/** 방 안내 경로선 — 환자 화면의 바닥 화살표와 같은 빨강 */
+const GUIDE_LINE_COLOR = 0xff3b30;
 /** 이름표 기본 위치 (아바타 중심에서 아래로) — 겹치면 여기서부터 아래로 밀어낸다 */
 const LABEL_BASE_Y = 11;
 
@@ -123,6 +127,10 @@ const ALERT_GROUPS: ReadonlySet<TagGroup> = new Set<TagGroup>(['patient', 'unass
 class StaffMapScene extends Phaser.Scene {
   private socket!: Socket;
   private zones = new Map<string, Zone>();
+  /** 진행 중인 방 안내 (tagId → 목적지 zoneId) — 서버가 소켓으로 계속 알려준다 */
+  private guidance = new Map<string, string>();
+  /** 안내 경로를 옅게 그린 선 — 환자가 제대로 가고 있는지 직원이 본다 */
+  private guideLines = new Map<string, Phaser.GameObjects.Graphics>();
   private avatars = new Map<string, Phaser.GameObjects.Container>();
   private avatarLabels = new Map<string, Phaser.GameObjects.Text>();
   private lastPosAt = new Map<string, number>();
@@ -307,8 +315,59 @@ class StaffMapScene extends Phaser.Scene {
       return;
     }
     // 등록·반납하면 목록이 즉시 달라져야 한다 (아바타는 다음 좌표 방송에 따라온다)
-    const admin = new BeaconAdmin(SERVER_URL, () => this.refreshPanel());
+    const admin = new BeaconAdmin(
+      SERVER_URL,
+      () => this.refreshPanel(),
+      [...this.zones.values()].filter(isGuidableZone),
+      (tagId) => this.guidance.get(tagId) ?? null,
+    );
     btn.onclick = () => admin.open();
+  }
+
+  /**
+   * 안내 중인 환자의 경로를 도면에 옅게 그린다.
+   *
+   * 환자 화면과 **같은 A\*·같은 방 기준점**을 쓴다 — 다른 길을 그리면 "저기로 가라고
+   * 했는데 왜 딴 데로 가지" 를 직원이 화면 탓인지 환자 탓인지 구분할 수 없다.
+   * 안내 시작 시점의 방이 아니라 지금 있는 방에서 다시 그린다 (환자 화면과 같은 규칙).
+   */
+  private drawGuideLines(): void {
+    for (const [tagId, g] of this.guideLines) {
+      if (!this.guidance.has(tagId)) {
+        g.destroy();
+        this.guideLines.delete(tagId);
+      }
+    }
+    for (const [tagId, zoneId] of this.guidance) {
+      const from = this.states.get(tagId)?.currentZone;
+      const a = from ? this.zones.get(from) : undefined;
+      const b = this.zones.get(zoneId);
+      let line = this.guideLines.get(tagId);
+      if (!line) {
+        line = this.add.graphics().setDepth(0.6);
+        this.uiCam?.ignore(line);
+        this.guideLines.set(tagId, line);
+      }
+      line.clear();
+      if (!a || !b) continue; // 복도(이동 중)면 그릴 기준이 없다 — 다음 갱신에 다시 잡힌다
+      const route = this.pf.findPath(
+        a.tilePosition.x,
+        a.tilePosition.y,
+        b.tilePosition.x,
+        b.tilePosition.y,
+      );
+      if (!route || route.length < 2) continue;
+      // ⚠️ 길찾기는 도면 좌표로 하고, 그리기는 화면 좌표로 한다 (sx/sy).
+      //    도면 좌표를 그대로 그리면 선이 엉뚱한 데 나타난다
+      line.lineStyle(2, GUIDE_LINE_COLOR, 0.5);
+      line.beginPath();
+      line.moveTo(this.sx(route[0].x), this.sy(route[0].y));
+      for (const p of route.slice(1)) line.lineTo(this.sx(p.x), this.sy(p.y));
+      line.strokePath();
+      // 목적지에 점을 찍어 어느 쪽이 끝인지 보이게
+      line.fillStyle(GUIDE_LINE_COLOR, 0.75);
+      line.fillCircle(this.sx(b.tilePosition.x), this.sy(b.tilePosition.y), 5);
+    }
   }
 
   /**
@@ -662,10 +721,15 @@ class StaffMapScene extends Phaser.Scene {
     });
 
     this.socket.on('presence:update', (states: PresenceState[]) => {
+      let zoneChanged = false;
       for (const state of states) {
+        if (this.states.get(state.tagId)?.currentZone !== state.currentZone) zoneChanged = true;
         this.states.set(state.tagId, state);
         this.upsertAvatar(state);
       }
+      // 방이 바뀌었을 때만 다시 그린다 — 환자 화면의 화살표와 같은 규칙이라야
+      // 두 화면이 같은 길을 보여준다
+      if (zoneChanged && this.guidance.size) this.drawGuideLines();
       this.refreshPanel();
     });
 
@@ -682,6 +746,12 @@ class StaffMapScene extends Phaser.Scene {
     });
 
     // RSSI 가중평균 연속 위치 → 도면 좌표계 그대로 변환
+    // 누가 어디로 안내받고 있는지 — 목록의 「방 안내」 표시와 도면의 경로선이 이걸 본다
+    this.socket.on('guide:all', (all: Guidance[]) => {
+      this.guidance = new Map(all.map((g) => [g.tagId, g.zoneId]));
+      this.drawGuideLines();
+    });
+
     this.socket.on('pos:update', (positions: PositionEstimate[]) => {
       // 브로드캐스트 주기 관측은 배치당 한 번 (태그마다 부르면 0ms 로 수렴한다)
       this.posClock.tick();

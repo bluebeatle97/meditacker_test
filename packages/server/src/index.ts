@@ -41,10 +41,12 @@ import { TagMetaStore } from './presence/tag-meta-store.js';
 import { KnownTagStore } from './presence/known-tag-store.js';
 import { AssignedTagStore } from './presence/assigned-tag-store.js';
 import { IdleBeaconStore } from './presence/idle-beacon-store.js';
+import { GuidanceStore } from './presence/guidance-store.js';
 import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
 import { ScanRouter } from './ingestion/scan-router.js';
 import { ScanRecorder } from './recording/scan-recorder.js';
 import {
+  isGuidableZone,
   isValidCharId,
   TAG_GROUP_IDS,
   ZoneDwellFilter,
@@ -100,6 +102,8 @@ const unknownTags = new UnknownTagBuffer();
 const assignedTags = new AssignedTagStore(db);
 /** 미배정 비콘의 마지막 신호만 — 배터리 죽은 비콘·소재 확인용 (판정에는 안 태운다) */
 const idleBeacons = new IdleBeaconStore();
+/** 진행 중인 방 안내 (직원이 걸고, 도착하면 서버가 자동으로 푼다) */
+const guidance = new GuidanceStore();
 
 // 현장 튜닝용 raw 스캔 녹화 (RECORD_SCANS 가 있을 때만)
 const recorder = SERVER_CONFIG.recordScans
@@ -494,6 +498,35 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
+  /**
+   * 방 안내 — 직원용 패널에서 "이 환자를 이 방으로".
+   * `zoneId` 를 비우면 해제. 도착하면 서버가 알아서 푼다(아래 좌표 방송 참고).
+   */
+  if (req.url === '/guide' && req.method === 'POST') {
+    readBody(req, 2_000, (body) => {
+      try {
+        const { tagId, zoneId } = JSON.parse(body) as { tagId?: string; zoneId?: string | null };
+        if (!tagId) throw new Error('tagId 없음');
+        if (zoneId) {
+          // 없는 방·직원 구역으로 안내를 걸면 환자 화면이 갈 곳 없는 화살표를 그린다
+          const zone = loadZones().find((z) => z.zoneId === zoneId);
+          if (!zone || !isGuidableZone(zone)) throw new Error(`안내할 수 없는 방: ${zoneId}`);
+          guidance.set(tagId, zoneId, Date.now());
+        } else {
+          guidance.clear(tagId);
+        }
+        patient.guide(tagId, zoneId ?? null);
+        console.log(`[server] 방 안내: ${tagId} → ${zoneId ?? '해제'}`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+
   if (req.url === '/register-tag' && req.method === 'POST') {
     readBody(req, 4_000, (body) => {
       try {
@@ -644,7 +677,17 @@ const httpServer = createServer((req, res) => {
   res.end();
 });
 
-const { io, patient } = createWsServer(httpServer, SERVER_CONFIG.jwtSecret, presence, db, tagMeta);
+const { io, patient } = createWsServer(
+  httpServer,
+  SERVER_CONFIG.jwtSecret,
+  presence,
+  db,
+  tagMeta,
+  (tagId) => guidance.get(tagId)?.zoneId ?? null,
+);
+
+// 안내가 바뀌면 직원 화면 전체에 알린다 (누가 어디로 가는 중인지 목록·도면에 표시)
+guidance.onChange((all) => io.of('/staff').emit('guide:all', all));
 
 // 관제 허브 (/monitor namespace) — io 준비 후 초기화
 monitor = new MonitorHub(io, engine, estimator, gateways, loadZones(), tagMeta, () => ({
@@ -746,6 +789,12 @@ setInterval(() => {
   });
   if (list.length === 0) return;
   io.of('/staff').emit('pos:update', list);
+  // 목적지 방에 들어왔으면 안내를 푼다 (판정 규칙은 GuidanceStore.arrived 참고)
+  for (const g of guidance.arrived(list)) {
+    guidance.clear(g.tagId);
+    patient.guide(g.tagId, null);
+    console.log(`[server] 방 안내 도착: ${g.tagId} → ${g.zoneId}`);
+  }
   // 환자 화면도 같은 좌표를 쓴다 (도트 스킨 + 확대만 다른 같은 그림).
   // 본인 좌표는 항상, 다른 사람은 patientSeesEveryone 이 켜졌을 때만 —
   // 익명화·본인 제외 판단은 patient namespace 안에 있다 (불변식 B-1 관련).

@@ -65,6 +65,31 @@ export interface Zone {
 }
 
 /**
+ * 환자를 데려다 놓을 수 있는 방인가 (직원용 「방 안내」 목적지 목록).
+ *
+ * 손으로 목록을 관리하면 방이 늘 때마다 조용히 썩는다 — 존 설정에 이미 있는
+ * 분류로 정한다. 진료 관련 방 전부 + 대기공간 + 접수데스크.
+ * 빠지는 것: 직원 구역, 화장실·체인징룸, ELEV.홀 — 안내할 일이 없다.
+ * 복도는 애초에 존이 아니다(게이트웨이가 없어 '이동 중' 으로 잡힌다).
+ */
+export function isGuidableZone(zone: Zone): boolean {
+  return (
+    zone.category === 'patient_area' || zone.type === 'waiting' || zone.type === 'reception'
+  );
+}
+
+/**
+ * 안내 지시 하나 — "이 비콘을 든 사람을 이 방으로".
+ * 도착 판정은 서버가 한다(존 판정이 서버 것이라 화면 말을 믿을 이유가 없다).
+ */
+export interface Guidance {
+  tagId: string;
+  zoneId: string;
+  /** 안내를 건 시각 (ms) — 오래된 안내를 화면에서 흐리게 하는 데 쓴다 */
+  since: number;
+}
+
+/**
  * 도면에만 표시되는 라벨 — 존이 아니다(추적 대상 없음).
  * 도면 PDF 에 이름이 있지만 방이 아닌 것(가구·설비): 대기석, 직원PC, 서브데스크, 실외기실.
  */
