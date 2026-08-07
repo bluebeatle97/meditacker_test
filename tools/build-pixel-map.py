@@ -37,7 +37,6 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = os.path.join(ROOT, "packages", "server", "src", "config")
 OUT = os.path.join(ROOT, "packages", "web-patient", "public", "pixelmap.png")
-OVER_OUT = os.path.join(ROOT, "packages", "web-patient", "public", "pixelmap-over.png")
 DEFAULT_ASSETS = r"C:\Users\LG gram\Desktop\메디트레커(가칭)\에셋\Modern tiles_Free"
 
 # 직원 전용 구역 바닥색 — 환자 화면에서 "못 들어가는 곳" 으로 읽혀야 하므로
@@ -324,10 +323,7 @@ def main():
 
     plan = load("floorplan.json")
     zones = load("zones.json")
-    # **바닥이 있는 곳**을 읽는다 (walkable.json 이 아니다).
-    # walkable.json 은 2.5D 벽면 띠가 빠진 "설 수 있는 곳" 이라, 그걸 읽으면 벽면을
-    # 덜 그리게 되고 → 다음 빌드에서 또 줄어든다. 그리기는 원본 바닥 기준이어야 한다.
-    walk = Walk(load("floor.json" if os.path.exists(os.path.join(CFG, "floor.json")) else "walkable.json"))
+    walk = Walk(load("walkable.json"))
 
     tw = -(-plan["width"] // TILE_FP)            # 타일 개수 (가로)
     th = -(-plan["height"] // TILE_FP)
@@ -503,14 +499,6 @@ def main():
                 y += 1
     img.alpha_composite(shade)
     img.alpha_composite(face_layer)
-
-    # ── 5.5 캐릭터 위에 덮을 층 (벽면) ──────────────────────────────────────
-    # 벽면은 벽 발치에서 **남쪽으로** 최대 FACE_H+걸레받이(15px ≈ 49cm) 더 그려진다.
-    # 그 띠는 그림상 벽이지만 바닥이기도 하다 — 벽 앞 20cm 에 서는 건 정상이다.
-    # 그래서 못 서게 막지 않고, **캐릭터보다 위에 다시 그린다**. 그러면 벽·안내데스크
-    # 앞에 선 사람이 그 위에 올라탄 게 아니라 뒤에 서 있는 것으로 보인다.
-    face_layer.save(OVER_OUT)
-    print(f"saved {OVER_OUT}  (캐릭터 위에 덮을 벽면 층)")
 
     # 천장캡 — 벽을 위에서 본 윗면. 바닥에 붙은 벽에만 올린다 (샤프트 안쪽은 통제구역이라
     # 어두운 채로 남겨야 한다). 테두리는 시트의 외곽선 색으로 1px.
