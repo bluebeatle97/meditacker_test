@@ -33,19 +33,45 @@
       #ctrls button.on { background: #2c6b4a; border-color: #4fae7f; color: #fff; }
 
       /* ── 첫 진입 커스터마이징 ─────────────────────────────────────────── */
+      /* 팔찌 번호 입력 — 커스터마이징 화면과 같은 껍데기를 쓴다 */
+      #pin-gate {
+        position: fixed; inset: 0; z-index: 210; display: none;
+        align-items: center; justify-content: center; padding: 20px;
+        background: #0b111ceb;
+      }
+      #pin-gate.show { display: flex; }
+      #pin-input {
+        width: 100%; box-sizing: border-box; margin: 4px 0; padding: 14px 12px;
+        border-radius: 9px; border: 1px solid #2b3a52; background: #0f1725; color: inherit;
+        /* 번호를 한 글자씩 또박또박 읽어야 해서 고정폭 + 자간을 준다 */
+        font: 800 26px/1.2 ui-monospace, "Consolas", monospace;
+        letter-spacing: .18em; text-align: center; text-transform: uppercase;
+      }
+      #pin-input:focus { outline: none; border-color: #58a6ff; }
+      #pin-input::placeholder { font-weight: 400; letter-spacing: .1em; color: #55647a; }
+      .pin-err { min-height: 18px; margin: 6px 0 0; font-size: 12.5px; color: #ff9d9d; }
+      #pin-go {
+        width: 100%; margin-top: 10px; padding: 12px; border-radius: 10px; cursor: pointer;
+        border: none; background: #2f6fd0; color: #fff; font: 800 15px inherit;
+      }
+      #pin-go:disabled { background: #26334a; color: #6d7d94; cursor: default; }
+      #pin-gate .hint { margin-top: 12px; font-size: 11px; color: #6d7d94; }
+
       #setup {
         position: fixed; inset: 0; z-index: 200; display: none;
         align-items: center; justify-content: center; padding: 20px;
         background: #0b111ceb;
       }
       #setup.show { display: flex; }
+      #pin-gate .card,
       #setup .card {
         width: 100%; max-width: 420px; padding: 22px;
         background: #141d2e; border: 1px solid #2b3a52;
         border-radius: 14px; box-shadow: 0 16px 40px #000a;
       }
-      #setup h2 { margin: 0 0 4px; font-size: 20px; }
-      #setup p { margin: 0 0 18px; font-size: 13px; color: #9fb0c6; line-height: 1.55; }
+      #pin-gate h2, #setup h2 { margin: 0 0 4px; font-size: 20px; }
+      #pin-gate p, #setup p { margin: 0 0 18px; font-size: 13px; color: #9fb0c6; line-height: 1.55; }
+      #pin-gate p b { color: #cfe0f5; }
       #chars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
       .char {
         padding: 10px 4px 8px; border-radius: 10px; cursor: pointer;
@@ -114,6 +140,26 @@
     <div id="fatal"></div>
 
     <!-- 첫 진입: 캐릭터 고르기 (서버에 저장 — 태그 반납 시 초기화) -->
+    <!-- 팔찌 번호 입력 — 커스터마이징보다 먼저. QR 로 들어오면 건너뛴다 -->
+    <div id="pin-gate">
+      <div class="card">
+        <h2>팔찌 번호 입력</h2>
+        <p>받으신 팔찌에 적힌 <b>6자리 번호</b>를 입력해 주세요.</p>
+        <input
+          id="pin-input"
+          type="text"
+          inputmode="latin"
+          maxlength="9"
+          placeholder="예: 9E1BC4"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <div class="pin-err" id="pin-err"></div>
+        <button id="pin-go" type="button" disabled>입장하기</button>
+        <div class="hint">번호가 안 보이거나 들어가지지 않으면 데스크에 말씀해 주세요.</div>
+      </div>
+    </div>
+
     <div id="setup">
       <div class="card">
         <h2>내 캐릭터 고르기</h2>

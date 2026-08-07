@@ -136,8 +136,57 @@ async function resolveToken(): Promise<string> {
   const pin = q.get('pin');
   if (pin) return claimByPin(pin);
 
-  const res = await fetch(`${SERVER_URL}/dev-token?type=patient`);
-  return (await res.json()).token;
+  // 그 외에는 번호를 직접 받는다. QR 은 이 입력을 대신 채워주는 것뿐이라
+  // 나중에 QR 을 붙여도 이 화면은 그대로 남는다 (번호가 안 읽히는 팔찌·구형 폰 대비).
+  return runPinGate();
+}
+
+/**
+ * 팔찌 번호 입력 화면.
+ *
+ * 맞을 때까지 계속 받는다 — 틀렸다고 화면을 닫아버리면 환자는 갈 곳이 없다.
+ * 오류는 서버 문구를 그대로 보여준다(없는 번호 / 이미 사용 중 / 아직 등록 안 됨):
+ * 데스크에 뭐라고 말해야 할지가 그 문구에 들어 있다.
+ */
+function runPinGate(): Promise<string> {
+  return new Promise((resolve) => {
+    const wrap = document.getElementById('pin-gate')!;
+    const input = document.getElementById('pin-input') as HTMLInputElement;
+    const go = document.getElementById('pin-go') as HTMLButtonElement;
+    const err = document.getElementById('pin-err')!;
+
+    // 공백·하이픈은 눈으로 읽어 치다 보면 섞인다. 6자리가 차야 버튼이 열린다
+    const clean = (): string => input.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+    const sync = (): void => {
+      go.disabled = clean().length !== 6;
+    };
+    input.addEventListener('input', () => {
+      err.textContent = '';
+      sync();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !go.disabled) go.click();
+    });
+
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      go.textContent = '확인 중…';
+      try {
+        const token = await claimByPin(clean());
+        wrap.classList.remove('show');
+        resolve(token);
+      } catch (e) {
+        err.textContent = (e as Error).message;
+        go.textContent = '입장하기';
+        sync();
+        input.select();
+      }
+    });
+
+    wrap.classList.add('show');
+    sync();
+    input.focus();
+  });
 }
 
 /**
@@ -294,13 +343,11 @@ class PatientScene extends Phaser.Scene {
     // 존 목록을 서버에서 받아 보고, 안 되면 시연 모드 — 도면·존·벽은 고정 파일이라
     // 빌드에 든 사본을 쓴다
     const source = await resolveZones(SERVER_URL);
-    DEMO = source.demo;
-    if (DEMO) markDemoUi();
     this.demo = DEMO;
     const from = (route: string, local: string): string =>
       DEMO ? localConfigUrl(local) : `${SERVER_URL}${route}`;
 
-    this.token = await resolveToken();
+    this.token = TOKEN;
     const [plan, zones, grid, profile] = await Promise.all([
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
       Promise.resolve(source.zones),
@@ -698,7 +745,26 @@ class PatientScene extends Phaser.Scene {
   }
 }
 
-const game = new Phaser.Game({
+/**
+ * 팔찌 번호부터 받고 나서 게임을 띄운다.
+ *
+ * **왜 Phaser 보다 먼저인가.** 번호 입력은 순수 DOM 이라 렌더러가 필요 없는데, 씬 안에서
+ * 부르면 Phaser 초기화가 실패했을 때(구형 폰·WebGL 차단) 환자가 번호조차 못 넣는다.
+ * 화면에는 오류만 남는다. 밖으로 빼면 최소한 입장은 되고, 그 뒤에 실패하면 원인이
+ * '지도 렌더링' 으로 좁혀진다.
+ */
+let TOKEN = '';
+
+async function main(): Promise<void> {
+  const source = await resolveZones(SERVER_URL);
+  DEMO = source.demo;
+  if (DEMO) markDemoUi();
+  TOKEN = await resolveToken();
+  startGame();
+}
+
+function startGame(): void {
+  const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'app',
   backgroundColor: '#0e1420',
@@ -709,5 +775,8 @@ const game = new Phaser.Game({
     height: window.innerHeight,
   },
   scene: [PatientScene],
-});
-(window as unknown as Record<string, unknown>).__game = game; // 디버깅용 (직원용과 동일)
+  });
+  (window as unknown as Record<string, unknown>).__game = game; // 디버깅용 (직원용과 동일)
+}
+
+void main().catch((err) => fatal('입장', err));
