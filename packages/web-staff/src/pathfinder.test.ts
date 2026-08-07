@@ -77,6 +77,45 @@ describe('경로가 벽에 붙지 않는다', () => {
     expect(avg).toBeGreaterThanOrEqual(3);
   });
 
+  it('가로·세로 직선으로만 꺾인다 (대각선 구간 없음)', () => {
+    // 바닥에 깔리는 안내 화살표는 비스듬하면 지저분하고 방향이 덜 읽힌다.
+    // 좁은 통로는 통째로 못 펴서 잘라 가며 펴는데, 지금 도면에서는 전부 펴진다.
+    // (물리적으로 못 펴는 자리가 생기면 그 구간만 비스듬히 남는다 — 그때 여길 푼다)
+    let total = 0;
+    let diagonal = 0;
+    for (const [from, to] of ROUTES) {
+      const a = at(from);
+      const b = at(to);
+      const route = pf.findPath(a.x, a.y, b.x, b.y);
+      if (!route) continue;
+      const pts = pf.orthogonalize([a, ...route]);
+      for (let i = 1; i < pts.length; i++) {
+        const dx = Math.abs(pts[i].x - pts[i - 1].x);
+        const dy = Math.abs(pts[i].y - pts[i - 1].y);
+        total++;
+        if (dx > 1 && dy > 1) diagonal++;
+      }
+    }
+    expect(total).toBeGreaterThan(5);
+    expect(diagonal, `대각선 구간 ${diagonal}/${total}`).toBe(0);
+  });
+
+  it('편 경로도 벽을 뚫지 않는다', () => {
+    for (const [from, to] of ROUTES) {
+      const a = at(from);
+      const b = at(to);
+      const route = pf.findPath(a.x, a.y, b.x, b.y);
+      if (!route) continue;
+      const pts = pf.orthogonalize([a, ...route]);
+      for (let i = 1; i < pts.length; i++) {
+        expect(
+          pf.hasLineOfSight(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y),
+          `${from}→${to} 의 ${i}번째 구간이 벽을 지난다`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it('벽에 딱 붙은 지점이 5% 미만', () => {
     // 문틀처럼 좁은 데는 어쩔 수 없다 — 0 을 요구하면 문을 못 지난다
     const hugging = all.filter((c) => c <= 1).length;

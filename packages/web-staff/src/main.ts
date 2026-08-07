@@ -354,9 +354,12 @@ class StaffMapScene extends Phaser.Scene {
       }
     }
     for (const [tagId, zoneId] of this.guidance) {
-      // 환자 화면은 캐릭터 발밑에서 길을 그린다 — 여기도 같은 자리에서 시작해야
-      // 두 화면이 같은 길을 보여준다. 아바타가 없으면(자리비움) 그릴 것이 없다
-      const from = this.lastPoint.get(tagId);
+      // 환자 화면은 **눈에 보이는 캐릭터** 발밑에서 길을 그린다. 여기도 서버 좌표가
+      // 아니라 도면 위 점이 있는 자리에서 시작해야 두 화면이 같은 길을 보여준다
+      const avatar = this.avatars.get(tagId);
+      const from = avatar
+        ? { x: (avatar.x - this.offX) / this.worldScale, y: (avatar.y - this.offY) / this.worldScale }
+        : this.lastPoint.get(tagId);
       const b = this.zones.get(zoneId);
       let line = this.guideLines.get(tagId);
       if (!line) {

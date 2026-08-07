@@ -336,6 +336,86 @@ export class Pathfinder {
     return simplified;
   }
 
+  /**
+   * 꺾은선을 **가로·세로 직선 구간으로만** 다시 만든다 (대각선 하나 → ㄱ자 둘).
+   *
+   * A* 는 대각선을 허용해서 방을 비스듬히 가로지르는 경로가 나온다. 아바타가 걸을 때는
+   * 자연스럽지만 **바닥에 깔린 길안내 화살표는 비스듬하면 지저분하고 어디로 가라는 건지
+   * 덜 읽힌다** — 복도를 쭉 가다 90도로 꺾는 편이 훨씬 명확하다.
+   *
+   * 모퉁이는 가로 먼저 / 세로 먼저 두 가지가 있는데, 둘 다 벽에 안 걸리면 **벽에서 먼
+   * 쪽**을 고른다. 둘 다 걸리면(좁은 통로) 그 구간만 대각선으로 남긴다 — 억지로 펴면
+   * 벽을 뚫는다.
+   */
+  orthogonalize(pts: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
+    if (pts.length < 2) return pts;
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const a = out[out.length - 1];
+      const b = pts[i];
+      if (Math.abs(a.x - b.x) < 1 || Math.abs(a.y - b.y) < 1) {
+        out.push(b); // 이미 가로 또는 세로
+        continue;
+      }
+      const h = { x: b.x, y: a.y }; // 가로 먼저 꺾는 모퉁이
+      const v = { x: a.x, y: b.y }; // 세로 먼저 꺾는 모퉁이
+      const okH =
+        this.hasLineOfSight(a.x, a.y, h.x, h.y) && this.hasLineOfSight(h.x, h.y, b.x, b.y);
+      const okV =
+        this.hasLineOfSight(a.x, a.y, v.x, v.y) && this.hasLineOfSight(v.x, v.y, b.x, b.y);
+      if (okH && okV) out.push(this.wallCostAt(h) <= this.wallCostAt(v) ? h : v);
+      else if (okH) out.push(h);
+      else if (okV) out.push(v);
+      else out.push(...this.elbowVia(a, b, 3)); // 한 번에 못 펴면 잘라서 다시 시도
+      out.push(b);
+    }
+    return mergeCollinear(out);
+  }
+
+  /**
+   * 한 번의 ㄱ자로는 벽에 걸리는 구간 — 가운데를 짚어 두 토막으로 나눠 각각 펴 본다.
+   * 좁은 통로에서 통째로 펴면 벽을 뚫으므로, 여기서도 안 되면 그 구간만 비스듬히 둔다.
+   */
+  private elbowVia(
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+    depth: number,
+  ): Array<{ x: number; y: number }> {
+    if (depth <= 0) return [];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (!this.isWalkable(mid.x, mid.y)) return [];
+    const left = this.orthogonalStep(a, mid, depth - 1);
+    const right = this.orthogonalStep(mid, b, depth - 1);
+    if (!left || !right) return [];
+    return [...left, mid, ...right];
+  }
+
+  /** 두 점 사이를 ㄱ자로 잇는 모퉁이 (안 되면 더 잘라서, 그래도 안 되면 null) */
+  private orthogonalStep(
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+    depth: number,
+  ): Array<{ x: number; y: number }> | null {
+    if (Math.abs(a.x - b.x) < 1 || Math.abs(a.y - b.y) < 1) {
+      return this.hasLineOfSight(a.x, a.y, b.x, b.y) ? [] : null;
+    }
+    const h = { x: b.x, y: a.y };
+    const v = { x: a.x, y: b.y };
+    const okH = this.hasLineOfSight(a.x, a.y, h.x, h.y) && this.hasLineOfSight(h.x, h.y, b.x, b.y);
+    const okV = this.hasLineOfSight(a.x, a.y, v.x, v.y) && this.hasLineOfSight(v.x, v.y, b.x, b.y);
+    if (okH && okV) return [this.wallCostAt(h) <= this.wallCostAt(v) ? h : v];
+    if (okH) return [h];
+    if (okV) return [v];
+    const deeper = this.elbowVia(a, b, depth);
+    return deeper.length ? deeper : null;
+  }
+
+  /** 이 지점의 벽 근접 비용 (모퉁이를 고를 때 더 넓은 쪽을 쓰려고) */
+  private wallCostAt(p: { x: number; y: number }): number {
+    const i = this.idxOf(p.x, p.y);
+    return i < 0 ? Infinity : this.wallCost[i];
+  }
+
   private idxOf(px: number, py: number): number {
     const gx = Math.floor(px / this.cell);
     const gy = Math.floor(py / this.cell);
@@ -359,4 +439,25 @@ export class Pathfinder {
     }
     return c;
   }
+}
+
+/** 같은 방향으로 이어지는 구간을 하나로 — 같은 직선 위 중간점은 그릴 것이 없다 */
+function mergeCollinear(
+  pts: Array<{ x: number; y: number }>,
+): Array<{ x: number; y: number }> {
+  const out: Array<{ x: number; y: number }> = [];
+  for (const p of pts) {
+    const n = out.length;
+    if (n >= 2) {
+      const a = out[n - 2];
+      const b = out[n - 1];
+      // 세 점이 한 직선 위면 가운데를 버린다 (외적이 0)
+      if (Math.abs((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) < 0.5) {
+        out[n - 1] = p;
+        continue;
+      }
+    }
+    if (n === 0 || Math.hypot(p.x - out[n - 1].x, p.y - out[n - 1].y) > 0.5) out.push(p);
+  }
+  return out;
 }
