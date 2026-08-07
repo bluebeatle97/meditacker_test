@@ -105,6 +105,31 @@ const idleBeacons = new IdleBeaconStore();
 /** 진행 중인 방 안내 (직원이 걸고, 도착하면 서버가 자동으로 푼다) */
 const guidance = new GuidanceStore();
 
+/**
+ * 손님 통제구역 마스크 — 직원이 도면에 칠해 준 구역.
+ * 없으면(아직 안 칠함) 아무 데도 막지 않는다.
+ */
+const staffArea = (() => {
+  try {
+    return JSON.parse(readFileSync(join(configDir, 'staff-area.json'), 'utf-8')) as {
+      cell: number;
+      cols: number;
+      rows: number;
+      grid: string[];
+    };
+  } catch {
+    return null;
+  }
+})();
+
+function inStaffArea(p: { x: number; y: number }): boolean {
+  if (!staffArea) return false;
+  const gx = Math.floor(p.x / staffArea.cell);
+  const gy = Math.floor(p.y / staffArea.cell);
+  if (gx < 0 || gy < 0 || gx >= staffArea.cols || gy >= staffArea.rows) return false;
+  return staffArea.grid[gy].charCodeAt(gx) === 49;
+}
+
 // 현장 튜닝용 raw 스캔 녹화 (RECORD_SCANS 가 있을 때만)
 const recorder = SERVER_CONFIG.recordScans
   ? new ScanRecorder(SERVER_CONFIG.recordScans, gateways, ZONE_ENGINE_CONFIG)
@@ -523,7 +548,11 @@ const httpServer = createServer((req, res) => {
         if (zoneId) {
           // 없는 방·직원 구역으로 안내를 걸면 환자 화면이 갈 곳 없는 화살표를 그린다
           const zone = loadZones().find((z) => z.zoneId === zoneId);
-          if (!zone || !isGuidableZone(zone)) throw new Error(`안내할 수 없는 방: ${zoneId}`);
+          // 분류상 진료실이어도 손님 통제구역 안에 있으면 안내 대상이 아니다
+          // (직원이 도면에 칠해 준 구역 — tools/build-staff-areas.py)
+          if (!zone || !isGuidableZone(zone) || inStaffArea(zone.tilePosition)) {
+            throw new Error(`안내할 수 없는 방: ${zoneId}`);
+          }
           guidance.set(tagId, zoneId, Date.now());
         } else {
           guidance.clear(tagId);

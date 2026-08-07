@@ -286,7 +286,7 @@ class StaffMapScene extends Phaser.Scene {
       document.getElementById('sidebar')!,
       (tagId, name, memo, group) => this.saveMeta(tagId, name, memo, group),
       (tagId) => this.pickTag(tagId),
-      [...this.zones.values()].filter(isGuidableZone),
+      this.guideDestinations(),
       (tagId, zoneId) => void this.setGuide(tagId, zoneId),
     );
     // 장기체류 경고창 (DOM) — 이름을 누르면 맵에서 그 비콘을 찾아 준다
@@ -325,10 +325,21 @@ class StaffMapScene extends Phaser.Scene {
     const admin = new BeaconAdmin(
       SERVER_URL,
       () => this.refreshPanel(),
-      [...this.zones.values()].filter(isGuidableZone),
+      this.guideDestinations(),
       (tagId) => this.guidance.get(tagId) ?? null,
     );
     btn.onclick = () => admin.open();
+  }
+
+  /**
+   * 안내 목적지 후보.
+   * 분류상 진료실이어도 **손님 통제구역 안이면 뺀다** — 직원이 도면에 칠해 준 구역이라
+   * 거기로 안내할 수는 없다. 서버도 같은 이유로 거절한다.
+   */
+  private guideDestinations(): Zone[] {
+    return [...this.zones.values()].filter(
+      (z) => isGuidableZone(z) && !this.pf.isAvoided(z.tilePosition.x, z.tilePosition.y),
+    );
   }
 
   /** 방 안내 걸기/끄기 — 서버가 대상 환자에게만 전달하고, 도착하면 알아서 푼다 */

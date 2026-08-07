@@ -10,8 +10,10 @@
 도면 v2 부터는 **색이 곧 의미**다 — 색칠을 사람이 해서 주기 때문에 굵기 추정이 필요 없다.
 
     흰색      = 사람이 다닐 수 있는 바닥
-    자홍색    = 다닐 수 있지만 **직원 전용** (환자 화면에서 검게 칠하고 안내 경로가 피한다)
     그 외 전부 = 벽 · 통제구역(계단·엘리베이터 샤프트·실외기실) · 건물 밖
+
+손님 통제구역(직원 전용)은 여기서 다루지 않는다 — 도면을 훼손하지 않으려고 마스크를
+따로 둔다. `tools/build-staff-areas.py` 참고.
 
 옛 도면(v1)은 이렇지 않았다. 벽과 문이 같은 얇은 선으로 그려져 있어 **두께로** 벽을
 가려내야 했고, 그 결과 문짝과 문 열림 궤적까지 통행 불가로 잡혀서 아바타가 문간을
@@ -38,7 +40,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = os.path.join(ROOT, "packages", "server", "src", "config")
 PLAN = os.path.join(ROOT, "packages", "web-staff", "public", "floorplan.png")
 OUT = os.path.join(CFG, "walkable.json")
-STAFF_OUT = os.path.join(CFG, "staff-area.json")
 
 CELL = 4          # 격자 셀 한 변 (도면 px). 4px ≈ 6.5cm
 WHITE_MIN = 240   # 세 채널 모두 이보다 밝으면 흰색으로 본다 (안티에일리어싱 여유)
@@ -46,16 +47,6 @@ WHITE_MIN = 240   # 세 채널 모두 이보다 밝으면 흰색으로 본다 (�
 # 벽에 걸친 셀을 막는 쪽으로 기울여야 아바타가 벽을 스치지 않는다.
 WHITE_RATIO = 0.5
 
-# 직원 전용 구역 표시색 (도면에 사람이 칠해서 준다).
-# **왜 검정이 아닌가**: 이 도면에서 검정은 이미 벽·설비 선이다. 검게 칠하면 통행
-# 불가가 되어 직원 좌표까지 벽으로 밀려난다 — 직원은 그 안에서 일해야 한다.
-# 건축 도면에 절대 안 나오는 자홍색을 쓴다. 환자 화면에서는 이 구역을 **검게** 칠한다.
-STAFF_RGB = (255, 0, 255)
-STAFF_TOL = 60
-
-
-def is_staff(p):
-    return all(abs(a - b) <= STAFF_TOL for a, b in zip(p, STAFF_RGB))
 
 
 def main():
@@ -77,29 +68,19 @@ def main():
 
     cols, rows = W // CELL, H // CELL
     grid = []
-    sgrid = []
     walk = 0
     for r in range(rows):
         row = []
-        srow = []
         for c in range(cols):
             white = 0
-            staff = 0
             for y in range(r * CELL, (r + 1) * CELL):
                 for x in range(c * CELL, (c + 1) * CELL):
-                    p = px[x, y]
-                    if min(p) >= WHITE_MIN:
+                    if min(px[x, y]) >= WHITE_MIN:
                         white += 1
-                    elif is_staff(p):
-                        staff += 1
-            n = CELL * CELL
-            # 직원 전용 색도 '바닥' 이다 — 직원은 그 안에서 일한다. 다만 따로 기록해 둔다
-            ok = (white + staff) / n >= WHITE_RATIO
+            ok = white / (CELL * CELL) >= WHITE_RATIO
             row.append("1" if ok else "0")
-            srow.append("1" if ok and staff / n >= WHITE_RATIO else "0")
             walk += ok
         grid.append("".join(row))
-        sgrid.append("".join(srow))
 
     total = cols * rows
     print(f"격자 {cols}x{rows} (셀 {CELL}px) — 통행가능 {walk:,}셀 = {100 * walk / total:.1f}%")
@@ -118,21 +99,12 @@ def main():
     else:
         print(f"존 {len(zones)}개 앵커 전부 통행 가능한 자리")
 
-    n_staff = sum(row.count("1") for row in sgrid)
-    if n_staff:
-        print(f"직원 전용 구역: {n_staff:,}셀 = {100 * n_staff / walk:.1f}% (도면의 자홍색)")
-    else:
-        print("직원 전용 구역: 없음 (도면에 자홍색으로 칠하면 잡힌다)")
-
     if dry:
         print("--dry — 파일 안 씀")
         return
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": grid}, f)
     print(f"saved {OUT}")
-    with open(STAFF_OUT, "w", encoding="utf-8") as f:
-        json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": sgrid}, f)
-    print(f"saved {STAFF_OUT}")
 
 
 if __name__ == "__main__":
