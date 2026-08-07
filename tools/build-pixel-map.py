@@ -324,7 +324,10 @@ def main():
 
     plan = load("floorplan.json")
     zones = load("zones.json")
-    walk = Walk(load("walkable.json"))
+    # **바닥이 있는 곳**을 읽는다 (walkable.json 이 아니다).
+    # walkable.json 은 2.5D 벽면 띠가 빠진 "설 수 있는 곳" 이라, 그걸 읽으면 벽면을
+    # 덜 그리게 되고 → 다음 빌드에서 또 줄어든다. 그리기는 원본 바닥 기준이어야 한다.
+    walk = Walk(load("floor.json" if os.path.exists(os.path.join(CFG, "floor.json")) else "walkable.json"))
 
     tw = -(-plan["width"] // TILE_FP)            # 타일 개수 (가로)
     th = -(-plan["height"] // TILE_FP)
