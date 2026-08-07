@@ -323,7 +323,10 @@ def main():
 
     plan = load("floorplan.json")
     zones = load("zones.json")
-    walk = Walk(load("walkable.json"))
+    # **그리기용 바닥**을 읽는다 (walkable.json 이 아니다).
+    # walkable.json 은 안내데스크 파티션 같은 "설 수 없는 자리" 가 빠진 격자다.
+    # 그걸로 그리면 뺀 자리를 건물 밖으로 보고 새까맣게 칠한다.
+    walk = Walk(load("floor.json" if os.path.exists(os.path.join(CFG, "floor.json")) else "walkable.json"))
 
     tw = -(-plan["width"] // TILE_FP)            # 타일 개수 (가로)
     th = -(-plan["height"] // TILE_FP)

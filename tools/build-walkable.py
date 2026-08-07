@@ -40,6 +40,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = os.path.join(ROOT, "packages", "server", "src", "config")
 PLAN = os.path.join(ROOT, "packages", "web-staff", "public", "floorplan.png")
 OUT = os.path.join(CFG, "walkable.json")
+FLOOR_OUT = os.path.join(CFG, "floor.json")
 
 CELL = 4          # 격자 셀 한 변 (도면 px). 4px ≈ 6.5cm
 WHITE_MIN = 240   # 세 채널 모두 이보다 밝으면 흰색으로 본다 (안티에일리어싱 여유)
@@ -81,6 +82,12 @@ def main():
             row.append("1" if ok else "0")
             walk += ok
         grid.append("".join(row))
+
+    # **그리기용 바닥** — 아래에서 빼는 것들이 반영되지 않은 원본.
+    # 도트맵은 이걸 읽어야 한다. 줄어든 격자를 읽으면 뺀 자리를 "건물 밖"으로 그려서
+    # 안내데스크 파티션이 새까맣게 나온다(실제로 그랬다).
+    with open(FLOOR_OUT, "w", encoding="utf-8") as f:
+        json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": list(grid)}, f)
 
     # 사람이 설 수 없는 자리(안내데스크 파티션 옆면)를 뺀다.
     # 도면에는 흰 바닥으로 그려져 있어서 여기서 빼지 않으면 사람이 그 위에 선다.
@@ -129,6 +136,7 @@ def main():
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": grid}, f)
     print(f"saved {OUT}")
+    print(f"saved {FLOOR_OUT} (그리기용 바닥)")
 
 
 if __name__ == "__main__":
