@@ -41,7 +41,9 @@ DEFAULT_ASSETS = r"C:\Users\LG gram\Desktop\메디트레커(가칭)\에셋\Moder
 
 # 직원 전용 구역 바닥색 — 환자 화면에서 "못 들어가는 곳" 으로 읽혀야 하므로
 # 다른 방보다 확실히 어둡게 (완전 검정은 건물 밖(void)과 헷갈린다)
-STAFF_RGB = (26, 26, 30)
+STAFF_RGB = (22, 24, 32)
+# 경계선 — 덮은 자리가 허공처럼 보이지 않게 한 겹 두른다
+STAFF_EDGE_RGB = (44, 48, 60)
 
 T = 16          # 타일 한 변 (출력 px) — 에셋 타일 크기
 # 타일 한 칸이 담는 도면 px. 도면 1px ≈ 1.62cm 이므로 32px ≈ 52cm.
@@ -391,41 +393,6 @@ def main():
     for mat, mask in masks.items():
         img.paste(layers[mat], (0, 0), mask)
 
-    # ── 3.5 직원 전용 구역을 검게 덮는다 ────────────────────────────────────
-    # 환자 화면에서 "여긴 못 들어가는 곳" 이 한눈에 보여야 한다. 바닥 무늬로만 구분하면
-    # (concrete) 그냥 다른 방으로 보인다.
-    #
-    # ⚠️ 구역을 **방 분할(segment_rooms)로 뽑지 않는다.** 한 번 그렇게 해봤는데 v2 도면은
-    #    문을 안 그려서 방이 복도로 새어 나갔고, 그 결과 복도까지 직원 구역으로 먹었다
-    #    (완전히 막고 재보니 환자 구역 56조합 중 42개가 서로 못 닿았다 = 복도가 끊겼다).
-    #    도면에 칠한 색으로 정한다 — 이 도면의 규칙이 원래 "색이 곧 의미" 다.
-    staff_mask_path = os.path.join(CFG, "staff-area.json")
-    if os.path.exists(staff_mask_path):
-        sm = json.load(open(staff_mask_path, encoding="utf-8"))
-        smask = Image.new("L", img.size, 0)
-        sdraw = ImageDraw.Draw(smask)
-        n_staff = 0
-        for r in range(min(sm["rows"], walk.rows)):
-            row = sm["grid"][r]
-            c = 0
-            while c < min(sm["cols"], walk.cols):
-                if row[c] != "1":
-                    c += 1
-                    continue
-                s0 = c
-                while c < min(sm["cols"], walk.cols) and row[c] == "1":
-                    n_staff += 1
-                    c += 1
-                sdraw.rectangle(
-                    [int(s0 * cpx), int(r * cpx), int(c * cpx) - 1, int((r + 1) * cpx) - 1],
-                    fill=255,
-                )
-        if n_staff:
-            black = Image.new("RGBA", img.size, STAFF_RGB + (255,))
-            black.putalpha(smask)
-            img.alpha_composite(black)
-        print(f"직원 전용 구역: {n_staff}칸 (staff-area.json)")
-
     counts = {}
     for i, z in enumerate(zones):
         m = mat_for(i)
@@ -556,6 +523,43 @@ def main():
     edge = Image.new("RGBA", (mw, mh), WALL_RGB + (255,))
     edge.putalpha(ImageChops.subtract(cap_mask, cap_mask.filter(ImageFilter.MinFilter(3))))
     img.alpha_composite(edge)
+
+    # ── 6. 손님 통제구역 — **벽까지 덮어** 한 덩어리로 ──────────────────────
+    # 벽보다 먼저 칠하면 검은 바닥 위로 벽선이 그대로 지나가 어색하다. 손님 화면에서
+    # 이 구역은 "방이 있는데 못 들어가는 곳" 이 아니라 **애초에 없는 곳** 으로 보여야
+    # 자연스럽다 — 건물 밖(void)과 같은 취급이다. 그래서 벽을 다 그린 뒤에 덮는다.
+    staff_mask_path = os.path.join(CFG, "staff-area.json")
+    if os.path.exists(staff_mask_path):
+        sm = json.load(open(staff_mask_path, encoding="utf-8"))
+        smask = Image.new("L", img.size, 0)
+        sdraw = ImageDraw.Draw(smask)
+        n_staff = 0
+        cpx2 = walk.cell * MAP_SCALE
+        for r in range(min(sm["rows"], walk.rows)):
+            row = sm["grid"][r]
+            c = 0
+            while c < min(sm["cols"], walk.cols):
+                if row[c] != "1":
+                    c += 1
+                    continue
+                s0 = c
+                while c < min(sm["cols"], walk.cols) and row[c] == "1":
+                    n_staff += 1
+                    c += 1
+                sdraw.rectangle(
+                    [int(s0 * cpx2), int(r * cpx2), int(c * cpx2) - 1, int((r + 1) * cpx2) - 1],
+                    fill=255,
+                )
+        if n_staff:
+            solid = Image.new("RGBA", img.size, STAFF_RGB + (255,))
+            solid.putalpha(smask)
+            img.alpha_composite(solid)
+            # 잘린 자리가 허공처럼 보이지 않게 경계에 얇은 선을 둘러 준다
+            edge = ImageChops.subtract(smask, smask.filter(ImageFilter.MinFilter(5)))
+            rim = Image.new("RGBA", img.size, STAFF_EDGE_RGB + (255,))
+            rim.putalpha(edge)
+            img.alpha_composite(rim)
+        print(f"손님 통제구역: {n_staff}칸 (벽까지 덮음)")
 
     # 타일 격자 크기 그대로 저장한다 (도면 크기로 자르면 마지막 타일이 잘린다)
     img.save(OUT)
