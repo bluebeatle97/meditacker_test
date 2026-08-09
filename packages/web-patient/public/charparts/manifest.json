@@ -1,0 +1,2175 @@
+{
+ "frames": {
+  "idle": [
+   0,
+   24
+  ],
+  "walk": [
+   24,
+   24
+  ],
+  "sit": [
+   48,
+   12
+  ],
+  "phone": [
+   60,
+   12
+  ]
+ },
+ "parts": {
+  "body": [
+   {
+    "id": "Body",
+    "colors": [
+     {
+      "id": "Body_01",
+      "hex": "#bf8b78"
+     },
+     {
+      "id": "Body_02",
+      "hex": "#ffcbb0"
+     },
+     {
+      "id": "Body_03",
+      "hex": "#ffb893"
+     },
+     {
+      "id": "Body_04",
+      "hex": "#bb845c"
+     },
+     {
+      "id": "Body_05",
+      "hex": "#cdb57a"
+     },
+     {
+      "id": "Body_06",
+      "hex": "#d4cabb"
+     },
+     {
+      "id": "Body_07",
+      "hex": "#f0ae80"
+     },
+     {
+      "id": "Body_08",
+      "hex": "#e6b8d7"
+     },
+     {
+      "id": "Body_09",
+      "hex": "#bab8d7"
+     }
+    ]
+   }
+  ],
+  "eyes": [
+   {
+    "id": "Eyes",
+    "colors": [
+     {
+      "id": "Eyes_01",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Eyes_02",
+      "hex": "#568d61"
+     },
+     {
+      "id": "Eyes_03",
+      "hex": "#959d58"
+     },
+     {
+      "id": "Eyes_04",
+      "hex": "#6c6e85"
+     },
+     {
+      "id": "Eyes_05",
+      "hex": "#956020"
+     },
+     {
+      "id": "Eyes_06",
+      "hex": "#3b7aa2"
+     },
+     {
+      "id": "Eyes_07",
+      "hex": "#5ed6f2"
+     }
+    ]
+   }
+  ],
+  "outfit": [
+   {
+    "id": "Outfit_01",
+    "colors": [
+     {
+      "id": "Outfit_01_01",
+      "hex": "#805e8e"
+     },
+     {
+      "id": "Outfit_01_02",
+      "hex": "#a6b6e9"
+     },
+     {
+      "id": "Outfit_01_03",
+      "hex": "#bfa690"
+     },
+     {
+      "id": "Outfit_01_04",
+      "hex": "#d93232"
+     },
+     {
+      "id": "Outfit_01_05",
+      "hex": "#3e6d5e"
+     },
+     {
+      "id": "Outfit_01_06",
+      "hex": "#d0614c"
+     },
+     {
+      "id": "Outfit_01_07",
+      "hex": "#d061b1"
+     },
+     {
+      "id": "Outfit_01_08",
+      "hex": "#95763e"
+     },
+     {
+      "id": "Outfit_01_09",
+      "hex": "#afd3e1"
+     },
+     {
+      "id": "Outfit_01_10",
+      "hex": "#903f60"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_02",
+    "colors": [
+     {
+      "id": "Outfit_02_01",
+      "hex": "#a2394b"
+     },
+     {
+      "id": "Outfit_02_02",
+      "hex": "#90444c"
+     },
+     {
+      "id": "Outfit_02_03",
+      "hex": "#a99244"
+     },
+     {
+      "id": "Outfit_02_04",
+      "hex": "#4497a9"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_03",
+    "colors": [
+     {
+      "id": "Outfit_03_01",
+      "hex": "#565972"
+     },
+     {
+      "id": "Outfit_03_02",
+      "hex": "#9c7a9d"
+     },
+     {
+      "id": "Outfit_03_03",
+      "hex": "#397a9d"
+     },
+     {
+      "id": "Outfit_03_04",
+      "hex": "#936456"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_04",
+    "colors": [
+     {
+      "id": "Outfit_04_01",
+      "hex": "#578468"
+     },
+     {
+      "id": "Outfit_04_02",
+      "hex": "#b3754a"
+     },
+     {
+      "id": "Outfit_04_03",
+      "hex": "#606c7a"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_05",
+    "colors": [
+     {
+      "id": "Outfit_05_01",
+      "hex": "#6c6e85"
+     },
+     {
+      "id": "Outfit_05_02",
+      "hex": "#4d6e85"
+     },
+     {
+      "id": "Outfit_05_03",
+      "hex": "#4d695a"
+     },
+     {
+      "id": "Outfit_05_04",
+      "hex": "#dc9b5a"
+     },
+     {
+      "id": "Outfit_05_05",
+      "hex": "#efdfe3"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_06",
+    "colors": [
+     {
+      "id": "Outfit_06_01",
+      "hex": "#6c6e85"
+     },
+     {
+      "id": "Outfit_06_02",
+      "hex": "#6c6e6f"
+     },
+     {
+      "id": "Outfit_06_03",
+      "hex": "#6c5a6f"
+     },
+     {
+      "id": "Outfit_06_04",
+      "hex": "#4f7598"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_07",
+    "colors": [
+     {
+      "id": "Outfit_07_01",
+      "hex": "#615e7e"
+     },
+     {
+      "id": "Outfit_07_02",
+      "hex": "#a16649"
+     },
+     {
+      "id": "Outfit_07_03",
+      "hex": "#126b83"
+     },
+     {
+      "id": "Outfit_07_04",
+      "hex": "#a15383"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_08",
+    "colors": [
+     {
+      "id": "Outfit_08_01",
+      "hex": "#ebe4f2"
+     },
+     {
+      "id": "Outfit_08_02",
+      "hex": "#a6a0ac"
+     },
+     {
+      "id": "Outfit_08_03",
+      "hex": "#716e73"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_09",
+    "colors": [
+     {
+      "id": "Outfit_09_01",
+      "hex": "#e63f38"
+     },
+     {
+      "id": "Outfit_09_02",
+      "hex": "#e6ad38"
+     },
+     {
+      "id": "Outfit_09_03",
+      "hex": "#5aada7"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_10",
+    "colors": [
+     {
+      "id": "Outfit_10_01",
+      "hex": "#9094aa"
+     },
+     {
+      "id": "Outfit_10_02",
+      "hex": "#6c95b7"
+     },
+     {
+      "id": "Outfit_10_03",
+      "hex": "#a63249"
+     },
+     {
+      "id": "Outfit_10_04",
+      "hex": "#897478"
+     },
+     {
+      "id": "Outfit_10_05",
+      "hex": "#89b578"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_11",
+    "colors": [
+     {
+      "id": "Outfit_11_01",
+      "hex": "#d1b4d9"
+     },
+     {
+      "id": "Outfit_11_02",
+      "hex": "#d1b493"
+     },
+     {
+      "id": "Outfit_11_03",
+      "hex": "#d1c6d9"
+     },
+     {
+      "id": "Outfit_11_04",
+      "hex": "#a09a3e"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_12",
+    "colors": [
+     {
+      "id": "Outfit_12_01",
+      "hex": "#6c6e85"
+     },
+     {
+      "id": "Outfit_12_02",
+      "hex": "#5d5e70"
+     },
+     {
+      "id": "Outfit_12_03",
+      "hex": "#5d5e70"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_13",
+    "colors": [
+     {
+      "id": "Outfit_13_01",
+      "hex": "#50a7e8"
+     },
+     {
+      "id": "Outfit_13_02",
+      "hex": "#b4a7e8"
+     },
+     {
+      "id": "Outfit_13_03",
+      "hex": "#5aa77e"
+     },
+     {
+      "id": "Outfit_13_04",
+      "hex": "#b1637e"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_14",
+    "colors": [
+     {
+      "id": "Outfit_14_01",
+      "hex": "#c8a9ac"
+     },
+     {
+      "id": "Outfit_14_02",
+      "hex": "#b2a5a6"
+     },
+     {
+      "id": "Outfit_14_03",
+      "hex": "#9c5f8b"
+     },
+     {
+      "id": "Outfit_14_04",
+      "hex": "#75a5ce"
+     },
+     {
+      "id": "Outfit_14_05",
+      "hex": "#7565ce"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_15",
+    "colors": [
+     {
+      "id": "Outfit_15_01",
+      "hex": "#ebf3ff"
+     },
+     {
+      "id": "Outfit_15_02",
+      "hex": "#c1d2ee"
+     },
+     {
+      "id": "Outfit_15_03",
+      "hex": "#5185d9"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_16",
+    "colors": [
+     {
+      "id": "Outfit_16_01",
+      "hex": "#f5aa14"
+     },
+     {
+      "id": "Outfit_16_02",
+      "hex": "#f58a4f"
+     },
+     {
+      "id": "Outfit_16_03",
+      "hex": "#e15847"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_17",
+    "colors": [
+     {
+      "id": "Outfit_17_01",
+      "hex": "#4b9296"
+     },
+     {
+      "id": "Outfit_17_02",
+      "hex": "#8992d3"
+     },
+     {
+      "id": "Outfit_17_03",
+      "hex": "#89ccd3"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_18",
+    "colors": [
+     {
+      "id": "Outfit_18_01",
+      "hex": "#d28a5d"
+     },
+     {
+      "id": "Outfit_18_02",
+      "hex": "#b99e86"
+     },
+     {
+      "id": "Outfit_18_03",
+      "hex": "#d2585d"
+     },
+     {
+      "id": "Outfit_18_04",
+      "hex": "#4e8bac"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_19",
+    "colors": [
+     {
+      "id": "Outfit_19_01",
+      "hex": "#3761d6"
+     },
+     {
+      "id": "Outfit_19_02",
+      "hex": "#565972"
+     },
+     {
+      "id": "Outfit_19_03",
+      "hex": "#6c7193"
+     },
+     {
+      "id": "Outfit_19_04",
+      "hex": "#af7193"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_20",
+    "colors": [
+     {
+      "id": "Outfit_20_01",
+      "hex": "#464d84"
+     },
+     {
+      "id": "Outfit_20_02",
+      "hex": "#a4a7c3"
+     },
+     {
+      "id": "Outfit_20_03",
+      "hex": "#36936f"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_21",
+    "colors": [
+     {
+      "id": "Outfit_21_01",
+      "hex": "#645d9a"
+     },
+     {
+      "id": "Outfit_21_02",
+      "hex": "#918cb7"
+     },
+     {
+      "id": "Outfit_21_03",
+      "hex": "#3a7c9a"
+     },
+     {
+      "id": "Outfit_21_04",
+      "hex": "#d05c4b"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_22",
+    "colors": [
+     {
+      "id": "Outfit_22_01",
+      "hex": "#88818e"
+     },
+     {
+      "id": "Outfit_22_02",
+      "hex": "#6b6358"
+     },
+     {
+      "id": "Outfit_22_03",
+      "hex": "#416358"
+     },
+     {
+      "id": "Outfit_22_04",
+      "hex": "#4263a1"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_23",
+    "colors": [
+     {
+      "id": "Outfit_23_01",
+      "hex": "#ac7949"
+     },
+     {
+      "id": "Outfit_23_02",
+      "hex": "#ac799f"
+     },
+     {
+      "id": "Outfit_23_03",
+      "hex": "#5a9dab"
+     },
+     {
+      "id": "Outfit_23_04",
+      "hex": "#538c6e"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_24",
+    "colors": [
+     {
+      "id": "Outfit_24_01",
+      "hex": "#0092e3"
+     },
+     {
+      "id": "Outfit_24_02",
+      "hex": "#6dcfc6"
+     },
+     {
+      "id": "Outfit_24_03",
+      "hex": "#009292"
+     },
+     {
+      "id": "Outfit_24_04",
+      "hex": "#ad83c6"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_25",
+    "colors": [
+     {
+      "id": "Outfit_25_01",
+      "hex": "#0092e3"
+     },
+     {
+      "id": "Outfit_25_02",
+      "hex": "#9ba3a7"
+     },
+     {
+      "id": "Outfit_25_03",
+      "hex": "#ad957c"
+     },
+     {
+      "id": "Outfit_25_04",
+      "hex": "#9d4c6d"
+     },
+     {
+      "id": "Outfit_25_05",
+      "hex": "#ffdfec"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_26",
+    "colors": [
+     {
+      "id": "Outfit_26_01",
+      "hex": "#71748c"
+     },
+     {
+      "id": "Outfit_26_02",
+      "hex": "#8c7771"
+     },
+     {
+      "id": "Outfit_26_03",
+      "hex": "#587793"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_27",
+    "colors": [
+     {
+      "id": "Outfit_27_01",
+      "hex": "#71748c"
+     },
+     {
+      "id": "Outfit_27_02",
+      "hex": "#71748c"
+     },
+     {
+      "id": "Outfit_27_03",
+      "hex": "#7e84bb"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_28",
+    "colors": [
+     {
+      "id": "Outfit_28_01",
+      "hex": "#535590"
+     },
+     {
+      "id": "Outfit_28_02",
+      "hex": "#535590"
+     },
+     {
+      "id": "Outfit_28_03",
+      "hex": "#535590"
+     },
+     {
+      "id": "Outfit_28_04",
+      "hex": "#6f493c"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_29",
+    "colors": [
+     {
+      "id": "Outfit_29_01",
+      "hex": "#a1abd4"
+     },
+     {
+      "id": "Outfit_29_02",
+      "hex": "#5babd4"
+     },
+     {
+      "id": "Outfit_29_03",
+      "hex": "#c2c8ea"
+     },
+     {
+      "id": "Outfit_29_04",
+      "hex": "#7471d6"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_30",
+    "colors": [
+     {
+      "id": "Outfit_30_01",
+      "hex": "#51506f"
+     },
+     {
+      "id": "Outfit_30_02",
+      "hex": "#65648c"
+     },
+     {
+      "id": "Outfit_30_03",
+      "hex": "#817876"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_31",
+    "colors": [
+     {
+      "id": "Outfit_31_01",
+      "hex": "#335789"
+     },
+     {
+      "id": "Outfit_31_02",
+      "hex": "#6c3e89"
+     },
+     {
+      "id": "Outfit_31_03",
+      "hex": "#453e85"
+     },
+     {
+      "id": "Outfit_31_04",
+      "hex": "#276858"
+     },
+     {
+      "id": "Outfit_31_05",
+      "hex": "#694334"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_32",
+    "colors": [
+     {
+      "id": "Outfit_32_01",
+      "hex": "#335789"
+     },
+     {
+      "id": "Outfit_32_02",
+      "hex": "#644074"
+     },
+     {
+      "id": "Outfit_32_03",
+      "hex": "#5e5b60"
+     },
+     {
+      "id": "Outfit_32_04",
+      "hex": "#464965"
+     },
+     {
+      "id": "Outfit_32_05",
+      "hex": "#683f3d"
+     }
+    ]
+   },
+   {
+    "id": "Outfit_33",
+    "colors": [
+     {
+      "id": "Outfit_33_01",
+      "hex": "#fdf8ec"
+     },
+     {
+      "id": "Outfit_33_02",
+      "hex": "#e7f8ec"
+     },
+     {
+      "id": "Outfit_33_03",
+      "hex": "#e7e5ec"
+     }
+    ]
+   }
+  ],
+  "hair": [
+   {
+    "id": "Hairstyle_01",
+    "colors": [
+     {
+      "id": "Hairstyle_01_01",
+      "hex": "#ab6736"
+     },
+     {
+      "id": "Hairstyle_01_02",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Hairstyle_01_03",
+      "hex": "#724a40"
+     },
+     {
+      "id": "Hairstyle_01_04",
+      "hex": "#5b4643"
+     },
+     {
+      "id": "Hairstyle_01_05",
+      "hex": "#898887"
+     },
+     {
+      "id": "Hairstyle_01_06",
+      "hex": "#706663"
+     },
+     {
+      "id": "Hairstyle_01_07",
+      "hex": "#535662"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_02",
+    "colors": [
+     {
+      "id": "Hairstyle_02_01",
+      "hex": "#ab6736"
+     },
+     {
+      "id": "Hairstyle_02_02",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Hairstyle_02_03",
+      "hex": "#724a40"
+     },
+     {
+      "id": "Hairstyle_02_04",
+      "hex": "#5b4643"
+     },
+     {
+      "id": "Hairstyle_02_05",
+      "hex": "#898887"
+     },
+     {
+      "id": "Hairstyle_02_06",
+      "hex": "#706663"
+     },
+     {
+      "id": "Hairstyle_02_07",
+      "hex": "#535662"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_03",
+    "colors": [
+     {
+      "id": "Hairstyle_03_01",
+      "hex": "#ab6736"
+     },
+     {
+      "id": "Hairstyle_03_02",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Hairstyle_03_03",
+      "hex": "#724a40"
+     },
+     {
+      "id": "Hairstyle_03_04",
+      "hex": "#5b4643"
+     },
+     {
+      "id": "Hairstyle_03_05",
+      "hex": "#898887"
+     },
+     {
+      "id": "Hairstyle_03_06",
+      "hex": "#706663"
+     },
+     {
+      "id": "Hairstyle_03_07",
+      "hex": "#535662"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_04",
+    "colors": [
+     {
+      "id": "Hairstyle_04_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_04_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_04_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_04_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_04_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_04_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_04_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_05",
+    "colors": [
+     {
+      "id": "Hairstyle_05_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_05_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_05_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_05_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_05_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_05_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_05_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_06",
+    "colors": [
+     {
+      "id": "Hairstyle_06_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_06_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_06_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_06_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_06_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_06_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_06_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_07",
+    "colors": [
+     {
+      "id": "Hairstyle_07_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_07_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_07_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_07_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_07_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_07_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_07_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_08",
+    "colors": [
+     {
+      "id": "Hairstyle_08_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_08_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_08_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_08_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_08_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_08_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_08_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_09",
+    "colors": [
+     {
+      "id": "Hairstyle_09_01",
+      "hex": "#ab6736"
+     },
+     {
+      "id": "Hairstyle_09_02",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Hairstyle_09_03",
+      "hex": "#724a40"
+     },
+     {
+      "id": "Hairstyle_09_04",
+      "hex": "#5b4643"
+     },
+     {
+      "id": "Hairstyle_09_05",
+      "hex": "#898887"
+     },
+     {
+      "id": "Hairstyle_09_06",
+      "hex": "#706663"
+     },
+     {
+      "id": "Hairstyle_09_07",
+      "hex": "#535662"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_10",
+    "colors": [
+     {
+      "id": "Hairstyle_10_01",
+      "hex": "#ab6736"
+     },
+     {
+      "id": "Hairstyle_10_02",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Hairstyle_10_03",
+      "hex": "#724a40"
+     },
+     {
+      "id": "Hairstyle_10_04",
+      "hex": "#5b4643"
+     },
+     {
+      "id": "Hairstyle_10_05",
+      "hex": "#898887"
+     },
+     {
+      "id": "Hairstyle_10_06",
+      "hex": "#706663"
+     },
+     {
+      "id": "Hairstyle_10_07",
+      "hex": "#535662"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_11",
+    "colors": [
+     {
+      "id": "Hairstyle_11_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_11_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_11_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_11_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_11_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_11_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_11_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_12",
+    "colors": [
+     {
+      "id": "Hairstyle_12_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_12_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_12_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_12_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_12_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_12_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_12_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_13",
+    "colors": [
+     {
+      "id": "Hairstyle_13_01",
+      "hex": "#ab6736"
+     },
+     {
+      "id": "Hairstyle_13_02",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Hairstyle_13_03",
+      "hex": "#724a40"
+     },
+     {
+      "id": "Hairstyle_13_04",
+      "hex": "#5b4643"
+     },
+     {
+      "id": "Hairstyle_13_05",
+      "hex": "#898887"
+     },
+     {
+      "id": "Hairstyle_13_06",
+      "hex": "#706663"
+     },
+     {
+      "id": "Hairstyle_13_07",
+      "hex": "#535662"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_14",
+    "colors": [
+     {
+      "id": "Hairstyle_14_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_14_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_14_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_14_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_14_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_14_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_14_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_15",
+    "colors": [
+     {
+      "id": "Hairstyle_15_01",
+      "hex": "#ab6736"
+     },
+     {
+      "id": "Hairstyle_15_02",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Hairstyle_15_03",
+      "hex": "#724a40"
+     },
+     {
+      "id": "Hairstyle_15_04",
+      "hex": "#5b4643"
+     },
+     {
+      "id": "Hairstyle_15_05",
+      "hex": "#898887"
+     },
+     {
+      "id": "Hairstyle_15_06",
+      "hex": "#706663"
+     },
+     {
+      "id": "Hairstyle_15_07",
+      "hex": "#535662"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_16",
+    "colors": [
+     {
+      "id": "Hairstyle_16_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_16_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_16_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_16_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_16_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_16_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_16_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_17",
+    "colors": [
+     {
+      "id": "Hairstyle_17_01",
+      "hex": "#ab6736"
+     },
+     {
+      "id": "Hairstyle_17_02",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Hairstyle_17_03",
+      "hex": "#724a40"
+     },
+     {
+      "id": "Hairstyle_17_04",
+      "hex": "#5b4643"
+     },
+     {
+      "id": "Hairstyle_17_05",
+      "hex": "#898887"
+     },
+     {
+      "id": "Hairstyle_17_06",
+      "hex": "#706663"
+     },
+     {
+      "id": "Hairstyle_17_07",
+      "hex": "#535662"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_18",
+    "colors": [
+     {
+      "id": "Hairstyle_18_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_18_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_18_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_18_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_18_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_18_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_18_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_19",
+    "colors": [
+     {
+      "id": "Hairstyle_19_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_19_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_19_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_19_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_19_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_19_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_19_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_20",
+    "colors": [
+     {
+      "id": "Hairstyle_20_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_20_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_20_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_20_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_20_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_20_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_20_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_21",
+    "colors": [
+     {
+      "id": "Hairstyle_21_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_21_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_21_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_21_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_21_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_21_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_21_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_22",
+    "colors": [
+     {
+      "id": "Hairstyle_22_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_22_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_22_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_22_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_22_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_22_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_22_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_23",
+    "colors": [
+     {
+      "id": "Hairstyle_23_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_23_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_23_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_23_04",
+      "hex": "#6f5449"
+     },
+     {
+      "id": "Hairstyle_23_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_23_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_23_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_24",
+    "colors": [
+     {
+      "id": "Hairstyle_24_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_24_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_24_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_24_04",
+      "hex": "#6f5449"
+     },
+     {
+      "id": "Hairstyle_24_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_24_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_24_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_25",
+    "colors": [
+     {
+      "id": "Hairstyle_25_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_25_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_25_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_25_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_25_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_25_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_25_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_26",
+    "colors": [
+     {
+      "id": "Hairstyle_26_01",
+      "hex": "#b37b3f"
+     },
+     {
+      "id": "Hairstyle_26_02",
+      "hex": "#957350"
+     },
+     {
+      "id": "Hairstyle_26_03",
+      "hex": "#805449"
+     },
+     {
+      "id": "Hairstyle_26_04",
+      "hex": "#674d49"
+     },
+     {
+      "id": "Hairstyle_26_05",
+      "hex": "#969695"
+     },
+     {
+      "id": "Hairstyle_26_06",
+      "hex": "#79746f"
+     },
+     {
+      "id": "Hairstyle_26_07",
+      "hex": "#566279"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_27",
+    "colors": [
+     {
+      "id": "Hairstyle_27_01",
+      "hex": "#e88dad"
+     },
+     {
+      "id": "Hairstyle_27_02",
+      "hex": "#529760"
+     },
+     {
+      "id": "Hairstyle_27_03",
+      "hex": "#6499ba"
+     },
+     {
+      "id": "Hairstyle_27_04",
+      "hex": "#4280dd"
+     },
+     {
+      "id": "Hairstyle_27_05",
+      "hex": "#f2b22b"
+     },
+     {
+      "id": "Hairstyle_27_06",
+      "hex": "#d93232"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_28",
+    "colors": [
+     {
+      "id": "Hairstyle_28_01",
+      "hex": "#e88dad"
+     },
+     {
+      "id": "Hairstyle_28_02",
+      "hex": "#529760"
+     },
+     {
+      "id": "Hairstyle_28_03",
+      "hex": "#6499ba"
+     },
+     {
+      "id": "Hairstyle_28_04",
+      "hex": "#4280dd"
+     },
+     {
+      "id": "Hairstyle_28_05",
+      "hex": "#f2b22b"
+     },
+     {
+      "id": "Hairstyle_28_06",
+      "hex": "#d93232"
+     }
+    ]
+   },
+   {
+    "id": "Hairstyle_29",
+    "colors": [
+     {
+      "id": "Hairstyle_29_01",
+      "hex": "#e88dad"
+     },
+     {
+      "id": "Hairstyle_29_02",
+      "hex": "#529760"
+     },
+     {
+      "id": "Hairstyle_29_03",
+      "hex": "#6499ba"
+     },
+     {
+      "id": "Hairstyle_29_04",
+      "hex": "#4280dd"
+     },
+     {
+      "id": "Hairstyle_29_05",
+      "hex": "#f2b22b"
+     },
+     {
+      "id": "Hairstyle_29_06",
+      "hex": "#d93232"
+     }
+    ]
+   }
+  ],
+  "accessory": [
+   {
+    "id": "Accessory_01_Ladybug",
+    "colors": [
+     {
+      "id": "Accessory_01_Ladybug_01",
+      "hex": "#e63f38"
+     },
+     {
+      "id": "Accessory_01_Ladybug_02",
+      "hex": "#f8d239"
+     },
+     {
+      "id": "Accessory_01_Ladybug_03",
+      "hex": "#368f38"
+     },
+     {
+      "id": "Accessory_01_Ladybug_04",
+      "hex": "#3682a7"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_02_Bee",
+    "colors": [
+     {
+      "id": "Accessory_02_Bee_01",
+      "hex": "#ffe57b"
+     },
+     {
+      "id": "Accessory_02_Bee_02",
+      "hex": "#e4f0c2"
+     },
+     {
+      "id": "Accessory_02_Bee_03",
+      "hex": "#ffab8a"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_03_Backpack",
+    "colors": [
+     {
+      "id": "Accessory_03_Backpack_01",
+      "hex": "#7d5c4e"
+     },
+     {
+      "id": "Accessory_03_Backpack_02",
+      "hex": "#b48f54"
+     },
+     {
+      "id": "Accessory_03_Backpack_03",
+      "hex": "#63a650"
+     },
+     {
+      "id": "Accessory_03_Backpack_04",
+      "hex": "#31a086"
+     },
+     {
+      "id": "Accessory_03_Backpack_05",
+      "hex": "#d93232"
+     },
+     {
+      "id": "Accessory_03_Backpack_06",
+      "hex": "#4280dd"
+     },
+     {
+      "id": "Accessory_03_Backpack_07",
+      "hex": "#d6779d"
+     },
+     {
+      "id": "Accessory_03_Backpack_08",
+      "hex": "#8b8bab"
+     },
+     {
+      "id": "Accessory_03_Backpack_09",
+      "hex": "#9e752c"
+     },
+     {
+      "id": "Accessory_03_Backpack_10",
+      "hex": "#d5aa35"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_04_Snapback",
+    "colors": [
+     {
+      "id": "Accessory_04_Snapback_01",
+      "hex": "#e63f38"
+     },
+     {
+      "id": "Accessory_04_Snapback_02",
+      "hex": "#4995e3"
+     },
+     {
+      "id": "Accessory_04_Snapback_03",
+      "hex": "#74b453"
+     },
+     {
+      "id": "Accessory_04_Snapback_04",
+      "hex": "#9da3b7"
+     },
+     {
+      "id": "Accessory_04_Snapback_05",
+      "hex": "#e88dad"
+     },
+     {
+      "id": "Accessory_04_Snapback_06",
+      "hex": "#bda766"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_05_Dino_Snapback",
+    "colors": [
+     {
+      "id": "Accessory_05_Dino_Snapback_01",
+      "hex": "#568d61"
+     },
+     {
+      "id": "Accessory_05_Dino_Snapback_02",
+      "hex": "#6499ba"
+     },
+     {
+      "id": "Accessory_05_Dino_Snapback_03",
+      "hex": "#cc7150"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_06_Policeman_Hat",
+    "colors": [
+     {
+      "id": "Accessory_06_Policeman_Hat_01",
+      "hex": "#565972"
+     },
+     {
+      "id": "Accessory_06_Policeman_Hat_02",
+      "hex": "#465c8f"
+     },
+     {
+      "id": "Accessory_06_Policeman_Hat_03",
+      "hex": "#7c468f"
+     },
+     {
+      "id": "Accessory_06_Policeman_Hat_04",
+      "hex": "#565972"
+     },
+     {
+      "id": "Accessory_06_Policeman_Hat_05",
+      "hex": "#465c8f"
+     },
+     {
+      "id": "Accessory_06_Policeman_Hat_06",
+      "hex": "#7c468f"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_07_Bataclava",
+    "colors": [
+     {
+      "id": "Accessory_07_Bataclava_01",
+      "hex": "#51506f"
+     },
+     {
+      "id": "Accessory_07_Bataclava_02",
+      "hex": "#71729e"
+     },
+     {
+      "id": "Accessory_07_Bataclava_03",
+      "hex": "#8a837c"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_08_Detective_Hat",
+    "colors": [
+     {
+      "id": "Accessory_08_Detective_Hat_01",
+      "hex": "#c37759"
+     },
+     {
+      "id": "Accessory_08_Detective_Hat_02",
+      "hex": "#c36459"
+     },
+     {
+      "id": "Accessory_08_Detective_Hat_03",
+      "hex": "#b99b8f"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_09_Zombie_Brain",
+    "colors": [
+     {
+      "id": "Accessory_09_Zombie_Brain_01",
+      "hex": "#0b6d4a"
+     },
+     {
+      "id": "Accessory_09_Zombie_Brain_02",
+      "hex": "#6d0b39"
+     },
+     {
+      "id": "Accessory_09_Zombie_Brain_03",
+      "hex": "#6d0bc9"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_10_Bolt",
+    "colors": [
+     {
+      "id": "Accessory_10_Bolt_01",
+      "hex": "#3fa227"
+     },
+     {
+      "id": "Accessory_10_Bolt_02",
+      "hex": "#993719"
+     },
+     {
+      "id": "Accessory_10_Bolt_03",
+      "hex": "#993785"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_11_Beanie",
+    "colors": [
+     {
+      "id": "Accessory_11_Beanie_01",
+      "hex": "#676e8d"
+     },
+     {
+      "id": "Accessory_11_Beanie_02",
+      "hex": "#a59992"
+     },
+     {
+      "id": "Accessory_11_Beanie_03",
+      "hex": "#a57992"
+     },
+     {
+      "id": "Accessory_11_Beanie_04",
+      "hex": "#57969d"
+     },
+     {
+      "id": "Accessory_11_Beanie_05",
+      "hex": "#a0574c"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_12_Mustache",
+    "colors": [
+     {
+      "id": "Accessory_12_Mustache_01",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Accessory_12_Mustache_02",
+      "hex": "#975426"
+     },
+     {
+      "id": "Accessory_12_Mustache_03",
+      "hex": "#ac7e1e"
+     },
+     {
+      "id": "Accessory_12_Mustache_04",
+      "hex": "#b3ab9c"
+     },
+     {
+      "id": "Accessory_12_Mustache_05",
+      "hex": "#7182a2"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_13_Beard",
+    "colors": [
+     {
+      "id": "Accessory_13_Beard_01",
+      "hex": "#8a6552"
+     },
+     {
+      "id": "Accessory_13_Beard_02",
+      "hex": "#975426"
+     },
+     {
+      "id": "Accessory_13_Beard_03",
+      "hex": "#ac7e1e"
+     },
+     {
+      "id": "Accessory_13_Beard_04",
+      "hex": "#b3ab9c"
+     },
+     {
+      "id": "Accessory_13_Beard_05",
+      "hex": "#7182a2"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_14_Gloves",
+    "colors": [
+     {
+      "id": "Accessory_14_Gloves_01",
+      "hex": "#f4eae2"
+     },
+     {
+      "id": "Accessory_14_Gloves_02",
+      "hex": "#c8e9d9"
+     },
+     {
+      "id": "Accessory_14_Gloves_03",
+      "hex": "#c8a7d9"
+     },
+     {
+      "id": "Accessory_14_Gloves_04",
+      "hex": "#b7723c"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_15_Glasses",
+    "colors": [
+     {
+      "id": "Accessory_15_Glasses_01",
+      "hex": "#58616f"
+     },
+     {
+      "id": "Accessory_15_Glasses_02",
+      "hex": "#c7405a"
+     },
+     {
+      "id": "Accessory_15_Glasses_03",
+      "hex": "#b81ea4"
+     },
+     {
+      "id": "Accessory_15_Glasses_04",
+      "hex": "#40a2c7"
+     },
+     {
+      "id": "Accessory_15_Glasses_05",
+      "hex": "#1eb82f"
+     },
+     {
+      "id": "Accessory_15_Glasses_06",
+      "hex": "#888888"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_16_Monocle",
+    "colors": [
+     {
+      "id": "Accessory_16_Monocle_01",
+      "hex": "#5a4642"
+     },
+     {
+      "id": "Accessory_16_Monocle_02",
+      "hex": "#5a4842"
+     },
+     {
+      "id": "Accessory_16_Monocle_03",
+      "hex": "#43425a"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_17_Medical_Mask",
+    "colors": [
+     {
+      "id": "Accessory_17_Medical_Mask_01",
+      "hex": "#ffffff"
+     },
+     {
+      "id": "Accessory_17_Medical_Mask_02",
+      "hex": "#a3b7e6"
+     },
+     {
+      "id": "Accessory_17_Medical_Mask_03",
+      "hex": "#95dbf4"
+     },
+     {
+      "id": "Accessory_17_Medical_Mask_04",
+      "hex": "#afb2ba"
+     },
+     {
+      "id": "Accessory_17_Medical_Mask_05",
+      "hex": "#77db5c"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_18_Chef",
+    "colors": [
+     {
+      "id": "Accessory_18_Chef_01",
+      "hex": "#ebe4f2"
+     },
+     {
+      "id": "Accessory_18_Chef_02",
+      "hex": "#d2c9c6"
+     },
+     {
+      "id": "Accessory_18_Chef_03",
+      "hex": "#9a9492"
+     }
+    ]
+   },
+   {
+    "id": "Accessory_19_Party_Cone",
+    "colors": [
+     {
+      "id": "Accessory_19_Party_Cone_01",
+      "hex": "#e63f38"
+     },
+     {
+      "id": "Accessory_19_Party_Cone_02",
+      "hex": "#cf3f75"
+     },
+     {
+      "id": "Accessory_19_Party_Cone_03",
+      "hex": "#4aaed9"
+     },
+     {
+      "id": "Accessory_19_Party_Cone_04",
+      "hex": "#c4e1ee"
+     }
+    ]
+   }
+  ]
+ }
+}
