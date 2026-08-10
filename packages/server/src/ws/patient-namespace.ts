@@ -5,6 +5,7 @@ import type { AuthedSocket } from './index.js';
 import { anonymousOccupancy } from '../permission/permission-filter.js';
 import { actionsForZone, isAllowedReaction } from '../social/zone-actions.js';
 import { loadZones, SERVER_CONFIG } from '../config/index.js';
+import { isPrivateRoom } from '@meditracker/shared';
 import type { TagMetaStore } from '../presence/tag-meta-store.js';
 
 /** index.ts 가 위치 브로드캐스트를 밀어 넣는 창구 */
@@ -27,6 +28,25 @@ export interface PatientBroadcast {
 
 /** 몇 초마다 구역별 인원수를 내보낼지 (좌표가 아니라 수만 — 자주 보내도 정보량이 작다) */
 const CROWD_INTERVAL_MS = 2000;
+
+/**
+ * 이 사람의 좌표를 **다른 손님 화면**에 띄워도 되나.
+ *
+ * `isPrivateRoom` 인 방에 들어가 있으면 안 띄운다 — 화면에서 감추는 게 아니라
+ * 좌표를 아예 안 보낸다. 화면에서만 숨기면 개발자도구로 다 보인다.
+ *
+ * ⚠️ **`inTransit` 이면 그냥 보낸다.** 복도에는 게이트웨이가 없어서 `zone` 이
+ *    "제일 가까운 방" 을 찍는다(PresenceState.inTransit 주석 참고). 그걸 그대로
+ *    믿으면 복도를 걷는 사람이 방 앞을 지날 때마다 깜빡깜빡 사라진다.
+ */
+export function visibleToOtherPatients(
+  p: { zone: string | null; inTransit?: boolean },
+  isPrivate: (zoneId: string) => boolean,
+): boolean {
+  if (!p.zone) return true; // 추적 구역 밖
+  if (p.inTransit) return true; // 방 사이 이동 중 — zone 은 추측일 뿐이다
+  return !isPrivate(p.zone);
+}
 
 /**
  * namespace: /patient (설계서 7)
@@ -64,6 +84,8 @@ export function registerPatientNamespace(
       .filter((z) => z.category !== 'staff_area')
       .map((z) => z.zoneId),
   );
+  /** 여기 있는 손님은 다른 손님 화면에 좌표가 안 나간다 (인원수는 그대로 나간다) */
+  const privateZones = new Set(loadZones().filter(isPrivateRoom).map((z) => z.zoneId));
 
   /** 구역별 익명 인원수 (0인 구역은 생략) */
   function crowd(): Array<{ zoneId: string; count: number }> {
@@ -205,9 +227,11 @@ export function registerPatientNamespace(
       }>,
     ): void {
       if (ns.sockets.size === 0) return;
-      // 손님 비콘만 내보낸다 — 직원 좌표는 환자 화면으로 나가지 않는다
+      // 손님 비콘만, 그중에서도 진료 관련 방에 안 들어간 사람만 내보낸다
+      // (직원 좌표는 환자 화면으로 나가지 않는다 — 불변식 B-1)
       const units = list
         .filter((p) => isGuest(p.tagId))
+        .filter((p) => visibleToOtherPatients(p, (z) => privateZones.has(z)))
         .map((p) => ({
           id: anonId(p.tagId),
           x: p.x,

@@ -50,6 +50,13 @@ export type ZoneType =
   | 'skincare'
   | 'reception'
   | 'staff'
+  /**
+   * 화장실·체인징룸. 원래 `etc` 였는데 갈라냈다 — 다른 손님 화면에서 숨겨야 하는데
+   * `etc` 에는 ELEV.홀(숨기면 안 되는 통행 공간)이 같이 들어 있었다.
+   * 이름으로 거르면 도면이 바뀔 때 조용히 썩는다 (`isPrivateRoom` 참고).
+   */
+  | 'toilet'
+  | 'changing'
   | 'etc';
 
 export type ZoneCategory = 'patient_area' | 'staff_area' | 'common';
@@ -76,6 +83,28 @@ export function isGuidableZone(zone: Zone): boolean {
   return (
     zone.category === 'patient_area' || zone.type === 'waiting' || zone.type === 'reception'
   );
+}
+
+/**
+ * 이 방에 있는 손님은 **다른 손님 화면에서 숨긴다** (환자용 화면 한정).
+ *
+ * 두 갈래다:
+ * - `patient_area` — 진료·시술·회복·피부관리·촬영·탈의. 들어가 있다는 사실 자체가
+ *   다른 환자에게 알려질 일이 아니다
+ * - 화장실·체인징룸 — 분류상 `common` 이지만 프라이버시는 더 세다
+ *
+ * 그대로 보이는 곳: 대기공간·접수데스크·ELEV.홀·복도. 여럿이 같이 쓰는 공간이고,
+ * 여기서까지 숨기면 "다른 사람이 보인다" 는 기능 자체가 없어진다.
+ *
+ * **존 설정으로 정한다 — 이름 문자열로 거르지 않는다.** 손으로 목록을 관리하면
+ * 방이 늘 때 조용히 썩는다. 화장실·체인징룸에 `toilet`·`changing` 종류를 따로 준
+ * 것도 그래서다 (`etc` 로 묶으면 ELEV.홀이 같이 걸린다).
+ *
+ * ⚠️ **직원용 패널·관제와는 무관하다.** 이 판정은 `/patient` 로 나가는 좌표에만 걸린다.
+ *    직원은 전원을 봐야 한다 — 안 그러면 환자를 찾을 수 없다.
+ */
+export function isPrivateRoom(zone: Zone): boolean {
+  return zone.category === 'patient_area' || zone.type === 'toilet' || zone.type === 'changing';
 }
 
 /**

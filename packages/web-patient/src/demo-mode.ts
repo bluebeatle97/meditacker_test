@@ -1,4 +1,4 @@
-import { DemoSim, MOCK_TAGS } from '@meditracker/shared';
+import { DemoSim, MOCK_TAGS, isPrivateRoom } from '@meditracker/shared';
 import type { Zone } from '@meditracker/shared';
 
 /**
@@ -69,6 +69,8 @@ export function demoSocket(zones: Zone[]): FakeSocket {
     ),
   );
   const me = sim.demoPatientTag;
+  /** 여기 있는 손님은 다른 손님 화면에 안 나온다 (서버와 같은 규칙) */
+  const privateZones = new Set(zones.filter(isPrivateRoom).map((z) => z.zoneId));
   const handlers = new Map<string, Array<(...args: never[]) => void>>();
   const timers: Array<ReturnType<typeof setInterval>> = [];
 
@@ -105,6 +107,9 @@ export function demoSocket(zones: Zone[]): FakeSocket {
       'crowd:positions',
       all
         .filter((p) => guests.has(p.tagId) && p.tagId !== me)
+        // 서버(patient-namespace 의 visibleToOtherPatients)와 같은 규칙 —
+        // 시연이라고 느슨하게 두면 그 화면이 그대로 사양처럼 굳는다
+        .filter((p) => !p.zone || p.inTransit || !privateZones.has(p.zone))
         .map((p) => ({ id: anonId(p.tagId), x: p.x, y: p.y, kind: 'patient' as const })),
     );
   };

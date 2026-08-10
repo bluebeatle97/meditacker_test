@@ -101,7 +101,7 @@
   {
     "zoneId": "changing_w_1",
     "name": "여자 체인징룸 1",
-    "type": "etc",
+    "type": "changing",
     "category": "common",
     "tilePosition": {
       "x": 1311,
@@ -112,7 +112,7 @@
   {
     "zoneId": "changing_m",
     "name": "남자 체인징룸",
-    "type": "etc",
+    "type": "changing",
     "category": "common",
     "tilePosition": {
       "x": 431,
@@ -123,7 +123,7 @@
   {
     "zoneId": "toilet_common",
     "name": "공용화장실",
-    "type": "etc",
+    "type": "toilet",
     "category": "common",
     "tilePosition": {
       "x": 563,
@@ -134,7 +134,7 @@
   {
     "zoneId": "changing_w_2",
     "name": "여자 체인징룸 2",
-    "type": "etc",
+    "type": "changing",
     "category": "common",
     "tilePosition": {
       "x": 661,
@@ -178,7 +178,7 @@
   {
     "zoneId": "toilet_w_1",
     "name": "여자화장실 1",
-    "type": "etc",
+    "type": "toilet",
     "category": "common",
     "tilePosition": {
       "x": 1023,
@@ -365,7 +365,7 @@
   {
     "zoneId": "toilet_w_2",
     "name": "여자화장실 2",
-    "type": "etc",
+    "type": "toilet",
     "category": "common",
     "tilePosition": {
       "x": 437,
@@ -387,7 +387,7 @@
   {
     "zoneId": "changing_w_3",
     "name": "여자 체인징룸 3",
-    "type": "etc",
+    "type": "changing",
     "category": "common",
     "tilePosition": {
       "x": 437,
@@ -497,7 +497,7 @@
   {
     "zoneId": "staff_toilet",
     "name": "직원 화장실",
-    "type": "etc",
+    "type": "toilet",
     "category": "staff_area",
     "tilePosition": {
       "x": 1371,

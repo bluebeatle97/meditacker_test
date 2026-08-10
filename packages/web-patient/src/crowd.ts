@@ -109,10 +109,19 @@ export class Crowd {
       m.path = route.map((p) => ({ x: p.x * this.d.mapScale, y: p.y * this.d.mapScale }));
     }
 
-    // 목록에서 사라진 사람은 페이드아웃 (자리비움·태그 반납)
+    /**
+     * 목록에서 사라진 사람은 페이드아웃 (자리비움 · 태그 반납 · 진료실 입장).
+     *
+     * ⚠️ **빈 목록도 그대로 믿는다.** 예전엔 `units.length === 0` 이면 아무도 안 지웠다 —
+     * 서버가 잘못 빈 목록을 뱉었을 때 화면이 통째로 비는 걸 막으려던 것인데, 그 방어는
+     * 필요 없고 해롭기만 하다:
+     *  - 서버는 추적 대상이 없으면 **이벤트 자체를 안 보낸다**(index.ts 의 `list.length === 0`
+     *    조기 return). 즉 빈 배열은 "사람은 있는데 보여줄 사람이 없다" 는 뜻뿐이다.
+     *  - 진료실 사람을 빼기 시작하면 그게 흔한 상태가 된다. 그때 안 지우면 방에 들어간
+     *    사람들이 복도에 그대로 얼어붙는다.
+     */
     for (const [id, m] of this.members) {
       if (m.lastSeen === now) continue;
-      if (units.length === 0) continue;
       this.members.delete(id);
       this.d.scene.tweens.add({
         targets: m.sprite,
