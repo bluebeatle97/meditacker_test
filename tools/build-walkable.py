@@ -116,29 +116,15 @@ def main():
     with open(FLOOR_OUT, "w", encoding="utf-8") as f:
         json.dump({"cell": CELL, "cols": cols, "rows": rows, "grid": fgrid}, f)
 
-    # 사람이 설 수 없는 자리(안내데스크 파티션 옆면)를 뺀다.
-    # 도면에는 흰 바닥으로 그려져 있어서 여기서 빼지 않으면 사람이 그 위에 선다.
-    # 목록은 tools/build-blocked-areas.py 가 만든다 — **벽 전체가 아니라** 카운터
-    # 같은 독립 구조물의 옆면만이다 (벽까지 막으면 캐릭터가 벽에 박혀 보였다).
-    blocked_path = os.path.join(CFG, "blocked-area.json")
-    if os.path.exists(blocked_path):
-        bm = json.load(open(blocked_path, encoding="utf-8"))
-        if (bm["cols"], bm["rows"], bm["cell"]) == (cols, rows, CELL):
-            cut = 0
-            for r in range(rows):
-                if "1" not in bm["grid"][r]:
-                    continue
-                row = list(grid[r])
-                for c in range(cols):
-                    if bm["grid"][r][c] == "1" and row[c] == "1":
-                        row[c] = "0"
-                        cut += 1
-                grid[r] = "".join(row)
-            walk -= cut
-            if cut:
-                print(f"설 수 없는 자리로 뺀 셀: {cut:,}")
-        else:
-            print("⚠️ blocked-area.json 격자 크기가 안 맞는다 — 무시함")
+    # 예전에는 여기서 안내데스크 파티션 옆면을 따로 뺐다(blocked-area.json).
+    #
+    # **없앴다.** 그 마스크는 "접수데스크 근처 구조물의 아랫변에서 남쪽으로 7칸" 이라는
+    # 규칙으로 자동 생성됐는데, 곧은 카운터를 전제한 규칙이라 **곡선 파티션에서 어긋났다** —
+    # 띠 한가운데를 사선으로 가로지르고, 곡선이 끝나는 자리에서는 허공에 조각이 남았다.
+    # 게다가 그 규칙을 만든 뒤에 wall.png 가 벽 판정의 단일 출처가 되면서, 그려진
+    # 파티션은 이미 여기서 전부 막힌다(겹쳐서 확인함). 역할은 중복이고 위치만 틀렸다.
+    #
+    # 발이 못 들어가는 곳은 **wall.png 하나만** 정한다. 파티션이 덜 막히면 그림에 칠한다.
 
     total = cols * rows
     print(f"격자 {cols}x{rows} (셀 {CELL}px) — 통행가능 {walk:,}셀 = {100 * walk / total:.1f}%")

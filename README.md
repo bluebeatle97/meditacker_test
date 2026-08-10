@@ -154,19 +154,21 @@ python tools/build-characters.py "<Modern tiles_Free 폴더>"  # 캐릭터 스�
 python tools/build-wall-mask.py                         # 1. 벽 그림 → 벽 마스크
 python tools/build-walkable.py                          # 2. 통행 격자 + 그리기용 바닥
 python tools/build-staff-areas.py                       # 3. 손님 통제구역 마스크
-python tools/build-blocked-areas.py                     # 4. 안내데스크 파티션
-python tools/build-walkable.py                          # 5. 3·4 를 격자에 반영 (다시)
-python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"  # 6. 환자용 도트맵
-node tools/copy-demo-config.mjs                         # 7. 시연 배포용 사본
-npm run check:walls                                     # 8. 벽 판정 검사
-npm run stop && npm run dev:all                         # 9. 서버 재시작 (필수)
+python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"  # 4. 환자용 도트맵
+node tools/copy-demo-config.mjs                         # 5. 시연 배포용 사본
+npm run check:walls                                     # 6. 벽 판정 검사
+npm run stop && npm run dev:all                         # 7. 서버 재시작 (필수)
 ```
 
-⚠️ **9번을 빼먹지 말 것.** 서버는 격자를 시작할 때 한 번 읽어 메모리에 들고 있다.
+⚠️ **7번을 빼먹지 말 것.** 서버는 격자를 시작할 때 한 번 읽어 메모리에 들고 있다.
 파일만 바꾸면 화면은 그대로다 — 이걸 몰라서 "안 고쳐졌다" 를 두 번 겪었다.
 
-⚠️ **2번과 5번이 같은 명령인 것은 오타가 아니다.** 3·4번이 만드는 마스크는 2번의
-격자를 입력으로 받고, 그 결과를 다시 격자에서 빼야 한다.
+**발이 못 들어가는 곳은 `wall.png` 하나가 정한다.** 예전에는 안내데스크 파티션을
+`build-blocked-areas.py` 가 따로 막았는데(그래서 2번을 두 번 돌려야 했다), 그 규칙이
+「구조물 아랫변에서 남쪽으로 7칸」이라 **곡선 파티션에서 어긋났다** — 띠 한가운데를
+사선으로 가로지르고 곡선 끝에서는 허공에 조각이 남았다. 게다가 그 규칙을 만든 뒤에
+`wall.png` 가 벽 판정의 단일 출처가 되면서 그려진 파티션은 이미 1번에서 전부 막힌다.
+중복이면서 위치만 틀린 상태라 걷어냈다. **판정이 갈리면 어느 쪽이 맞는지 알 수 없다.**
 
 **사람이 손으로 주는 입력이 세 가지 있다.** 도면이 바뀌면 이것들도 다시 그려야 한다:
 
