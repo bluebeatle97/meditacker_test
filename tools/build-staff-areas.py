@@ -29,6 +29,7 @@
 """
 import json
 import os
+import sys
 
 from PIL import Image
 
@@ -52,10 +53,13 @@ def main():
         img = Image.new("RGB", (W, H), (255, 255, 255))
     else:
         img = Image.open(MARK).convert("RGB")
+        # ⚠️ 도면과 픽셀 단위로 같아야 한다. 예전에는 다른 크기를 여기서 늘려 맞췄는데,
+        #    그러면 칠한 경계가 어디로 갈지 사람이 알 수 없다 (wall.png 도 같은 이유로 고쳤다).
         if img.size != (W, H):
-            print(f"칠한 그림 {img.size} → 도면 {(W, H)} 로 맞춤")
-            # 가장 가까운 픽셀로 늘린다 — 섞으면 경계가 흐려져 칸 판정이 흔들린다
-            img = img.resize((W, H), Image.NEAREST)
+            sys.exit(
+                f"staff-area.png 가 도면과 크기가 다르다: {img.size} vs {(W, H)}\n"
+                f"도면과 **같은 크기로** 그려야 한다."
+            )
 
     px = img.load()
     cols, rows = W // CELL, H // CELL

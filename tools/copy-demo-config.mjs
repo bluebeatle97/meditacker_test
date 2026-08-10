@@ -16,7 +16,14 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const FROM = join(ROOT, 'packages/server/src/config');
-const FILES = ['floorplan.json', 'zones.json', 'walkable.json', 'gateways.json', 'staff-area.json'];
+const FILES = [
+  'floorplan.json',
+  'zones.json',
+  'walkable.json',
+  'gateways.json',
+  'staff-area.json',
+  'corridor.json', // 안내 경로가 복도로 다니게 하는 마스크 (tools/build-rooms.py)
+];
 const APPS = ['web-staff', 'web-patient'];
 
 for (const app of APPS) {

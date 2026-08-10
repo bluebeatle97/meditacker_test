@@ -269,6 +269,20 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
+  /**
+   * 통행 공간(복도·대기공간·홀) 마스크 — 안내 경로가 웬만하면 여기로 다니게 하는 데 쓴다.
+   * 여기 없는 칸은 방이고, 목적지가 아닌 방은 지나가면 비싸다 (tools/build-rooms.py).
+   */
+  if (req.url === '/corridor') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+    });
+    res.end(readFileSync(join(configDir, 'corridor.json'), 'utf-8'));
+    return;
+  }
+
   // 통제구역(벽/샤프트) 그리드 — 프론트의 경로탐색·오버레이 표시용
   // ⚠️ 캐시 금지: 그리드 갱신 후에도 브라우저가 구버전을 쓰면 화면과 서버 판정이 어긋난다
   if (req.url === '/walkable') {

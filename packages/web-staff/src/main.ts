@@ -231,7 +231,7 @@ class StaffMapScene extends Phaser.Scene {
     const from = (route: string, local: string): string =>
       this.demo ? localConfigUrl(local) : `${SERVER_URL}${route}`;
 
-    const [plan, meta, grid, staffArea] = await Promise.all([
+    const [plan, meta, grid, staffArea, corridor] = await Promise.all([
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
       this.demo
         ? Promise.resolve({} as TagMetaMap) // 이름·그룹은 아래 가짜 소켓이 바로 보내준다
@@ -241,11 +241,16 @@ class StaffMapScene extends Phaser.Scene {
       fetch(from('/staff-area', 'staff-area'))
         .then((r) => (r.ok ? (r.json() as Promise<WalkableGrid>) : null))
         .catch(() => null),
+      // 통행 공간(복도·홀) — 안내선이 남의 방을 가로지르지 않게 하는 데만 쓴다
+      fetch(from('/corridor', 'corridor'))
+        .then((r) => (r.ok ? (r.json() as Promise<WalkableGrid>) : null))
+        .catch(() => null),
     ]);
     this.plan = plan;
     this.tagMeta = meta;
     this.pf = new Pathfinder(grid);
     this.pf.setAvoidMask(staffArea);
+    this.pf.setCorridorMask(corridor);
     for (const z of zones) this.zones.set(z.zoneId, z);
 
     // 도면 배경을 캔버스에 fit (비율 유지, 중앙 정렬)
@@ -389,8 +394,10 @@ class StaffMapScene extends Phaser.Scene {
     const to = this.zones.get(zoneId);
     if (!from || !to || !this.pf.isWalkable(from.x, from.y)) return;
 
+    // 환자 화면과 **같은 옵션**이어야 두 화면에 같은 선이 그려진다
     const route = this.pf.findPath(from.x, from.y, to.tilePosition.x, to.tilePosition.y, {
       avoidStaff: true,
+      preferCorridor: true,
     });
     if (!route || route.length < 1) return;
     // findPath 는 꺾이는 지점만 준다 — 서 있는 자리를 앞에 붙여야 선이 첫 모퉁이가

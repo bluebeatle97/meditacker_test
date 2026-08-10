@@ -154,14 +154,22 @@ python tools/build-characters.py "<Modern tiles_Free 폴더>"  # 캐릭터 스�
 python tools/build-wall-mask.py                         # 1. 벽 그림 → 벽 마스크
 python tools/build-walkable.py                          # 2. 통행 격자 + 그리기용 바닥
 python tools/build-staff-areas.py                       # 3. 손님 통제구역 마스크
-python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"  # 4. 환자용 도트맵
-node tools/copy-demo-config.mjs                         # 5. 시연 배포용 사본
-npm run check:walls                                     # 6. 벽 판정 검사
-npm run stop && npm run dev:all                         # 7. 서버 재시작 (필수)
+python tools/build-doors.py                             # 4. 문 위치
+python tools/build-rooms.py                             # 5. 방 분할 + 복도 마스크
+python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"  # 6. 환자용 도트맵
+python tools/build-door-map.py                          # 7. 문 2.5D 레이어
+node tools/copy-demo-config.mjs                         # 8. 시연 배포용 사본
+npm run check:walls                                     # 9. 벽 판정 검사
+npm run stop && npm run dev:all                         # 10. 서버 재시작 (필수)
 ```
 
-⚠️ **7번을 빼먹지 말 것.** 서버는 격자를 시작할 때 한 번 읽어 메모리에 들고 있다.
+⚠️ **10번을 빼먹지 말 것.** 서버는 격자를 시작할 때 한 번 읽어 메모리에 들고 있다.
 파일만 바꾸면 화면은 그대로다 — 이걸 몰라서 "안 고쳐졌다" 를 두 번 겪었다.
+
+**4·5번(문 → 방 분할)이 열쇠다.** 도면에 문이 안 그려져 있어서 방 분할이 두 번
+실패했었다(아래 참고). 사람이 문틈을 색으로 채워 주니 문 위치가 확정되고, 문을 막고
+갈라 보면 방이 나온다. 그 결과로 **안내 경로가 남의 방을 가로지르지 않게** 된다
+(실측: 1,190쌍 중 남의 방을 지나던 경로 31개 → 1개, 경로 길이는 0.8%만 늘었다).
 
 **발이 못 들어가는 곳은 `wall.png` 하나가 정한다.** 예전에는 안내데스크 파티션을
 `build-blocked-areas.py` 가 따로 막았는데(그래서 2번을 두 번 돌려야 했다), 그 규칙이
@@ -174,9 +182,22 @@ npm run stop && npm run dev:all                         # 7. 서버 재시작 (�
 
 | 파일 | 무엇 | 규칙 |
 |---|---|---|
-| `config/wall.png` | **벽 판정** | 회색 = 벽(발이 못 들어감) · 흰색 = 바닥 · 검정 = 건물 밖 |
+| `config/wall.png` | **벽 판정** | 밝기 170↑ = 바닥 · 40~169 = 벽(발이 못 들어감) · 40↓ = 건물 밖 |
 | `config/staff-area.png` | 손님 통제구역 | 자홍색(#FF00FF) = 직원 전용 |
+| `config/floorplan-door.png` | **문 위치** | 도면 위에 문틈마다 빨강(#ED1C24)을 **꽉 채운다** |
 | `config/wall.png` 안쪽 검정 | 붙박이 물건 | 테두리에서 안 이어지는 검정은 물건(=벽)으로 본다 |
+
+문은 **선으로 긋지 말고 틈을 채운다.** 선으로 그었더니 길이가 곧 판정이 되어, 짧으면
+그 틈으로 새고(3곳, 최대 89cm) 길면 문 두 개가 한 덩어리로 붙었다(3곳). 채우면 덩어리
+하나가 문 하나이고 직사각형이라 애매한 구석이 없다 — 48개 전부 한 번에 잡혔다.
+
+⚠️ **셋 다 도면과 같은 크기여야 한다 (지금 1650×1591).** 다르면 스크립트가 멈춘다.
+
+예전에는 2496×2400 짜리를 스크립트가 줄이고 7px 밀어(`OFFSET`) 맞췄다. 그 축소가
+얇은 선을 뭉개 **1~2px 실금을 14곳** 만들었고, 더 나쁜 건 "도면 기준 1px" 을 겨냥할
+방법이 없어 **그림을 고칠 수가 없었다** — 2496 쪽에서 1.5px 을 칠할 수는 없다.
+그림을 도면 크기로 그리면 칠한 픽셀이 곧 도면 픽셀이라 이 문제가 통째로 사라진다.
+(옛 원본은 `*.src.png` 로 남겨 뒀다. 스크립트는 안 읽는다.)
 
 ### 왜 벽을 손으로 그리나 (자동 추출을 세 번 실패했다)
 

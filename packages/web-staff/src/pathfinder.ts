@@ -32,6 +32,18 @@ const PROBE_PX = 56;
  * 조금 돌아가는 정도로는 안 지나가되, 유일한 길이면 그래도 지나간다.
  */
 const AVOID_COST = 12;
+/**
+ * 목적지도 아닌 **남의 방**을 가로지르는 값 (칸당).
+ *
+ * 층이 트여 있으면 A* 는 대기공간이든 상담실이든 최단이면 그냥 뚫고 간다. 실제로는
+ * 복도로 다니는 게 맞고, 남의 진료실을 가로질러 가는 안내 화살표는 그림부터 이상하다.
+ *
+ * 통제구역(12)보다 싸다 — 방은 "가면 안 되는 곳" 이 아니라 "굳이 안 지나는 곳" 이다.
+ * 4면 4m 짜리 방을 가로지르는 값이 복도로 15m 돌아가는 값과 비슷해진다.
+ *
+ * ⚠️ 출발지 방과 목적지 방은 면제한다 — 안 그러면 자기 방에서 나가는 것부터 비싸진다.
+ */
+const ROOM_COST = 4;
 /** 가운데로 미는 것을 몇 번까지 되풀이할지 — 실측상 6번이면 더 안 줄어든다 */
 const CENTER_PASSES = 6;
 
@@ -44,6 +56,8 @@ export class Pathfinder {
   private wallCost: Float32Array;
   /** 직원 전용 구역 (안내 경로가 피해 가야 할 칸). 없으면 비어 있다 */
   private avoid = new Uint8Array(0);
+  /** 통행 공간(복도·홀). 여기 없는 칸은 방이라 지나가면 비싸다. 없으면 비어 있다 */
+  private corridor = new Uint8Array(0);
 
   constructor(data: WalkableGrid) {
     this.cell = data.cell;
@@ -86,6 +100,55 @@ export class Pathfinder {
     if (!this.avoid.length) return false;
     const i = this.idxOf(px, py);
     return i >= 0 && this.avoid[i] === 1;
+  }
+
+  /**
+   * 통행 공간(복도·대기공간·홀) 등록 — 경로가 웬만하면 여기로 다니게 한다.
+   *
+   * 여기 없는 칸 = 방. 방은 **막지 않고 비싸게만** 한다(ROOM_COST). 목록은
+   * `tools/build-rooms.py` 가 문 위치로 방을 갈라 만든다.
+   */
+  setCorridorMask(mask: WalkableGrid | null): void {
+    if (!mask || mask.cols !== this.cols || mask.rows !== this.rows) {
+      this.corridor = new Uint8Array(0);
+      return;
+    }
+    const a = new Uint8Array(this.cols * this.rows);
+    for (let gy = 0; gy < this.rows; gy++) {
+      const row = mask.grid[gy];
+      for (let gx = 0; gx < this.cols; gx++) {
+        if (row.charCodeAt(gx) === 49) a[gy * this.cols + gx] = 1;
+      }
+    }
+    this.corridor = a;
+  }
+
+  /**
+   * 이 칸이 속한 방 전체 (통행 공간이면 빈 집합).
+   *
+   * 출발·도착 방을 비용에서 빼 주려고 쓴다. 방 하나가 최대 5,600칸이라 매 경로마다
+   * 훑어도 A* 자체보다 훨씬 싸다.
+   */
+  private roomAt(idx: number, out: Uint8Array): void {
+    if (!this.corridor.length || this.corridor[idx] === 1) return;
+    const stack = [idx];
+    out[idx] = 1;
+    while (stack.length) {
+      const i = stack.pop()!;
+      const x = i % this.cols;
+      const y = (i - x) / this.cols;
+      const nb = [
+        x > 0 ? i - 1 : -1,
+        x + 1 < this.cols ? i + 1 : -1,
+        y > 0 ? i - this.cols : -1,
+        y + 1 < this.rows ? i + this.cols : -1,
+      ];
+      for (const j of nb) {
+        if (j < 0 || out[j] || this.walk[j] === 0 || this.corridor[j] === 1) continue;
+        out[j] = 1;
+        stack.push(j);
+      }
+    }
   }
 
   /**
@@ -251,7 +314,7 @@ export class Pathfinder {
     sy: number,
     tx: number,
     ty: number,
-    opts: { maxNodes?: number; avoidStaff?: boolean } = {},
+    opts: { maxNodes?: number; avoidStaff?: boolean; preferCorridor?: boolean } = {},
   ): Array<{ x: number; y: number }> | null {
     const maxNodes = opts.maxNodes ?? 60000;
     // 목적지가 그 구역 안이면 피할 도리가 없다 — 그때는 평소대로 간다
@@ -265,6 +328,13 @@ export class Pathfinder {
     if (startIdx === goalIdx) return [{ x: tx, y: ty }];
 
     const n = this.cols * this.rows;
+    // 출발·도착 방은 방 통과 비용에서 뺀다 (자기 방에서 나가는 것부터 비싸지면 안 된다)
+    const useRooms = opts.preferCorridor === true && this.corridor.length > 0;
+    const exempt = useRooms ? new Uint8Array(n) : null;
+    if (exempt) {
+      this.roomAt(startIdx, exempt);
+      this.roomAt(goalIdx, exempt);
+    }
     const gScore = new Float32Array(n).fill(Infinity);
     const fScore = new Float32Array(n).fill(Infinity);
     const cameFrom = new Int32Array(n).fill(-1);
@@ -342,7 +412,8 @@ export class Pathfinder {
           const step =
             (dx !== 0 && dy !== 0 ? Math.SQRT2 : 1) +
             this.wallCost[ni] +
-            (dodge && this.avoid[ni] ? dodge : 0);
+            (dodge && this.avoid[ni] ? dodge : 0) +
+            (exempt && this.corridor[ni] === 0 && exempt[ni] === 0 ? ROOM_COST : 0);
           const tentative = gScore[cur] + step;
           if (tentative < gScore[ni]) {
             gScore[ni] = tentative;

@@ -153,9 +153,11 @@ export class GuideLayer {
     // 길찾기는 도면 좌표로 한다 — 화면 좌표를 그대로 넣으면 격자를 벗어난다
     const fx = selfX / this.d.scale;
     const fy = selfY / this.d.scale;
-    // 안내 경로만 직원 전용 구역을 피해 돌아간다 (환자를 직원실로 보낼 수는 없다)
+    // 안내 경로만 직원 전용 구역을 피해 돌아간다 (환자를 직원실로 보낼 수는 없다).
+    // 복도 우선도 여기서만 켠다 — 아바타 걷기에까지 켜면 실제 위치와 어긋난 길로 걷는다.
     const found = this.d.pf.findPath(fx, fy, to.tilePosition.x, to.tilePosition.y, {
       avoidStaff: true,
+      preferCorridor: true,
     });
     if (!found || found.length < 1) return;
 

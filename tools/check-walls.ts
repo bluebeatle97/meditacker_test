@@ -448,8 +448,14 @@ console.log(`(${secs}초)`);
 // 직원용은 같은 경로탐색기의 사본이다 — 갈라지면 두 화면이 다르게 걷는다
 const a = readFileSync(join(ROOT, 'packages/web-patient/src/pathfinder.ts'), 'utf8');
 const b = readFileSync(join(ROOT, 'packages/web-staff/src/pathfinder.ts'), 'utf8');
-const strip = (s: string): string => s.replace(/^[\s\S]*?\*\/\s*/, '').trim();
-if (strip(a) !== strip(b)) {
+/**
+ * 환자용 파일 맨 앞의 "사본이다" 안내만 떼고 비교한다.
+ *
+ * ⚠️ 예전엔 양쪽에서 각각 첫 주석 블록을 뗐는데, 환자용은 블록이 둘이라(안내 + 본문 설명)
+ *    떼는 양이 달라져 **항상 '다르다'** 가 떴다. 늘 뜨는 경고는 아무도 안 본다.
+ */
+const COPY_NOTE = /^\/\*\*[\s\S]*?복사본이다[\s\S]*?\*\/\r?\n/;
+if (a.replace(COPY_NOTE, '').replace(/\r\n/g, '\n').trim() !== b.replace(/\r\n/g, '\n').trim()) {
   console.log('');
   console.log('⚠️  web-patient 와 web-staff 의 pathfinder.ts 가 다르다 — 한쪽만 고쳤을 것이다.');
   console.log('   이 검사는 환자용만 본다. 직원용 경로는 검사되지 않았다.');

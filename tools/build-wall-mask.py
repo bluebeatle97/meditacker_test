@@ -3,9 +3,13 @@
 
     python tools/build-wall-mask.py
 
-입력:  packages/server/src/config/wall.png   ← **사람이 그린 2.5D 벽 그림**
-출력:  packages/server/src/config/wall-mask.png   흑백 (흰색 = 벽)
-       packages/server/src/config/wall-art.png    도면 크기로 맞춘 원본 (도트맵이 얹는다)
+입력:  packages/server/src/config/wall.png   ← **사람이 그린 2.5D 벽 그림** (도면과 같은 크기)
+출력:  packages/server/src/config/wall-mask.png     흑백 (흰색 = 벽)
+       packages/server/src/config/outside-mask.png  흑백 (흰색 = 건물 밖)
+
+예전엔 wall-art.png(도면 크기로 맞춘 사본)도 냈다. 그림 자체가 도면 크기가 된 지금은
+wall.png 과 바이트까지 같은 복사본이라 없앴다 — 같은 내용 파일이 둘이면 어느 게 원본인지
+헷갈린다.
 
 ## 왜 이 그림이 기준인가
 
@@ -31,15 +35,15 @@
 지나는 자리라 바닥으로 남아야 한다.
 """
 import os
+import sys
 from collections import deque
 
-from PIL import Image, ImageChops
+from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = os.path.join(ROOT, "packages", "server", "src", "config")
 SRC = os.path.join(CFG, "wall.png")
 MASK_OUT = os.path.join(CFG, "wall-mask.png")
-ART_OUT = os.path.join(CFG, "wall-art.png")
 PLAN = os.path.join(ROOT, "packages", "web-staff", "public", "floorplan.png")
 
 BLACK = 40
@@ -50,16 +54,23 @@ BLACK = 40
 # 방 3개가 벽에 묻혔다. 170 으로 올리면 그림자는 바닥으로 남고 벽 몸통만 잡힌다
 # (살아있는 존 43 → 44, 연결 42 → 44).
 FLOOR = 170
-# 도면과 겹쳐 재서 나온 값 (겹치는 넓이가 가장 큰 이동)
-OFFSET = (7, 1)
-
 
 
 def main():
     plan = Image.open(PLAN).convert("RGB")
     W, H = plan.size
-    art = ImageChops.offset(Image.open(SRC).convert("RGB").resize((W, H), Image.NEAREST), *OFFSET)
-    art.save(ART_OUT)
+    art = Image.open(SRC).convert("RGB")
+    # ⚠️ **도면과 픽셀 단위로 같아야 한다.** 예전에는 2496x2400 짜리를 여기서 줄이고
+    #    7px 밀어 맞췄는데(OFFSET), 그 축소가 얇은 선을 뭉개 1~2px 실금을 14곳 만들었고
+    #    "도면 기준 1px" 을 겨냥할 방법이 없어 그림을 고칠 수가 없었다. 이제 그림 자체를
+    #    도면 크기로 그린다 — 칠한 픽셀이 곧 도면 픽셀이다.
+    if art.size != (W, H):
+        sys.exit(
+            f"wall.png 가 도면과 크기가 다르다: {art.size} vs {(W, H)}\n"
+            f"도면과 **같은 크기로** 그려야 한다. 예전 큰 그림이 있으면 줄여서 저장할 것:\n"
+            f'  python -c "from PIL import Image; '
+            f"Image.open(r'{SRC}').convert('RGB').resize({(W, H)}, Image.NEAREST).save(r'{SRC}')\""
+        )
     g = art.convert("L")
     gp = g.load()
 
@@ -107,7 +118,7 @@ def main():
 
     print(f"벽 {cnt(wall):,}px (안쪽 검은 물건 {inner:,} 포함)")
     print(f"건물 밖 {cnt(out_img):,}px")
-    print(f"saved {MASK_OUT}\nsaved {ART_OUT}")
+    print(f"saved {MASK_OUT}")
 
 
 if __name__ == "__main__":

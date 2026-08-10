@@ -342,6 +342,9 @@ class PatientScene extends Phaser.Scene {
    */
   preload(): void {
     this.load.image('pixelmap', `${ASSETS}pixelmap.png`);
+    // 문은 배경에 굽지 않고 **따로 얹는다** — 나중에 여닫는 애니메이션으로 갈아끼우려면
+    // 배경 한 장에 그려 넣으면 안 된다 (tools/build-door-map.py).
+    this.load.image('doormap', `${ASSETS}doormap.png`);
     for (const c of CHARACTERS) {
       // 포즈 4종 모두 (한 장 3~6KB). sit·phone 은 머무는 사람에게 쓴다 —
       // 대기실에 전원이 서 있으면 그것만으로 화면이 어색하다.
@@ -371,7 +374,7 @@ class PatientScene extends Phaser.Scene {
       DEMO ? localConfigUrl(local) : `${SERVER_URL}${route}`;
 
     this.token = TOKEN;
-    const [plan, zones, grid, staffArea] = await Promise.all([
+    const [plan, zones, grid, staffArea, corridor] = await Promise.all([
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
       Promise.resolve(source.zones),
       fetch(from('/walkable', 'walkable')).then((r) => r.json() as Promise<WalkableGrid>),
@@ -380,10 +383,15 @@ class PatientScene extends Phaser.Scene {
       fetch(from('/staff-area', 'staff-area'))
         .then((r) => (r.ok ? (r.json() as Promise<WalkableGrid>) : null))
         .catch(() => null),
+      // 통행 공간(복도·홀) — 안내 화살표가 남의 방을 가로지르지 않게 하는 데만 쓴다
+      fetch(from('/corridor', 'corridor'))
+        .then((r) => (r.ok ? (r.json() as Promise<WalkableGrid>) : null))
+        .catch(() => null),
     ]);
     this.plan = plan;
     this.pf = new Pathfinder(grid);
     this.pf.setAvoidMask(staffArea);
+    this.pf.setCorridorMask(corridor);
     for (const z of zones) this.zones.set(z.zoneId, z);
 
     // 캐릭터는 이 화면이 뜨기 전에 이미 다 만들어져 있다 (main 참고)
@@ -406,6 +414,11 @@ class PatientScene extends Phaser.Scene {
       throw new Error('pixelmap.png 을 불러오지 못했습니다 (tools/build-pixel-map.py 로 생성)');
     }
     this.add.image(0, 0, 'pixelmap').setOrigin(0, 0).setDepth(0); // 그리기 층: 배경 0
+    // 문 — 배경 바로 위, 사람들 아래. 여닫는 에셋이 오면 이 한 장을 문마다의 스프라이트로
+    // 바꾸면 된다 (위치는 config/door.json 에 있다). 배경에 굽지 않은 이유가 이것이다.
+    if (this.textures.exists('doormap')) {
+      this.add.image(0, 0, 'doormap').setOrigin(0, 0).setDepth(0.5);
+    }
     this.cameras.main.setBounds(0, 0, this.mapW, this.mapH);
     this.cameras.main.setBackgroundColor('#0e1420');
     // ⚠️ pixelArt: true 는 게임 설정의 roundPixels 를 강제로 켠다. 그대로 두면 카메라와
