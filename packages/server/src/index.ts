@@ -79,10 +79,26 @@ let gateways = loadGateways();
  * 두 목록이 서로 겹치지 않는 별개라(계획 50대에 실장비 2대가 없다) 이렇게 따로 읽는다.
  */
 const REAL_GATEWAYS = new Set(loadRealGateways().map((g) => g.gatewayId));
-/** 목업 비콘 — 시뮬레이터가 쏘는 것들. MOCK_TAGS 가 단일 출처다 */
-const MOCK_MACS = new Set(MOCK_TAGS.map((t) => t.mac));
+/**
+ * 목업 비콘 판정 — **시드 MAC 접두사**로 본다.
+ *
+ * 처음엔 `MOCK_TAGS`(시뮬레이터가 실제로 쏘는 16개)로 했는데, 시드로만 넣어 둔
+ * 나머지 7개가 안 걸려서 껐는데도 등록/반납 목록에 가짜가 남았다. 스캔에는 안 나와도
+ * **목록에는 있는** 가짜가 있다. 접두사 하나로 23개가 다 잡힌다.
+ */
+const MOCK_MAC_PREFIX = 'AA:BB:CC:';
 const isTestGateway = (id: string): boolean => !REAL_GATEWAYS.has(id);
-const isTestTag = (id: string): boolean => MOCK_MACS.has(id);
+const isTestTag = (id: string): boolean => id.startsWith(MOCK_MAC_PREFIX);
+// 시뮬레이터가 쏘는 것들이 그 접두사를 벗어나면 위 판정이 조용히 새므로 부팅 때 짚는다
+{
+  const stray = MOCK_TAGS.filter((t) => !isTestTag(t.mac));
+  if (stray.length > 0) {
+    console.warn(
+      `[server] ⚠️ 목업 태그 ${stray.length}개가 ${MOCK_MAC_PREFIX} 접두사를 안 쓴다`
+        + ` — 테스트 장비를 꺼도 안 빠진다: ${stray.map((t) => t.mac).join(', ')}`,
+    );
+  }
+}
 /** 게이트웨이→존 매핑. 현장 등록 시 이 변수를 갈아치우고 엔진에도 밀어 넣는다 */
 let gatewayZoneMap = buildGatewayZoneMap(gateways);
 const engine = new ZoneEngine(gatewayZoneMap, ZONE_ENGINE_CONFIG);
@@ -324,20 +340,29 @@ const httpServer = createServer((req, res) => {
    * 마지막 신호를 붙여 준다 — 배터리가 죽었는지, 창고에 있는지 이걸로 본다.
    */
   if (req.url === '/beacons') {
-    const rows = listBeacons(db).map((b) => {
-      const idle = b.personId ? undefined : idleBeacons.get(b.tagId);
-      return {
-        ...b,
-        pin: pinOf(b.tagId),
-        claimed: b.personId !== null && isClaimed(db, b.tagId),
-        assigned: b.personId !== null,
-        group: tagMeta.all()[b.tagId]?.group ?? 'unassigned',
-        name: tagMeta.all()[b.tagId]?.name ?? null,
-        lastSeen: idle?.lastSeen ?? null,
-        lastGateway: idle?.gatewayId ?? null,
-        lastRssi: idle?.rssi ?? null,
-      };
-    });
+    /**
+     * 테스트 장비를 껐으면 목업 비콘은 **여기서도 빠진다.**
+     *
+     * 추적만 끊고 이 목록을 그대로 두면 "실장비만" 이라고 해놓고 등록/반납 화면에는
+     * 가짜가 23개 남는다 — 앞뒤가 안 맞고, 끈 상태에서 목업에 환자를 배정할 일도 없다.
+     */
+    const showTest = scanRouter.isTestGearOn();
+    const rows = listBeacons(db)
+      .filter((b) => showTest || !isTestTag(b.tagId))
+      .map((b) => {
+        const idle = b.personId ? undefined : idleBeacons.get(b.tagId);
+        return {
+          ...b,
+          pin: pinOf(b.tagId),
+          claimed: b.personId !== null && isClaimed(db, b.tagId),
+          assigned: b.personId !== null,
+          group: tagMeta.all()[b.tagId]?.group ?? 'unassigned',
+          name: tagMeta.all()[b.tagId]?.name ?? null,
+          lastSeen: idle?.lastSeen ?? null,
+          lastGateway: idle?.gatewayId ?? null,
+          lastRssi: idle?.rssi ?? null,
+        };
+      });
     res.writeHead(200, CORS_JSON);
     res.end(JSON.stringify(rows));
     return;
