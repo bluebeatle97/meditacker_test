@@ -181,6 +181,21 @@ export function loadGateways(): Gateway[] {
   return JSON.parse(readFileSync(gatewaysFilePath(), 'utf-8'));
 }
 
+/**
+ * **실제로 설치된** 게이트웨이만 (`gateways.json`).
+ *
+ * `loadGateways()` 는 `GATEWAYS_FILE` 이 가리키는 것을 준다 — 계획 배치로 띄우면
+ * 50대가 나오고 실장비 2대는 거기 없다. 두 목록이 서로 겹치지 않는 별개라,
+ * "테스트 장비 끄기" 를 하려면 실장비 목록을 따로 알아야 한다.
+ */
+export function loadRealGateways(): Gateway[] {
+  try {
+    return JSON.parse(readFileSync(join(here, 'gateways.json'), 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
 /** 도면 배경 이미지 메타 (프론트가 이 이미지 위에 존/아바타 매핑) */
 export function loadFloorplan(): FloorplanMeta {
   return JSON.parse(readFileSync(join(here, 'floorplan.json'), 'utf-8'));

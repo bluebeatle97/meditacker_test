@@ -144,6 +144,27 @@ export class ZoneEngine extends EventEmitter {
    *
    * @returns 이번 스윕에서 삭제한 태그 수 (운영 지표용)
    */
+  /**
+   * 특정 태그를 지금 즉시 지운다 (자리비움이 아니라 **삭제**).
+   *
+   * 테스트 장비를 끌 때 쓴다. 스캔만 끊으면 sweepAbsent 가 치울 때까지 몇 분 동안
+   * 목업이 화면에 그대로 남아 "껐는데 왜 있냐" 가 된다. 껐으면 바로 없어져야 한다.
+   *
+   * @returns 실제로 지운 태그 수
+   */
+  forget(match: (tagId: string) => boolean): number {
+    let n = 0;
+    for (const tagId of [...this.states.keys()]) {
+      if (!match(tagId)) continue;
+      // 존을 비워 체류 기록을 닫고 나서 지운다 — 안 그러면 로그가 열린 채 남는다
+      if (this.states.get(tagId)!.currentZone !== null) this.commitZone(tagId, null);
+      this.states.delete(tagId);
+      this.readings.delete(tagId);
+      n++;
+    }
+    return n;
+  }
+
   sweepAbsent(): number {
     const now = this.now();
     let evicted = 0;

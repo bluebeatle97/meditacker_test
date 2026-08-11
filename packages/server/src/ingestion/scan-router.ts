@@ -29,6 +29,8 @@ export class ScanRouter {
   private acceptedScans = 0;
   /** 등록됐지만 미배정이라 흘려보낸 스캔 수 (관제에서 창고 비콘 부하를 가늠) */
   private idleScans = 0;
+  /** 테스트 장비를 꺼서 막은 스캔 수 — 껐는데 조용한 게 맞는지 확인용 */
+  private testScans = 0;
   /**
    * `gateways.json` 에 없는데 신호를 쏘고 있는 게이트웨이 (현장 설치 발견용).
    *
@@ -60,9 +62,36 @@ export class ScanRouter {
     private isAssigned: (tagId: string) => boolean = () => true,
     /** 배정 안 된 비콘의 마지막 신호만 싸게 적어둘 곳 (배터리·소재 확인용) */
     private idleBeacons?: { note: (scan: ScanEvent) => void },
+    /**
+     * 이 게이트웨이·비콘이 **테스트용(가짜)** 인가.
+     *
+     * 계획 배치 게이트웨이(GW-xx)와 목업 비콘은 실장비가 아니다. 테스트 장비를 끄면
+     * 여기서 스캔째로 막는다 — 화면에서만 숨기면 "실제로 지금 장비로 뭐가 되나" 를
+     * 볼 수 없다. 위치 판정·체류 로그·관제 피드 전부에서 빠져야 그 그림이 나온다.
+     */
+    private isTestGateway: (gatewayId: string) => boolean = () => false,
+    private isTestTag: (tagId: string) => boolean = () => false,
   ) {}
 
+  /** 테스트 장비를 태울 것인가 (기본 on — 지금까지의 동작) */
+  private testGear = true;
+
+  setTestGear(on: boolean): void {
+    this.testGear = on;
+  }
+
+  isTestGearOn(): boolean {
+    return this.testGear;
+  }
+
   route(scan: ScanEvent): void {
+    // 테스트 장비 차단은 **맨 앞**이다. 뒤에 두면 가짜 게이트웨이가 '미등록 게이트웨이'
+    // 목록을 채우고, 가짜 비콘이 '미등록 신호' 패널을 채운다 — 끈 의미가 없어진다
+    if (!this.testGear && (this.isTestGateway(scan.gatewayId) || this.isTestTag(scan.tagId))) {
+      this.testScans++;
+      return;
+    }
+
     // 게이트웨이 발견은 비콘 필터보다 먼저 — 현장에서는 비콘도 미등록이다
     if (!this.isKnownGateway(scan.gatewayId)) this.noteUnknownGateway(scan);
 
@@ -128,6 +157,10 @@ export class ScanRouter {
     droppedScans: number;
     /** 등록됐지만 미배정이라 흘려보낸 스캔 — 창고 비콘이 만드는 부하 */
     idleScans: number;
+    /** 테스트 장비를 태우고 있나 */
+    testGear: boolean;
+    /** 테스트 장비를 꺼서 막은 스캔 수 */
+    testScans: number;
   } {
     const u = this.unknownTags.stats();
     return {
@@ -137,6 +170,8 @@ export class ScanRouter {
       uniqueUnknownIds: u.uniqueIds,
       droppedScans: u.droppedScans,
       idleScans: this.idleScans,
+      testGear: this.testGear,
+      testScans: this.testScans,
     };
   }
 }

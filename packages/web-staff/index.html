@@ -305,6 +305,16 @@
       .badmin-gsel:hover { background: #4a201d; color: #fff; }
       .badmin-gsel option, .badmin-gsel optgroup { background: #141a26; color: #dbe4f0; }
 
+      /* 테스트 장비 on/off — 켜져 있는 게 기본이라 '켜짐'을 눈에 띄게 */
+      #testgear-btn { border: 1px solid #6f7bd1; background: #1e2340; color: #c3ccff; }
+      #testgear-btn:hover { background: #262c50; }
+      #testgear-btn.off { border-color: #c05b4d; background: #3a1c18; color: #ffb3a7; }
+      #tools > #testgear-hint {
+        width: 224px; padding: 8px 11px; box-sizing: border-box;
+        font-size: 11px; line-height: 1.5; color: #ffb3a7;
+        background: #2a1512; border: 1px solid #6b332b; border-radius: 8px;
+      }
+
       /* 게이트웨이 범위 보기 */
       #gw-btn { border: 1px solid #d3a13c; background: #2e2513; color: #ffd489; }
       #gw-btn:hover { background: #3d3119; }
@@ -416,6 +426,9 @@
       <button id="badmin-btn" type="button">👥 환자 등록/반납</button>
       <!-- 게이트웨이 위치·커버리지 (담당 구역 → 수신 세기 → 끔 순서로 순환) -->
       <button id="gw-btn" type="button">📡 게이트웨이</button>
+      <!-- 테스트 장비 on/off — 끄면 실장비만 돈다 (화면 필터가 아니라 서버가 스캔을 막는다) -->
+      <button id="testgear-btn" type="button">🧪 테스트 장비</button>
+      <div id="testgear-hint" hidden></div>
       <div id="gw-hint" hidden></div>
       <!-- 환자용 패널(도트 그래픽) 진입 — 별 앱이라 새 탭으로 -->
       <a id="patient-btn" href="#" target="_blank" rel="noopener">🎮 환자용 패널</a>

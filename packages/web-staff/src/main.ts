@@ -273,6 +273,7 @@ class StaffMapScene extends Phaser.Scene {
       .setDisplaySize(plan.width * this.worldScale, plan.height * this.worldScale)
       .setVisible(false);
     this.setupOverlayToggle();
+    this.setupTestGearToggle();
 
     // 게이트웨이 범위 (방 이름·아바타보다 먼저 만들어 그 아래에 깔리게)
     await this.setupGatewayLayer(zones);
@@ -720,6 +721,64 @@ class StaffMapScene extends Phaser.Scene {
       render();
     };
     render();
+  }
+
+  /**
+   * 테스트 장비 on/off.
+   *
+   * **화면 필터가 아니다.** 서버가 스캔 관문에서 계획 배치 게이트웨이와 목업 비콘을
+   * 막아버린다 — 위치 판정·체류 로그·관제 피드 전부에서 빠져야 "지금 깔린 장비로
+   * 실제로 뭐가 되나" 가 보인다.
+   *
+   * 끄면 화면이 거의 빈다(실장비 게이트웨이가 2대뿐이다). 그게 정직한 그림이라
+   * 버튼 아래에 이유를 띄워 준다 — 안 그러면 고장 난 줄 안다.
+   */
+  private setupTestGearToggle(): void {
+    const btn = document.getElementById('testgear-btn') as HTMLButtonElement | null;
+    const hint = document.getElementById('testgear-hint') as HTMLElement | null;
+    if (!btn || this.demo) {
+      btn?.remove(); // 시연 모드에는 서버가 없다 — 끌 것도 없다
+      hint?.remove();
+      return;
+    }
+    let on = true;
+    let realCount = 0;
+    const render = (): void => {
+      btn.textContent = on ? '🧪 테스트 장비 끄기' : '🧪 테스트 장비 켜기';
+      btn.classList.toggle('off', !on);
+      if (hint) {
+        hint.hidden = on;
+        hint.textContent = `실장비만 돌고 있습니다 — 게이트웨이 ${realCount}대. `
+          + '아무도 안 보이면 아직 실제 신호가 없다는 뜻입니다.';
+      }
+    };
+    const pull = async (): Promise<void> => {
+      try {
+        const r = await fetch(`${SERVER_URL}/test-gear`);
+        const d = (await r.json()) as { on: boolean; realGateways: number };
+        on = d.on;
+        realCount = d.realGateways;
+      } catch {
+        /* 서버가 아직 안 떴을 수 있다 — 다음 클릭 때 다시 본다 */
+      }
+      render();
+    };
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        const r = await fetch(`${SERVER_URL}/test-gear`, {
+          method: 'POST',
+          body: JSON.stringify({ on: !on }),
+        });
+        const d = (await r.json()) as { ok: boolean; on: boolean };
+        if (d.ok) on = d.on;
+      } catch {
+        /* 실패하면 상태를 그대로 둔다 — 아래 render 가 서버 값을 다시 반영한다 */
+      }
+      btn.disabled = false;
+      render();
+    };
+    void pull();
   }
 
   /**

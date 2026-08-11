@@ -7,6 +7,7 @@ import {
   gatewaysFilePath,
   loadFloorplan,
   loadGateways,
+  loadRealGateways,
   loadZones,
   SERVER_CONFIG,
   ZONE_ENGINE_CONFIG,
@@ -48,6 +49,7 @@ import { ScanRecorder } from './recording/scan-recorder.js';
 import {
   isGuidableZone,
   isValidCharId,
+  MOCK_TAGS,
   TAG_GROUP_IDS,
   ZoneDwellFilter,
   ZONE_DWELL_MS,
@@ -71,6 +73,16 @@ const serveStatic = createStaticHandler([
 const db = openDb(SERVER_CONFIG.dbPath);
 
 let gateways = loadGateways();
+/**
+ * 실장비 게이트웨이 id — 나머지는 계획 배치(테스트용)다.
+ *
+ * 두 목록이 서로 겹치지 않는 별개라(계획 50대에 실장비 2대가 없다) 이렇게 따로 읽는다.
+ */
+const REAL_GATEWAYS = new Set(loadRealGateways().map((g) => g.gatewayId));
+/** 목업 비콘 — 시뮬레이터가 쏘는 것들. MOCK_TAGS 가 단일 출처다 */
+const MOCK_MACS = new Set(MOCK_TAGS.map((t) => t.mac));
+const isTestGateway = (id: string): boolean => !REAL_GATEWAYS.has(id);
+const isTestTag = (id: string): boolean => MOCK_MACS.has(id);
 /** 게이트웨이→존 매핑. 현장 등록 시 이 변수를 갈아치우고 엔진에도 밀어 넣는다 */
 let gatewayZoneMap = buildGatewayZoneMap(gateways);
 const engine = new ZoneEngine(gatewayZoneMap, ZONE_ENGINE_CONFIG);
@@ -153,6 +165,8 @@ const scanRouter = new ScanRouter(
   (gatewayId) => gatewayZoneMap.has(gatewayId),
   (tagId) => assignedTags.has(tagId),
   idleBeacons,
+  isTestGateway,
+  isTestTag,
 );
 
 const ingestion = new MqttIngestion(
@@ -471,6 +485,45 @@ const httpServer = createServer((req, res) => {
       }
     });
     return;
+  }
+
+  /**
+   * 테스트 장비 스위치 — 끄면 **실장비만** 돈다.
+   *
+   * 화면 필터가 아니라 스캔 관문에서 막는다. 계획 배치 게이트웨이(GW-xx)와 목업
+   * 비콘이 판정·좌표·체류 로그·관제 피드 어디에도 안 들어간다 — 그래야 "지금 깔린
+   * 장비로 실제로 뭐가 되나" 가 보인다.
+   *
+   * ⚠️ 실장비가 아직 2대뿐이라 끄면 화면이 거의 빈다. 그게 지금의 정직한 그림이다.
+   */
+  if (req.url === '/test-gear') {
+    if (req.method === 'GET') {
+      res.writeHead(200, CORS_JSON);
+      res.end(JSON.stringify({ on: scanRouter.isTestGearOn(), realGateways: REAL_GATEWAYS.size }));
+      return;
+    }
+    if (req.method === 'POST') {
+      readBody(req, 200, (body) => {
+        try {
+          const { on } = JSON.parse(body) as { on?: boolean };
+          scanRouter.setTestGear(on !== false);
+          let dropped = 0;
+          if (on === false) {
+            // 스캔만 끊으면 sweepAbsent 가 치울 때까지 몇 분 남는다 — 껐으면 바로 없어져야 한다
+            dropped = engine.forget(isTestTag);
+            for (const tagId of [...smoothed.keys()]) if (isTestTag(tagId)) smoothed.delete(tagId);
+          }
+          console.log(`[server] 테스트 장비 ${on === false ? 'OFF — 실장비만' : 'ON'}`
+            + (dropped ? ` (목업 태그 ${dropped}개 즉시 정리)` : ''));
+          res.writeHead(200, CORS_JSON);
+          res.end(JSON.stringify({ ok: true, on: scanRouter.isTestGearOn(), dropped }));
+        } catch (e) {
+          res.writeHead(400, CORS_JSON);
+          res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+        }
+      });
+      return;
+    }
   }
 
   /** 데스크용 — 환자가 폰을 바꾸거나 기록을 지웠을 때 다시 찍게 풀어준다 */
