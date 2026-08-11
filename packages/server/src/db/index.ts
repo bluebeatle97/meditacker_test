@@ -242,6 +242,24 @@ export function assignBeacon(
  * 반납. 캐릭터 커스터마이징도 같이 지운다 —
  * 다음 환자가 이전 사람 캐릭터를 물려받으면 안 된다.
  */
+/**
+ * 이 팔찌를 지금 든 사람의 표시 이름을 바꾼다.
+ *
+ * **이름은 한 값이다.** 예전엔 비콘 목록이 `tag_meta.name` 을, 환자 등록/반납이
+ * `persons.display_name` 을 각각 보여줘서 한쪽만 고치면 갈라졌다 — 목록에서 이름을
+ * 고쳐도 등록/반납엔 `비콘 5` 가 그대로 남았다. 어느 쪽에서 고치든 둘 다 바뀌게 한다.
+ *
+ * 배정이 없으면 아무것도 안 한다 (창고 비콘엔 사람이 없다).
+ */
+export function renameHolder(db: Db, tagId: string, displayName: string): void {
+  const open = getOpenAssignment(db, tagId);
+  if (!open) return;
+  db.prepare(`UPDATE persons SET display_name = ? WHERE person_id = ?`).run(
+    displayName,
+    open.personId,
+  );
+}
+
 export function releaseBeacon(db: Db, tagId: string): void {
   const open = getOpenAssignment(db, tagId);
   if (!open) return;

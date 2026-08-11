@@ -31,6 +31,7 @@ import {
   openDb,
   registerBeacon,
   releaseBeacon,
+  renameHolder,
   upsertPatientProfile,
 } from './db/index.js';
 import { createWsServer } from './ws/index.js';
@@ -398,7 +399,10 @@ const httpServer = createServer((req, res) => {
             memo?: string;
             group?: string;
           };
-          tagMeta.set(tagId, (name ?? '').trim(), (memo ?? '').trim(), group);
+          const who = (name ?? '').trim();
+          tagMeta.set(tagId, who, (memo ?? '').trim(), group);
+          // 이름은 한 값이다 — 사람 쪽도 같이 바꿔야 환자 등록/반납과 어긋나지 않는다
+          renameHolder(db, tagId, who);
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           res.end(JSON.stringify({ ok: true }));
         } catch {
