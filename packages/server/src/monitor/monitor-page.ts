@@ -23,6 +23,9 @@ export function monitorPageHtml(): string {
   }
   header h1 { font-size: 15px; margin: 0; font-weight: 600; }
   .stat { color: var(--muted); }
+  /* 테스트 장비 스위치 — 끈 상태가 '평소와 다름' 이라 붉게 */
+  #testgear-btn { border: 1px solid #4d5b8a; background: #1b2136; color: #b9c4e6; }
+  #testgear-btn.off { border-color: #a84b3d; background: #33130f; color: #ffb3a7; }
   .stat b { color: var(--text); font-variant-numeric: tabular-nums; }
   #dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; margin-right: 6px; }
   #dot.on { background: var(--ok); }
@@ -145,6 +148,8 @@ export function monitorPageHtml(): string {
   <span class="stat">누적 <b id="s-total">0</b></span>
   <span class="stat" id="s-block-wrap">미등록 차단 <b id="s-blocked">0</b></span>
   <span class="stat" style="margin-left:auto">가동 <b id="s-uptime">0s</b></span>
+  <!-- 테스트 장비 on/off — 끄면 게이트웨이 목록이 실장비로 바뀌고 목업 비콘이 막힌다 -->
+  <button class="btn" id="testgear-btn" type="button">🧪 테스트 장비</button>
   <a id="back-btn" href="#">← 직원용 패널로</a>
 </header>
 
@@ -570,6 +575,29 @@ export function monitorPageHtml(): string {
     sendMark(document.getElementById('mark-zone').value);
   });
   document.getElementById('mark-out').addEventListener('click', function(){ sendMark(null); });
+
+  // ── 테스트 장비 on/off ──
+  // 끄면 서버가 게이트웨이 목록을 실장비로 갈아끼우고 목업 비콘 스캔을 막는다.
+  // 화면 필터가 아니라 판정 자체가 바뀌므로, 바꾼 뒤에는 새로 그린다.
+  var tgBtn = document.getElementById('testgear-btn');
+  var tgOn = true;
+  function tgRender(gwCount){
+    tgBtn.textContent = tgOn ? '🧪 테스트 장비 끄기' : '🧪 실장비만 (' + gwCount + '대)';
+    tgBtn.classList.toggle('off', !tgOn);
+    tgBtn.title = tgOn
+      ? '끄면 계획 배치 게이트웨이와 목업 비콘이 빠지고 실장비만 돕니다'
+      : '실장비만 돌고 있습니다 — 게이트웨이 근처가 아니면 자리비움으로 뜹니다';
+  }
+  fetch('/test-gear').then(function(r){ return r.json(); }).then(function(d){
+    tgOn = d.on; tgRender(d.gateways);
+  }).catch(function(){});
+  tgBtn.addEventListener('click', function(){
+    tgBtn.disabled = true;
+    fetch('/test-gear', { method: 'POST', body: JSON.stringify({ on: !tgOn }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d.ok) location.reload(); else tgBtn.disabled = false; })
+      .catch(function(){ tgBtn.disabled = false; });
+  });
 
   // ── 스캔 피드 (배치 수신) ──
   var feed = document.getElementById('scan-feed');
