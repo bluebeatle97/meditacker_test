@@ -345,8 +345,10 @@ const httpServer = createServer((req, res) => {
   // 게이트웨이 설치 위치 — 직원 화면의 '게이트웨이 범위' 보기가 쓴다.
   // 태그 위치가 아니라 천장 설비 배치도라 권한 구분이 필요 없다 (정적 마스터).
   if (req.url === '/gateways') {
-    res.writeHead(200, CORS_JSON);
-    res.end(JSON.stringify(loadGateways()));
+    // 파일이 아니라 **지금 쓰고 있는 목록**을 준다 — 테스트 장비를 끄면 실장비만 남고,
+    // 화면도 그걸 그대로 그려야 한다 (파일을 읽으면 껐는데 50대가 계속 뜬다)
+    res.writeHead(200, { ...CORS_JSON, 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(gateways));
     return;
   }
   // 태그 이름/메모 — 관제·직원 화면 공용
@@ -499,24 +501,51 @@ const httpServer = createServer((req, res) => {
   if (req.url === '/test-gear') {
     if (req.method === 'GET') {
       res.writeHead(200, CORS_JSON);
-      res.end(JSON.stringify({ on: scanRouter.isTestGearOn(), realGateways: REAL_GATEWAYS.size }));
+      res.end(
+        JSON.stringify({
+          on: scanRouter.isTestGearOn(),
+          realGateways: REAL_GATEWAYS.size,
+          gateways: gateways.length,
+        }),
+      );
       return;
     }
     if (req.method === 'POST') {
       readBody(req, 200, (body) => {
         try {
           const { on } = JSON.parse(body) as { on?: boolean };
-          scanRouter.setTestGear(on !== false);
-          let dropped = 0;
-          if (on === false) {
-            // 스캔만 끊으면 sweepAbsent 가 치울 때까지 몇 분 남는다 — 껐으면 바로 없어져야 한다
-            dropped = engine.forget(isTestTag);
+          const want = on !== false;
+          scanRouter.setTestGear(want);
+
+          /**
+           * **게이트웨이 목록 자체를 갈아끼운다.**
+           *
+           * 처음엔 스캔만 막았는데 그러면 반쪽이었다 — 계획 배치로 띄운 서버는 실장비
+           * 2대를 아예 안 싣고 있어서(두 파일이 겹치지 않는 별개 목록), 가짜를 막고 나면
+           * 남은 실장비가 "미등록 게이트웨이" 라 존 판정이 안 됐다. 스위치는 껐는데
+           * 남은 회선에 배선이 없는 꼴이었다.
+           *
+           * 재시작 없이 바꾸는 길은 이미 있다 — 현장에서 게이트웨이를 등록할 때 쓰는
+           * 그 경로(`/register-gateway`)와 같은 세 줄이다.
+           */
+          gateways = want ? loadGateways() : loadRealGateways();
+          gatewayZoneMap = buildGatewayZoneMap(gateways);
+          engine.setGatewayZoneMap(gatewayZoneMap);
+          estimator.setGateways(gateways);
+
+          // 스캔만 끊으면 sweepAbsent 가 치울 때까지 몇 분 남는다 — 껐으면 바로 없어져야 한다
+          const dropped = want ? 0 : engine.forget(isTestTag);
+          if (!want) {
             for (const tagId of [...smoothed.keys()]) if (isTestTag(tagId)) smoothed.delete(tagId);
           }
-          console.log(`[server] 테스트 장비 ${on === false ? 'OFF — 실장비만' : 'ON'}`
-            + (dropped ? ` (목업 태그 ${dropped}개 즉시 정리)` : ''));
+          console.log(
+            `[server] 테스트 장비 ${want ? 'ON' : 'OFF — 실장비만'}: 게이트웨이 ${gateways.length}대`
+              + (dropped ? ` · 목업 태그 ${dropped}개 정리` : ''),
+          );
           res.writeHead(200, CORS_JSON);
-          res.end(JSON.stringify({ ok: true, on: scanRouter.isTestGearOn(), dropped }));
+          res.end(
+            JSON.stringify({ ok: true, on: want, gateways: gateways.length, dropped }),
+          );
         } catch (e) {
           res.writeHead(400, CORS_JSON);
           res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
@@ -705,7 +734,7 @@ const httpServer = createServer((req, res) => {
     res.writeHead(200, { ...CORS_JSON, 'Cache-Control': 'no-store' });
     res.end(
       JSON.stringify({
-        registered: loadGateways().map((g) => ({ gatewayId: g.gatewayId, zoneId: g.zoneId })),
+        registered: gateways.map((g) => ({ gatewayId: g.gatewayId, zoneId: g.zoneId })),
         unknown: scanRouter.unknownGatewayList(),
       }),
     );

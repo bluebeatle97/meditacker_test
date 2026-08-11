@@ -44,7 +44,16 @@ export class PositionEstimator {
       let xSum = 0;
       let ySum = 0;
       for (const r of readings) {
-        const tile = this.gatewayTiles.get(r.gatewayId)!;
+        /**
+         * 설치 좌표를 모르는 게이트웨이의 수신값은 건너뛴다.
+         *
+         * ⚠️ 예전엔 `!` 로 "있다" 고 단정했는데, **목록이 바뀌면 그 순간 터진다** —
+         *    엔진에는 방금 뺀 게이트웨이의 수신값이 몇 초 더 남아 있기 때문이다
+         *    (테스트 장비를 껐다 켜니 서버가 죽었다). 게이트웨이를 현장에서 빼는
+         *    경우에도 같은 일이 난다.
+         */
+        const tile = this.gatewayTiles.get(r.gatewayId);
+        if (!tile) continue;
         // 신호 세기 → 선형 가중치. +100 오프셋 후 지수화 (-55dBm ≈ 178, -85dBm ≈ 5.6)
         const w = Math.pow(10, (r.rssi + 100) / 20);
         wSum += w;

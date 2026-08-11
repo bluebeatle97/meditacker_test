@@ -742,22 +742,22 @@ class StaffMapScene extends Phaser.Scene {
       return;
     }
     let on = true;
-    let realCount = 0;
+    let gwCount = 0;
     const render = (): void => {
       btn.textContent = on ? '🧪 테스트 장비 끄기' : '🧪 테스트 장비 켜기';
       btn.classList.toggle('off', !on);
       if (hint) {
         hint.hidden = on;
-        hint.textContent = `실장비만 돌고 있습니다 — 게이트웨이 ${realCount}대. `
-          + '아무도 안 보이면 아직 실제 신호가 없다는 뜻입니다.';
+        hint.textContent = `실장비만 돌고 있습니다 — 게이트웨이 ${gwCount}대. `
+          + '이 근처가 아니면 신호가 약해 자리비움으로 뜹니다.';
       }
     };
     const pull = async (): Promise<void> => {
       try {
         const r = await fetch(`${SERVER_URL}/test-gear`);
-        const d = (await r.json()) as { on: boolean; realGateways: number };
+        const d = (await r.json()) as { on: boolean; gateways: number };
         on = d.on;
-        realCount = d.realGateways;
+        gwCount = d.gateways;
       } catch {
         /* 서버가 아직 안 떴을 수 있다 — 다음 클릭 때 다시 본다 */
       }
@@ -770,8 +770,13 @@ class StaffMapScene extends Phaser.Scene {
           method: 'POST',
           body: JSON.stringify({ on: !on }),
         });
-        const d = (await r.json()) as { ok: boolean; on: boolean };
-        if (d.ok) on = d.on;
+        const d = (await r.json()) as { ok: boolean; on: boolean; gateways: number };
+        if (d.ok) {
+          // 게이트웨이 레이어는 만들 때 목록을 받고 교체 API 가 없다. 부분 갱신하다
+          // 반쪽만 바뀐 화면을 만드느니 새로 그린다 — 드물게 누르는 모드 전환이다
+          window.location.reload();
+          return;
+        }
       } catch {
         /* 실패하면 상태를 그대로 둔다 — 아래 render 가 서버 값을 다시 반영한다 */
       }
