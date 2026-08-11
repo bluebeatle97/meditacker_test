@@ -148,6 +148,24 @@ export function loadZones(): Zone[] {
 }
 
 /**
+ * 손님끼리 서로 안 보이는 방의 **칸 마스크** (tools/build-rooms.py 산출).
+ *
+ * 없으면 null — 예전 배포에서도 서버가 뜨긴 해야 한다. 그때는 아무도 안 숨는다.
+ */
+export function loadPrivateArea(): {
+  cell: number;
+  cols: number;
+  rows: number;
+  grid: string[];
+} | null {
+  try {
+    return JSON.parse(readFileSync(join(here, 'private-area.json'), 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 게이트웨이 목록. 기본은 **실제로 설치된 것**(`gateways.json`).
  *
  * 계획 배치 50대는 `gateways.planned.json` 에 따로 있다 — 실장비 실측 중에는 아직 안 달린

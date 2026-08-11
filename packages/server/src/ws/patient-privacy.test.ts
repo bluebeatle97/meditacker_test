@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isPrivateRoom, type Zone } from '@meditracker/shared';
-import { loadZones } from '../config/index.js';
-import { visibleToOtherPatients } from './patient-namespace.js';
+import { loadPrivateArea, loadZones } from '../config/index.js';
+import { maskLookup, visibleToOtherPatients } from './patient-namespace.js';
 
 /**
  * 환자용 화면에서 **다른 손님**이 보이는 범위.
@@ -20,9 +20,6 @@ const byName = (name: string): Zone => {
   if (!z) throw new Error(`존 '${name}' 이 zones.json 에 없다 — 도면이 바뀌었으면 이 테스트도 고친다`);
   return z;
 };
-const isPrivate = (zoneId: string): boolean =>
-  zones.some((z) => z.zoneId === zoneId && isPrivateRoom(z));
-
 describe('진료 관련 방 판정 (실제 zones.json 기준)', () => {
   // 이름을 박아 두는 이유: category 를 잘못 건드리면 조용히 통과한다.
   // "상담실이 숨겨지나" 는 사람이 읽고 판단할 수 있어야 한다.
@@ -64,24 +61,43 @@ describe('진료 관련 방 판정 (실제 zones.json 기준)', () => {
   });
 });
 
-describe('좌표를 다른 손님에게 보낼까', () => {
-  it('진료실 안 — 안 보낸다', () => {
-    expect(visibleToOtherPatients({ zone: byName('상담실 1').zoneId }, isPrivate)).toBe(false);
+describe('좌표를 다른 손님에게 보낼까 (실제 private-area.json 기준)', () => {
+  /**
+   * ⚠️ **존 판정이 아니라 좌표로 본다.** 처음엔 `zone` 이 진료실이면 숨겼는데, 복도에
+   *    선 사람의 21.9% 가 같이 숨었다 — 복도엔 게이트웨이가 없어 존 판정이 "제일
+   *    가까운 방" 을 찍기 때문이다. 그걸 걸러 주기로 한 `inTransit` 은 6.4% 뿐이었다.
+   */
+  const mask = loadPrivateArea();
+  const inPrivate = maskLookup(mask);
+
+  it('마스크가 있고 비어 있지 않다', () => {
+    expect(mask, 'private-area.json — tools/build-rooms.py 로 생성').not.toBeNull();
+    const cells = mask!.grid.reduce((n, r) => n + (r.match(/1/g)?.length ?? 0), 0);
+    expect(cells, '숨김 대상 칸').toBeGreaterThan(1000);
   });
 
-  it('대기공간 — 보낸다', () => {
-    expect(visibleToOtherPatients({ zone: byName('대기공간 1').zoneId }, isPrivate)).toBe(true);
+  it.each(['상담실 1', '시술실 2', '수술실 1', '피부관리실', '공용화장실', '여자 체인징룸 1'])(
+    '%s 앵커 자리 — 안 보낸다',
+    (name) => {
+      const z = byName(name);
+      expect(visibleToOtherPatients(z.tilePosition, inPrivate)).toBe(false);
+    },
+  );
+
+  it.each(['대기공간 1', '대기공간 2', '대기공간 3', '접수데스크', 'ELEV.홀'])(
+    '%s 앵커 자리 — 보낸다',
+    (name) => {
+      const z = byName(name);
+      expect(visibleToOtherPatients(z.tilePosition, inPrivate)).toBe(true);
+    },
+  );
+
+  it('격자 밖 좌표는 보낸다 (숨길 근거가 없다)', () => {
+    expect(visibleToOtherPatients({ x: -50, y: -50 }, inPrivate)).toBe(true);
+    expect(visibleToOtherPatients({ x: 99999, y: 99999 }, inPrivate)).toBe(true);
   });
 
-  it('추적 구역 밖(zone 없음) — 보낸다', () => {
-    expect(visibleToOtherPatients({ zone: null }, isPrivate)).toBe(true);
-  });
-
-  it('복도 이동 중이면 zone 이 진료실이라도 보낸다', () => {
-    // 복도에는 게이트웨이가 없어 zone 이 '제일 가까운 방' 을 찍는다. 그걸 그대로 믿으면
-    // 복도를 걷는 사람이 방 앞을 지날 때마다 깜빡깜빡 사라진다.
-    const consult = byName('상담실 1').zoneId;
-    expect(visibleToOtherPatients({ zone: consult, inTransit: true }, isPrivate)).toBe(true);
-    expect(visibleToOtherPatients({ zone: consult, inTransit: false }, isPrivate)).toBe(false);
+  it('마스크가 없으면 아무도 안 숨는다 (예전 배포에서도 서버는 떠야 한다)', () => {
+    expect(visibleToOtherPatients({ x: 100, y: 100 }, maskLookup(null))).toBe(true);
   });
 });

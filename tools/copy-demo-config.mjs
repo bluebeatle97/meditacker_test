@@ -23,6 +23,7 @@ const FILES = [
   'gateways.json',
   'staff-area.json',
   'corridor.json', // 안내 경로가 복도로 다니게 하는 마스크 (tools/build-rooms.py)
+  'private-area.json', // 손님끼리 서로 안 보이는 방 (같은 도구)
 ];
 const APPS = ['web-staff', 'web-patient'];
 

@@ -1,4 +1,4 @@
-import { DemoSim, MOCK_TAGS, isPrivateRoom } from '@meditracker/shared';
+import { DemoSim, MOCK_TAGS } from '@meditracker/shared';
 import type { Zone } from '@meditracker/shared';
 
 /**
@@ -61,7 +61,15 @@ function anonId(tagId: string): string {
  * 시연용 가짜 소켓 — 본인 좌표·다른 손님들·구역 인원수·대기 안내를 흘린다.
  * 서버와 같은 주기·같은 페이로드라 화면 쪽 핸들러는 손댈 필요가 없다.
  */
-export function demoSocket(zones: Zone[]): FakeSocket {
+/** 격자 마스크 = 그 자리가 '손님끼리 안 보이는 방' 인가 (서버의 maskLookup 과 같은 규칙) */
+export interface CellMask {
+  cell: number;
+  cols: number;
+  rows: number;
+  grid: string[];
+}
+
+export function demoSocket(zones: Zone[], privateArea: CellMask | null = null): FakeSocket {
   const sim = new DemoSim(zones);
   const guests = new Set(
     MOCK_TAGS.filter((t) => t.route.startsWith('patient') || t.route.startsWith('waiting')).map(
@@ -69,8 +77,19 @@ export function demoSocket(zones: Zone[]): FakeSocket {
     ),
   );
   const me = sim.demoPatientTag;
-  /** 여기 있는 손님은 다른 손님 화면에 안 나온다 (서버와 같은 규칙) */
-  const privateZones = new Set(zones.filter(isPrivateRoom).map((z) => z.zoneId));
+  /**
+   * 여기 **좌표**에 있는 손님은 다른 손님 화면에 안 나온다 (서버와 같은 규칙).
+   *
+   * ⚠️ 존으로 거르면 안 된다. 시연 시뮬레이터도 서버처럼 '제일 가까운 존' 을 찍어서,
+   *    복도를 걷는 사람이 옆방 이름으로 잡혀 통째로 사라진다 (실서버에서 21.9% 였다).
+   */
+  const inPrivateRoom = (x: number, y: number): boolean => {
+    if (!privateArea) return false;
+    const gx = Math.floor(x / privateArea.cell);
+    const gy = Math.floor(y / privateArea.cell);
+    if (gx < 0 || gy < 0 || gx >= privateArea.cols || gy >= privateArea.rows) return false;
+    return privateArea.grid[gy].charCodeAt(gx) === 49;
+  };
   const handlers = new Map<string, Array<(...args: never[]) => void>>();
   const timers: Array<ReturnType<typeof setInterval>> = [];
 
@@ -109,7 +128,7 @@ export function demoSocket(zones: Zone[]): FakeSocket {
         .filter((p) => guests.has(p.tagId) && p.tagId !== me)
         // 서버(patient-namespace 의 visibleToOtherPatients)와 같은 규칙 —
         // 시연이라고 느슨하게 두면 그 화면이 그대로 사양처럼 굳는다
-        .filter((p) => !p.zone || p.inTransit || !privateZones.has(p.zone))
+        .filter((p) => !inPrivateRoom(p.x, p.y))
         .map((p) => ({ id: anonId(p.tagId), x: p.x, y: p.y, kind: 'patient' as const })),
     );
   };

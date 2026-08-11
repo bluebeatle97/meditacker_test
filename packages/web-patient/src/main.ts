@@ -9,7 +9,7 @@ import {
   pathLengthPx,
 } from '@meditracker/shared';
 import type { FloorplanMeta, PatientProfile, Zone, ZoneAction } from '@meditracker/shared';
-import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mode';
+import { demoSocket, localConfigUrl, markDemoUi, resolveZones, type CellMask } from './demo-mode';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { Crowd, type CrowdUnit } from './crowd';
 import { poseFor, sittableAt } from './pose';
@@ -300,6 +300,8 @@ class PatientScene extends Phaser.Scene {
   private facing: Dir = 'down';
   private teleport = true;
   private overview = false;
+  /** 손님끼리 안 보이는 방 마스크 — 시연 모드의 가짜 소켓이 쓴다 */
+  private privateArea: CellMask | null = null;
   /**
    * 상단 안내의 '현재 위치' 안정화 — 복도를 지나가며 스치는 방까지 바로 띄우면
    * 글자가 계속 바뀌어 읽을 수 없다. 캐릭터·카메라는 그대로 즉시 따라간다.
@@ -374,7 +376,7 @@ class PatientScene extends Phaser.Scene {
       DEMO ? localConfigUrl(local) : `${SERVER_URL}${route}`;
 
     this.token = TOKEN;
-    const [plan, zones, grid, staffArea, corridor] = await Promise.all([
+    const [plan, zones, grid, staffArea, corridor, privateArea] = await Promise.all([
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
       Promise.resolve(source.zones),
       fetch(from('/walkable', 'walkable')).then((r) => r.json() as Promise<WalkableGrid>),
@@ -387,11 +389,16 @@ class PatientScene extends Phaser.Scene {
       fetch(from('/corridor', 'corridor'))
         .then((r) => (r.ok ? (r.json() as Promise<WalkableGrid>) : null))
         .catch(() => null),
+      // 손님끼리 서로 안 보이는 방 — 시연 모드에서만 쓴다(실서버는 서버가 이미 거른다)
+      fetch(localConfigUrl('private-area'))
+        .then((r) => (r.ok ? (r.json() as Promise<CellMask>) : null))
+        .catch(() => null),
     ]);
     this.plan = plan;
     this.pf = new Pathfinder(grid);
     this.pf.setAvoidMask(staffArea);
     this.pf.setCorridorMask(corridor);
+    this.privateArea = privateArea;
     for (const z of zones) this.zones.set(z.zoneId, z);
 
     // 캐릭터는 이 화면이 뜨기 전에 이미 다 만들어져 있다 (main 참고)
@@ -636,7 +643,7 @@ class PatientScene extends Phaser.Scene {
   private connect(): void {
     // 시연 모드에서는 같은 모양의 가짜 소켓이 들어온다 — 아래 핸들러는 그대로 돈다
     this.socket = this.demo
-      ? (demoSocket([...this.zones.values()]) as unknown as Socket)
+      ? (demoSocket([...this.zones.values()], this.privateArea) as unknown as Socket)
       : io(`${SERVER_URL}/patient`, { auth: { token: this.token } });
 
     // 탭이 백그라운드였다 돌아오면 걷지 말고 진실 좌표로 바로 붙인다 (직원용 패널과 동일)

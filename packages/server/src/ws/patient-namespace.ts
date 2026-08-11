@@ -4,8 +4,7 @@ import { findTagByPerson, type Db } from '../db/index.js';
 import type { AuthedSocket } from './index.js';
 import { anonymousOccupancy } from '../permission/permission-filter.js';
 import { actionsForZone, isAllowedReaction } from '../social/zone-actions.js';
-import { loadZones, SERVER_CONFIG } from '../config/index.js';
-import { isPrivateRoom } from '@meditracker/shared';
+import { loadPrivateArea, loadZones, SERVER_CONFIG } from '../config/index.js';
 import type { TagMetaStore } from '../presence/tag-meta-store.js';
 
 /** index.ts 가 위치 브로드캐스트를 밀어 넣는 창구 */
@@ -32,20 +31,32 @@ const CROWD_INTERVAL_MS = 2000;
 /**
  * 이 사람의 좌표를 **다른 손님 화면**에 띄워도 되나.
  *
- * `isPrivateRoom` 인 방에 들어가 있으면 안 띄운다 — 화면에서 감추는 게 아니라
- * 좌표를 아예 안 보낸다. 화면에서만 숨기면 개발자도구로 다 보인다.
+ * 진료 관련 방·화장실·체인징룸 안이면 안 띄운다 — 화면에서 감추는 게 아니라 좌표를
+ * 아예 안 보낸다. 화면에서만 숨기면 개발자도구로 다 보인다.
  *
- * ⚠️ **`inTransit` 이면 그냥 보낸다.** 복도에는 게이트웨이가 없어서 `zone` 이
- *    "제일 가까운 방" 을 찍는다(PresenceState.inTransit 주석 참고). 그걸 그대로
- *    믿으면 복도를 걷는 사람이 방 앞을 지날 때마다 깜빡깜빡 사라진다.
+ * ⚠️ **존 판정이 아니라 좌표로 본다.** 처음엔 `zone` 이 진료실이면 숨겼는데, 복도에
+ *    선 사람의 21.9% 가 같이 숨었다 — 복도엔 게이트웨이가 없어 존 판정이 "제일 가까운
+ *    방" 을 찍기 때문이다. 그걸 걸러 주기로 한 `inTransit` 은 6.4% 밖에 안 떴다.
+ *    좌표가 어느 방 안인지는 추측할 것이 없다 (`config/private-area.json`).
  */
 export function visibleToOtherPatients(
-  p: { zone: string | null; inTransit?: boolean },
-  isPrivate: (zoneId: string) => boolean,
+  p: { x: number; y: number },
+  inPrivateRoom: (x: number, y: number) => boolean,
 ): boolean {
-  if (!p.zone) return true; // 추적 구역 밖
-  if (p.inTransit) return true; // 방 사이 이동 중 — zone 은 추측일 뿐이다
-  return !isPrivate(p.zone);
+  return !inPrivateRoom(p.x, p.y);
+}
+
+/** 격자 마스크 조회기 — 없으면 아무도 안 숨긴다 */
+export function maskLookup(
+  mask: { cell: number; cols: number; rows: number; grid: string[] } | null,
+): (x: number, y: number) => boolean {
+  if (!mask) return () => false;
+  return (x, y) => {
+    const gx = Math.floor(x / mask.cell);
+    const gy = Math.floor(y / mask.cell);
+    if (gx < 0 || gy < 0 || gx >= mask.cols || gy >= mask.rows) return false;
+    return mask.grid[gy].charCodeAt(gx) === 49;
+  };
 }
 
 /**
@@ -84,8 +95,11 @@ export function registerPatientNamespace(
       .filter((z) => z.category !== 'staff_area')
       .map((z) => z.zoneId),
   );
-  /** 여기 있는 손님은 다른 손님 화면에 좌표가 안 나간다 (인원수는 그대로 나간다) */
-  const privateZones = new Set(loadZones().filter(isPrivateRoom).map((z) => z.zoneId));
+  /**
+   * 여기 **좌표**에 있는 손님은 다른 손님 화면에 안 나간다 (인원수는 그대로 나간다).
+   * 목록은 tools/build-rooms.py 가 문으로 방을 갈라 만든다.
+   */
+  const inPrivateRoom = maskLookup(loadPrivateArea());
 
   /** 구역별 익명 인원수 (0인 구역은 생략) */
   function crowd(): Array<{ zoneId: string; count: number }> {
@@ -231,7 +245,7 @@ export function registerPatientNamespace(
       // (직원 좌표는 환자 화면으로 나가지 않는다 — 불변식 B-1)
       const units = list
         .filter((p) => isGuest(p.tagId))
-        .filter((p) => visibleToOtherPatients(p, (z) => privateZones.has(z)))
+        .filter((p) => visibleToOtherPatients(p, inPrivateRoom))
         .map((p) => ({
           id: anonId(p.tagId),
           x: p.x,

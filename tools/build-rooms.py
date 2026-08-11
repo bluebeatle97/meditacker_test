@@ -88,27 +88,26 @@ def main():
             kinds_of.setdefault(comp[r][c], []).append((z["type"], z["category"]))
 
     # ── 통행 공간인가 ──────────────────────────────────────────────────────
-    # 처음엔 "앵커 없는 조각 = 복도" 로 했는데 복도가 3,798칸(16m^2)밖에 안 나왔다.
-    # 진짜 복도가 대기공간·접수데스크와 트여 한 덩어리라 '방' 으로 분류된 탓이다.
+    # **대기공간·접수데스크·ELEV.홀 이 든 조각만** 통행 공간이다. 이 층에서는 복도가
+    # 그 홀과 트여 있어 한 덩어리로 잡힌다.
     #
-    # 그래서 **여럿이 지나다니라고 있는 공간**을 통행 공간으로 본다:
-    #   · 앵커가 아예 없는 조각 (순수 복도)
-    #   · 대기공간·접수데스크·ELEV.홀 이 든 조각 (트인 홀)
-    # 상담실·시술실 같은 방은 목적지가 아닌 한 지나가지 않는 게 맞다.
-    MIN_CORRIDOR = 40
+    # ⚠️ "앵커 없는 조각 = 복도" 를 넣었다가 뺐다. 앵커가 없는 건 이름을 안 붙인
+    #    방이지 복도가 아니다 — 그렇게 잡으니 문 뒤 막다른 공간 4조각(3,798칸)이
+    #    복도가 되어 안내 경로가 그리로 들어갔다. 이름이 없다고 지나다니는 곳은 아니다.
     OPEN = {"waiting", "reception"}
 
     def is_open(i):
         ks = kinds_of.get(i)
         if not ks:
-            return sizes[i] >= MIN_CORRIDOR
+            return False
         return any(t in OPEN or (t == "etc" and cat == "common") for t, cat in ks)
 
     corridor = {i for i in range(len(sizes)) if is_open(i)}
     rooms = {i: n for i, n in zone_of.items() if i not in corridor}
 
-    print(f"조각 {len(sizes)}개 — 방 {len(rooms)}개 · 복도 {len(corridor)}개 · "
-          f"자투리 {len(sizes) - len(rooms) - len(corridor)}개\n")
+    unnamed = len(sizes) - len(rooms) - len(corridor)
+    print(f"조각 {len(sizes)}개 — 방 {len(rooms)}개(+이름 없는 방 {unnamed}개) · "
+          f"통행 공간 {len(corridor)}개\n")
     merged = []
     for i, names in sorted(rooms.items(), key=lambda t: -sizes[t[0]]):
         tag = ""
@@ -119,6 +118,27 @@ def main():
     for i in sorted(corridor, key=lambda i: -sizes[i]):
         who = " / ".join(zone_of[i]) if i in zone_of else "복도"
         print(f"  {sizes[i]:>6,}칸  [통행] {who}")
+
+    # ── 손님끼리 서로 안 보이는 방 ─────────────────────────────────────────
+    # 진료 관련 방(patient_area) + 화장실 + 체인징룸. shared 의 isPrivateRoom 과 같은 규칙.
+    #
+    # **왜 좌표로 내나.** 서버가 존 판정으로 걸렀더니 복도에 선 사람이 21.9% 나 숨었다 —
+    # 복도엔 게이트웨이가 없어 존 판정이 "제일 가까운 방" 을 찍고, 그걸 걸러 주기로 한
+    # inTransit 은 6.4% 밖에 안 떴다. 좌표가 어느 방 안인지는 추측할 것이 없다.
+    def is_private(z):
+        return z["category"] == "patient_area" or z["type"] in ("toilet", "changing")
+
+    zmap = {z["name"]: z for z in zones}
+    private = {i for i in range(len(sizes))
+               if i not in corridor
+               and (i not in zone_of                       # 이름 없는 방 — 안전한 쪽으로
+                    or any(is_private(zmap[n]) for n in zone_of[i] if n in zmap))}
+    pgrid = ["".join("1" if comp[r][c] in private else "0" for c in range(COLS))
+             for r in range(ROWS)]
+    npriv = sum(row.count("1") for row in pgrid)
+    with open(os.path.join(CFG, "private-area.json"), "w", encoding="utf-8") as f:
+        json.dump({"cell": C, "cols": COLS, "rows": ROWS, "grid": pgrid}, f)
+    print(f"손님끼리 안 보이는 방 {len(private)}개 · {npriv:,}칸 → private-area.json")
 
     cgrid = ["".join("1" if comp[r][c] in corridor else "0" for c in range(COLS))
              for r in range(ROWS)]
@@ -161,10 +181,12 @@ def main():
                 continue
             if i in corridor:
                 col = (40, 160, 90, 120)
-            elif i in zone_of:
-                col = (70, 110, 220, 90) if len(zone_of[i]) == 1 else (230, 140, 0, 120)
+            elif i in zone_of and len(zone_of[i]) > 1:
+                col = (230, 140, 0, 120)      # 여러 방이 뭉친 것
             else:
-                continue
+                # 앵커가 있든 없든 통행 공간이 아니면 방이다. 이름 없는 조각을 안 칠했더니
+                # 그림에 빈 데가 생겼다 — 판정에는 이미 방으로 들어가 있는데도.
+                col = (70, 110, 220, 90)
             dr.rectangle((c * C, r * C, c * C + C - 1, r * C + C - 1), fill=col)
     for d in dj["doors"]:
         dr.rectangle((d["x"], d["y"], d["x"] + d["w"] - 1, d["y"] + d["h"] - 1),
