@@ -221,8 +221,17 @@ export class BeaconAdmin {
   }
 
   private rowHtml(r: BeaconRow): string {
+    /**
+     * **비콘의 이름은 6자리 코드 하나다** (왼쪽 `badmin-id`). 별명을 따로 두지 않는다 —
+     * 두 이름이 있으면 어느 쪽이 진짜인지 매번 헷갈리고, 실제로 목록에서 별명만 고쳐
+     * 놓고 여기가 안 바뀐다고 헤맸다.
+     *
+     * 그래서 이 자리에는 **사람 이름만** 온다. 팔찌를 대조할 때는 6자리 코드를 본다
+     * (비콘 목록에도 같은 코드가 회색으로 붙어 있다).
+     */
+    // 빈 문자열도 이름 없음이다 (`??` 만 쓰면 '' 가 그대로 통과해 빈 칸이 된다)
     const who = r.assigned
-      ? `<b class="badmin-who">${escapeHtml(r.holder ?? r.name ?? '이름 없음')}</b>`
+      ? `<b class="badmin-who">${escapeHtml(r.holder?.trim() || '이름 없음')}</b>`
       : `<span class="badmin-idle">창고 · ${lastSeenText(r.lastSeen)}</span>`;
     // 입장한 팔찌만 초기화가 의미 있다 (아직 안 찍었으면 그냥 찍으면 된다)
     const reset =

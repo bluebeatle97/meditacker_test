@@ -160,12 +160,9 @@ export function monitorPageHtml(): string {
       <div class="body">
         <!-- 분류는 여기 두지 않는다. 공용 기본값이 있으면 그대로 눌러서 넘어가고,
              나중에 엉뚱한 그룹으로 등록된 비콘을 찾아다니게 된다. 줄마다 고른다. -->
-        <div class="bar">
-          <span class="muted">이름 자동 채우기</span>
-          <input id="reg-prefix" value="비콘" style="width:80px" />
-          <input id="reg-next" type="number" value="1" style="width:56px" />
-          <span class="muted">등록창 이름칸에 '접두어 + 번호' 로 채워진다 (등록할 때마다 +1)</span>
-        </div>
+        <!-- 이름 자동 채우기('비콘 1', '비콘 2'…)를 없앴다. 그 값이 **사람 이름**
+             (persons.display_name)으로 들어가서, 등록/반납 화면이 환자 자리에
+             '비콘 5' 를 띄웠다. 비콘을 가리키는 이름은 6자리 코드 하나면 된다. -->
         <div id="unknown-body"><div class="empty">미등록 신호 없음</div></div>
       </div>
     </div>
@@ -398,9 +395,6 @@ export function monitorPageHtml(): string {
       .then(function(d){
         elSave.textContent = '등록';
         if (!d.ok) { elWarn.textContent = '등록 실패: ' + (d.error || '알 수 없는 오류'); elSave.disabled = false; return; }
-        // 다음 비콘 이름 자동 증가 (접두어를 쓰는 경우에만 의미가 있다)
-        var nextEl = document.getElementById('reg-next');
-        nextEl.value = String(Number(nextEl.value) + 1);
         closeEdit();
       })
       .catch(function(err){
@@ -460,10 +454,8 @@ export function monitorPageHtml(): string {
   document.getElementById('unknown-body').addEventListener('click', function(e){
     var btn = e.target.closest('.reg');
     if (!btn) return;
-    var prefix = document.getElementById('reg-prefix').value.trim();
-    var next = document.getElementById('reg-next').value;
     openDialog('register', btn.getAttribute('data-tag'), {
-      suggestName: prefix ? prefix + ' ' + next : '',
+      suggestName: '',
       sig: btn.getAttribute('data-sig') || ''
     });
   });

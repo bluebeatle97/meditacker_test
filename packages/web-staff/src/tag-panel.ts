@@ -75,6 +75,8 @@ interface RowEls {
   guide: HTMLDivElement;
   beacon: HTMLSpanElement;
   name: HTMLInputElement;
+  /** 팔찌에 인쇄된 6자리 (MAC 뒤 6자리) — 등록/반납 화면과 대조용 */
+  pin: HTMLElement;
   memo: HTMLInputElement;
   group: HTMLSelectElement;
   status: HTMLDivElement;
@@ -223,6 +225,9 @@ export class TagPanel {
     if (document.activeElement !== els.memo) els.memo.value = d.memo;
     if (document.activeElement !== els.group) els.group.value = d.group;
     els.name.placeholder = d.tagId.slice(-5);
+    // 팔찌 번호 — 서버의 pinOf 와 같은 규칙(MAC 구분기호 빼고 뒤 6자리)
+    els.pin.textContent = d.tagId.replace(/[^0-9A-Fa-f]/g, '').slice(-6).toUpperCase();
+    els.pin.title = d.tagId;
 
     const now = Date.now();
     const absent = d.zoneName === null;
@@ -288,6 +293,8 @@ export class TagPanel {
       <div class="info">
         <div class="line">
           <input class="name" type="text" spellcheck="false" />
+          <!-- 팔찌에 인쇄된 6자리 — 환자 등록/반납 화면과 대조하는 열쇠다 -->
+          <code class="pin" title="팔찌 번호"></code>
           <select class="grp" title="그룹">
             ${GROUPS.map((g) => `<option value="${g.id}">${g.label}</option>`).join('')}
           </select>
@@ -300,6 +307,7 @@ export class TagPanel {
       li,
       beacon: li.querySelector('.beacon') as HTMLSpanElement,
       name: li.querySelector('.name') as HTMLInputElement,
+      pin: li.querySelector('.pin') as HTMLElement,
       memo: li.querySelector('.memo') as HTMLInputElement,
       group: li.querySelector('.grp') as HTMLSelectElement,
       status: li.querySelector('.status') as HTMLDivElement,

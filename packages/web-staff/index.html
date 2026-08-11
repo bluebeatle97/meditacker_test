@@ -101,6 +101,11 @@
 
       .info { flex: 1; min-width: 0; }
       .info .line { display: flex; gap: 4px; align-items: center; }
+      /* 팔찌 번호 — 환자 등록/반납 화면의 같은 코드와 짝. 눈에 안 띄게 회색으로 */
+      .info .pin {
+        flex: none; color: #6f7d92; font: 600 10.5px ui-monospace, monospace;
+        letter-spacing: .3px; padding: 1px 4px; border-radius: 4px; background: #151d2b;
+      }
       .info input, .info select {
         box-sizing: border-box; background: transparent;
         border: 1px solid transparent; border-radius: 5px; padding: 2px 4px;

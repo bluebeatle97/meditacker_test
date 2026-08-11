@@ -702,7 +702,15 @@ const httpServer = createServer((req, res) => {
         const g = (TAG_GROUP_IDS.includes(group as TagGroup) ? group : 'unassigned') as TagGroup;
         if (!tagId) throw new Error('tagId 없음');
 
-        const label = (name ?? '').trim() || tagId;
+        /**
+         * 이름을 안 넣으면 **빈 채로 둔다.**
+         *
+         * 예전엔 비면 `tagId` 를 넣었고, 관제 등록창은 거기에 `비콘 1`, `비콘 2` … 를
+         * 자동으로 채워 줬다. 그 값이 그대로 **사람 이름**(persons.display_name)이 되어,
+         * 등록/반납 화면의 환자 자리에 `비콘 5` 가 떴다. 비콘을 가리키는 이름은 6자리
+         * 코드 하나면 되고, 사람 이름 자리에는 사람 이름만 있어야 한다.
+         */
+        const label = (name ?? '').trim();
         // 등록(하드웨어)과 배정(사람)을 같이 한다 — 관제에서 등록하면 바로 추적되던
         // 기존 동작을 유지하기 위해서다. 인포의 배정/반납은 아래 별도 API 를 쓴다.
         registerBeacon(db, tagId, label);
