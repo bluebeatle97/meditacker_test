@@ -15,7 +15,8 @@
     "dev:seed": "tsx src/tools/dev-seed.ts",
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.json",
-    "gateway:plan": "tsx src/tools/gateway-plan.ts"
+    "gateway:plan": "tsx src/tools/gateway-plan.ts",
+    "pos:check": "tsx src/tools/pos-check.ts"
   },
   "dependencies": {
     "@meditracker/shared": "*",
@@ -32,6 +33,7 @@
     "aedes": "^1.1.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "socket.io-client": "^4.8.1"
   }
 }
