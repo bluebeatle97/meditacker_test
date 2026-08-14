@@ -120,7 +120,12 @@ let gatewayZoneMap = buildGatewayZoneMap(gateways);
 const engine = new ZoneEngine(gatewayZoneMap, ZONE_ENGINE_CONFIG);
 
 const presence = new PresenceService(engine, db);
-const estimator = new PositionEstimator(gateways, engine, ZONE_ENGINE_CONFIG.POS_WEIGHT_DIV);
+const estimator = new PositionEstimator(
+  gateways,
+  engine,
+  ZONE_ENGINE_CONFIG.POS_WEIGHT_DIV,
+  ZONE_ENGINE_CONFIG.POS_MODE,
+);
 const tagMeta = new TagMetaStore(db);
 // 도면 벽 정보 — 운영 화면 좌표를 벽 안쪽으로 보정 (관제는 raw 유지)
 const walkable = new WalkableMap();

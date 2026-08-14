@@ -18,7 +18,19 @@ try {
 
 /** 존 판정 튜닝 파라미터 (설계서 6.2 — 현장 테스트로 실측 조정) */
 export const ZONE_ENGINE_CONFIG = {
-  RSSI_WINDOW_MS: 3000, // 이 시간 내 스캔만 유효
+  /**
+   * 이 시간 내 스캔만 유효 (`RSSI_WINDOW_MS`).
+   *
+   * **비콘의 광고 주기보다 넉넉해야 한다.** 현장에서 카드형(BP105N)을 재 보니 게이트웨이
+   * 하나당 0.4건/초, 공백이 최대 6.1초까지 벌어졌다 — CP35 는 같은 자리에서 1.6건/초였다.
+   * 3초 창으로는 가장 세게 듣던 게이트웨이(-38dBm)의 값이 공백 사이에 만료되고, 24dB 나
+   * 약한 옆 게이트웨이가 그 순간 유일한 생존자라 이겨 버린다. 세기 문제가 아니라 **비어
+   * 있는 시간** 문제라, 히스테리시스를 아무리 만져도 안 잡힌다.
+   *
+   * 넓히면 잔상이 생긴다 — 실제로 방을 옮겨도 옛 수신값이 그만큼 더 남는다. 근본 해결은
+   * 비콘 광고 주기를 올리는 쪽이고, 이 값은 그때까지의 완충이다.
+   */
+  RSSI_WINDOW_MS: Number(process.env.RSSI_WINDOW_MS ?? 3000),
   /**
    * 새 존이 현재 존보다 이만큼 세야 전환 후보 (`HYSTERESIS_DB=12` 로 덮어쓸 수 있다).
    *
@@ -37,6 +49,11 @@ export const ZONE_ENGINE_CONFIG = {
    * 20 = 1/거리, 10 = 1/거리². 낮출수록 점이 가장 센 게이트웨이에 붙는다.
    */
   POS_WEIGHT_DIV: Number(process.env.POS_WEIGHT_DIV ?? 20),
+  /**
+   * 좌표 계산 방식 (`POS_MODE=trilateration`). 기본은 무게중심.
+   * 삼변측량은 게이트웨이가 촘촘할 때만 이득이라, 배치가 끝난 구역에서 켜 보고 고른다.
+   */
+  POS_MODE: process.env.POS_MODE === 'trilateration' ? ('trilateration' as const) : ('centroid' as const),
   ABSENT_TIMEOUT_MS: 15000, // 이 시간 신호 없으면 자리비움(null)
   /**
    * 이 시간 무신호면 상태를 **메모리에서 완전히 제거**한다 (자리비움과 다름).

@@ -1,5 +1,6 @@
 import type { Gateway, PositionEstimate } from '@meditracker/shared';
 import type { ZoneEngine } from '../zone-engine/zone-engine.js';
+import { trilaterate, type Anchor } from './trilaterate.js';
 
 /**
  * RSSI 가중평균 연속 위치 추정 (트래킹 시각화용 — 존 판정과 병행)
@@ -30,6 +31,14 @@ export class PositionEstimator {
      * 가까운 쪽으로 붙는다. 어느 쪽이 나은지는 배치와 용도에 달렸으니 현장에서 고른다.
      */
     private weightDiv = 20,
+    /**
+     * `'trilateration'` 이면 무게중심을 **시작점**으로 삼아 거리 최소자승을 한 번 더 돌린다.
+     *
+     * 무게중심은 게이트웨이 다각형 바깥을 못 가리키고 가장자리에서 안쪽으로 수축한다.
+     * 거리를 실제로 계산하면 그 두 가지가 사라진다. 게이트웨이가 3대 미만으로 들리면
+     * 평면이 정해지지 않으므로 그 태그만 조용히 무게중심 값을 쓴다.
+     */
+    private mode: 'centroid' | 'trilateration' = 'centroid',
   ) {
     this.setGateways(gateways);
   }
@@ -59,6 +68,7 @@ export class PositionEstimator {
       let wSum = 0;
       let xSum = 0;
       let ySum = 0;
+      const anchors: Anchor[] = [];
       for (const r of readings) {
         /**
          * 설치 좌표를 모르는 게이트웨이의 수신값은 건너뛴다.
@@ -75,12 +85,19 @@ export class PositionEstimator {
         wSum += w;
         xSum += tile.x * w;
         ySum += tile.y * w;
+        anchors.push({ x: tile.x, y: tile.y, rssi: r.rssi });
       }
       if (wSum === 0) continue; // 유효 신호 없음 (자리비움)
+
+      const centroid = { x: xSum / wSum, y: ySum / wSum };
+      // 3대 미만이면 평면이 안 정해진다 — 그 태그만 무게중심으로 떨어진다
+      const fixed =
+        this.mode === 'trilateration' ? (trilaterate(anchors, centroid) ?? centroid) : centroid;
+
       result.push({
         tagId: state.tagId,
-        x: xSum / wSum,
-        y: ySum / wSum,
+        x: fixed.x,
+        y: fixed.y,
         zone: state.currentZone,
         inTransit: state.inTransit,
       });
