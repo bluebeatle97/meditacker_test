@@ -107,7 +107,8 @@
       "x": 1311,
       "y": 388
     },
-    "socialEnabled": false
+    "socialEnabled": false,
+    "forGender": "female"
   },
   {
     "zoneId": "changing_m",
@@ -118,7 +119,8 @@
       "x": 431,
       "y": 394
     },
-    "socialEnabled": false
+    "socialEnabled": false,
+    "forGender": "male"
   },
   {
     "zoneId": "toilet_common",
@@ -140,7 +142,8 @@
       "x": 661,
       "y": 394
     },
-    "socialEnabled": false
+    "socialEnabled": false,
+    "forGender": "female"
   },
   {
     "zoneId": "photo",
@@ -184,7 +187,8 @@
       "x": 1023,
       "y": 436
     },
-    "socialEnabled": false
+    "socialEnabled": false,
+    "forGender": "female"
   },
   {
     "zoneId": "skincare",
@@ -371,7 +375,8 @@
       "x": 437,
       "y": 867
     },
-    "socialEnabled": false
+    "socialEnabled": false,
+    "forGender": "female"
   },
   {
     "zoneId": "waiting_3",
@@ -393,7 +398,8 @@
       "x": 437,
       "y": 946
     },
-    "socialEnabled": false
+    "socialEnabled": false,
+    "forGender": "female"
   },
   {
     "zoneId": "recovery_2",

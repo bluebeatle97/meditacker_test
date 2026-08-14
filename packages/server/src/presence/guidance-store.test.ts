@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GuidanceStore } from './guidance-store.js';
-import { isGuidableZone, type Zone } from '@meditracker/shared';
+import { isGuidableZone, isSelfGuidableZone, type Zone } from '@meditracker/shared';
 import { loadZones } from '../config/index.js';
 
 describe('방 안내 저장소', () => {
@@ -67,5 +67,34 @@ describe('안내 목적지 규칙', () => {
 
   it('목적지가 방 목록의 절반 이상이다 (규칙이 너무 좁아지지 않게)', () => {
     expect(guidable.length).toBeGreaterThan(zones.length / 2);
+  });
+});
+
+describe('환자 셀프 안내 목적지 규칙', () => {
+  // 환자 앱의 `화장실` 버튼이 고르는 후보 (액팅보드 설계 6.2)
+  const zones: Zone[] = loadZones();
+  const self = zones.filter(isSelfGuidableZone);
+  const ids = self.map((z) => z.zoneId);
+
+  it('공용 화장실만 후보다', () => {
+    expect(ids).toContain('toilet_common');
+    expect(ids.length, '화장실이 늘거나 줄면 이 숫자만 바뀐다').toBe(
+      zones.filter((z) => z.type === 'toilet' && z.category !== 'staff_area').length,
+    );
+    expect(ids.length).toBeGreaterThan(0);
+  });
+
+  it('직원 화장실은 후보가 아니다', () => {
+    // 손님이 갈 곳이 아니다. 도면에서 직원 구역 안에 있다
+    expect(ids).not.toContain('staff_toilet');
+  });
+
+  it('화장실 아닌 방은 하나도 안 들어온다', () => {
+    for (const z of self) expect(z.type, `${z.zoneId} 가 섞였다`).toBe('toilet');
+  });
+
+  it('직원 디스패치 목록과 겹치지 않는다', () => {
+    // 두 목록은 별개다 — 직원 「방 안내」 드롭다운에 화장실이 섞이면 안 된다
+    for (const z of self) expect(isGuidableZone(z), `${z.zoneId} 가 양쪽에 있다`).toBe(false);
   });
 });

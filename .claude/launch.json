@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@meditracker/server"],
+      "port": 8080
+    },
+    {
+      "name": "patient",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@meditracker/web-patient"],
+      "port": 5174
+    }
+  ]
+}

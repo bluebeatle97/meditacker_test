@@ -61,6 +61,9 @@ export type ZoneType =
 
 export type ZoneCategory = 'patient_area' | 'staff_area' | 'common';
 
+/** 성별로 갈리는 방(화장실·체인징룸)에만 쓴다 — 나머지 방에는 없는 값이다 */
+export type ZoneGender = 'male' | 'female';
+
 export interface Zone {
   zoneId: string; // "waiting_1", "consult_1"
   name: string; // 도면 라벨 그대로 ("시술실 1")
@@ -69,6 +72,19 @@ export interface Zone {
   /** 도면 배경 이미지 픽셀 좌표 — 방 라벨 위치 (아바타/게이트웨이 기준점) */
   tilePosition: { x: number; y: number };
   socialEnabled: boolean; // 존 채팅 허용 여부
+  /**
+   * 이 방을 쓸 수 있는 성별 — 없으면(`공용화장실`) 누구나.
+   *
+   * **이름 문자열로 알아내지 않는다.** "여자화장실 1" 에서 '여자' 를 찾는 코드는 도면
+   * 라벨이 '여성화장실' 로 바뀌는 날 조용히 죽는다 (`isPrivateRoom`·`isGuidableZone` 이
+   * 종류·분류로 판정하는 것과 같은 이유). 설정에 적어 둔다.
+   */
+  forGender?: ZoneGender | null;
+}
+
+/** 이 방을 이 성별 손님이 쓸 수 있나 (공용은 둘 다 쓴다) */
+export function zoneAllowsGender(zone: Zone, gender: ZoneGender): boolean {
+  return zone.forGender == null || zone.forGender === gender;
 }
 
 /**
@@ -83,6 +99,20 @@ export function isGuidableZone(zone: Zone): boolean {
   return (
     zone.category === 'patient_area' || zone.type === 'waiting' || zone.type === 'reception'
   );
+}
+
+/**
+ * 환자가 **스스로** 안내를 걸 수 있는 방인가 (환자 앱의 `화장실` 버튼).
+ *
+ * 직원 손을 탈 이유가 없는 유일한 안내다 — 화장실은 물어서 가는 곳이 아니다
+ * (액팅보드 설계 6.2). 그래서 직원 디스패치 목록({@link isGuidableZone})과
+ * **서로 겹치지 않는 별개 목록**이다: 저쪽은 화장실을 일부러 뺀다.
+ *
+ * 직원 화장실은 빠진다 — 손님이 갈 곳이 아니다. 여기서도 이름 문자열이 아니라
+ * 존 설정(`type`·`category`)으로 정한다: 화장실이 늘거나 줄 때 조용히 썩지 않게.
+ */
+export function isSelfGuidableZone(zone: Zone): boolean {
+  return zone.type === 'toilet' && zone.category !== 'staff_area';
 }
 
 /**

@@ -5,14 +5,23 @@ import {
   UpdateClock,
   ZoneDwellFilter,
   ZONE_DWELL_MS,
+  isSelfGuidableZone,
   paceForPath,
   pathLengthPx,
+  zoneAllowsGender,
 } from '@meditracker/shared';
-import type { FloorplanMeta, PatientProfile, Zone, ZoneAction } from '@meditracker/shared';
+import type {
+  FloorplanMeta,
+  PatientProfile,
+  Zone,
+  ZoneAction,
+  ZoneGender,
+} from '@meditracker/shared';
 import { demoSocket, localConfigUrl, markDemoUi, resolveZones, type CellMask } from './demo-mode';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { Crowd, type CrowdUnit } from './crowd';
-import { poseFor, sittableAt } from './pose';
+import { IN_ZONE_PX, poseFor, sittableAt } from './pose';
+import { mountAssist, type AssistUi } from './assist';
 import { composeSheet, decodeChoice, isComposed, type Manifest } from './char-builder';
 import { mountCharPicker } from './char-picker';
 import { GuideLayer } from './guide-layer';
@@ -285,6 +294,16 @@ class PatientScene extends Phaser.Scene {
   private meRing?: Phaser.GameObjects.Ellipse;
   /** 방 안내 — 목적지까지 바닥에 깔리는 빨간 화살표 */
   private guide?: GuideLayer;
+  /** 직원이 걸어 준 안내 (서버가 준 것 — 도착 판정도 서버가 한다) */
+  private staffGuide: string | null = null;
+  /**
+   * 환자가 직접 켠 안내 = 화장실. 직원 안내보다 **먼저** 화살표를 차지한다 —
+   * 지금 가고 싶은 곳이 있어서 누른 것이고, 직원 안내는 다녀온 뒤에 이어진다.
+   * 고른 성별을 같이 들고 있는다 — 도착 판정이 그 성별의 화장실만 봐야 한다.
+   */
+  private selfGuide: { zoneId: string; gender: ZoneGender } | null = null;
+  /** 화장실·통역 버튼 (순수 DOM — Phaser 가 죽어도 살아 있어야 한다) */
+  private assist?: AssistUi;
   private meArrow?: Phaser.GameObjects.Triangle;
   private profile!: PatientProfile;
   /** 조합 시트의 동작별 [시작 프레임, 개수] — charparts/manifest.json 에서 온다 */
@@ -502,6 +521,19 @@ class PatientScene extends Phaser.Scene {
     });
 
     this.setupOverviewButton();
+    /**
+     * 화장실·통역 버튼. 화장실은 길을 재야 하므로(A*) 도면·격자가 준비된 여기서 붙인다.
+     * 통역은 이 화면과 아무 관계가 없지만, 두 버튼이 같은 자리에 같은 모양으로 있어야
+     * "환자가 직접 누르는 것들" 로 한 벌로 읽힌다.
+     */
+    this.assist = mountAssist({
+      onToilet: (gender) => {
+        // 전체 보기 상태로 화살표를 켜면 내 발밑이 화면 어디인지 알 수 없다
+        this.setOverview(false);
+        return this.startSelfGuide(gender);
+      },
+      onToiletCancel: () => this.cancelSelfGuide(),
+    });
     this.setHud(null);
     /**
      * 머문 시간이 차면 안내 문구를 바꾼다 — 이벤트가 안 와도 주기적으로 재평가해야 한다.
@@ -538,20 +570,26 @@ class PatientScene extends Phaser.Scene {
   private setupOverviewButton(): void {
     const btn = document.getElementById('overview-btn') as HTMLButtonElement | null;
     if (!btn) return;
-    btn.onclick = () => {
-      this.overview = !this.overview;
-      const cam = this.cameras.main;
-      if (this.overview) {
-        cam.stopFollow();
-        this.applyZoom(Math.min(this.scale.width / this.mapW, this.scale.height / this.mapH));
-        cam.centerOn(this.mapW / 2, this.mapH / 2);
-      } else {
-        this.applyZoom(this.followZoom());
-        cam.startFollow(this.me, false, FOLLOW_LERP, FOLLOW_LERP);
-      }
-      btn.textContent = this.overview ? '📍 내 위치' : '🗺 전체 보기';
-      btn.classList.toggle('on', this.overview);
-    };
+    btn.onclick = () => this.setOverview(!this.overview);
+  }
+
+  private setOverview(on: boolean): void {
+    if (on === this.overview) return;
+    this.overview = on;
+    const cam = this.cameras.main;
+    if (on) {
+      cam.stopFollow();
+      this.applyZoom(Math.min(this.scale.width / this.mapW, this.scale.height / this.mapH));
+      cam.centerOn(this.mapW / 2, this.mapH / 2);
+    } else {
+      this.applyZoom(this.followZoom());
+      cam.startFollow(this.me, false, FOLLOW_LERP, FOLLOW_LERP);
+    }
+    const btn = document.getElementById('overview-btn');
+    // 아이콘은 CSS(.on)가 바꾼다 — 라벨만 갈아 준다
+    const lbl = btn?.querySelector('.lbl');
+    if (lbl) lbl.textContent = on ? '내 위치' : '전체 보기';
+    btn?.classList.toggle('on', on);
   }
 
   /**
@@ -703,8 +741,11 @@ class PatientScene extends Phaser.Scene {
 
     // 직원이 건 방 안내 — 나에게만 온다. null 이면 해제(도착했거나 직원이 껐거나)
     this.socket.on('guide:set', (g: { zoneId: string } | null) => {
-      this.guide?.setTarget(g?.zoneId ?? null);
-      this.setGuideBar(g?.zoneId ?? null);
+      const zoneId = g?.zoneId ?? null;
+      // 끝났다는 신호인지 지금 알아야 한다 — 상태를 덮으면 판단할 근거가 사라진다
+      const ended = this.staffGuide !== null && zoneId === null;
+      this.staffGuide = zoneId;
+      this.syncGuide(ended);
       this.setHud(this.lastSelf ?? null);
     });
 
@@ -716,23 +757,127 @@ class PatientScene extends Phaser.Scene {
   }
 
   /**
-   * 상단 안내 띠 — 화살표만으로는 "어디로 가라는 건지" 를 못 읽는다.
-   * 도착하면(zoneId=null) 잠깐 '도착했습니다' 를 남기고 사라진다.
+   * 화살표·안내 띠·화장실 버튼을 지금 상태에 맞춘다.
+   *
+   * 안내의 출처가 둘이라(직원 / 환자 본인) 각 이벤트가 화살표를 직접 건드리면
+   * 서로를 덮어쓴다. 상태를 고치고 여기 한 곳에서만 그린다.
+   *
+   * @param ended 방금 안내 하나가 끝났나 — 이어질 안내가 없으면 '도착했습니다' 를 남긴다
    */
-  private setGuideBar(zoneId: string | null): void {
+  private syncGuide(ended = false): void {
+    const target = this.selfGuide?.zoneId ?? this.staffGuide;
+    this.guide?.setTarget(target);
+    this.assist?.setGuiding(this.selfGuide !== null);
+    this.setGuideBar(target, ended);
+  }
+
+  /**
+   * 상단 안내 띠 — 화살표만으로는 "어디로 가라는 건지" 를 못 읽는다.
+   * 안내가 끝나면 잠깐 '도착했습니다' 를 남기고 사라진다.
+   */
+  private setGuideBar(zoneId: string | null, ended: boolean): void {
     const bar = document.getElementById('guide-bar')!;
     if (zoneId) {
-      const zone = this.zones.get(zoneId);
-      bar.innerHTML = `<b>${zone ? zone.name : zoneId}</b> 으로 가주세요`;
+      const name = this.zones.get(zoneId)?.name ?? zoneId;
+      // 화장실은 본인이 켠 것이라 "가주세요"(지시)가 아니다. 그리고 직원 안내를
+      // 밀어낸 상태이므로, 그게 사라진 게 아니라 **뒤로 미뤄진** 것임을 같이 알린다.
+      bar.innerHTML =
+        this.selfGuide?.zoneId === zoneId
+          ? `<b>${name}</b> 안내 중 — 화살표를 따라가세요`
+            + (this.staffGuide
+              ? `<br><small>다녀오시면 ${this.zones.get(this.staffGuide)?.name ?? this.staffGuide} 안내가 이어집니다</small>`
+              : '')
+          : `<b>${name}</b> 으로 가주세요`;
       bar.className = 'show';
       return;
     }
-    if (!bar.classList.contains('show')) return; // 애초에 안내 중이 아니었다
+    if (!ended) {
+      bar.className = ''; // 안내가 없다 (애초에 없었거나 조용히 꺼졌다)
+      return;
+    }
     bar.innerHTML = '<b>도착했습니다</b>';
     bar.className = 'show done';
     window.setTimeout(() => {
       if (bar.classList.contains('done')) bar.className = '';
     }, GUIDE_DONE_MS);
+  }
+
+  /**
+   * 화장실 버튼 — 고른 성별이 쓸 수 있는 가장 가까운 화장실로 안내를 켠다.
+   * 목적지 이름을 돌려준다 (버튼이 그걸 화면에 쓴다).
+   *
+   * **서버에 걸지 않는다.** 직원 안내(`/guide`)와 달리 이 화살표는 이 화면에만 있다.
+   * 두 가지 이유다:
+   * - 서버 안내는 비콘 하나당 한 개다. 화장실을 그 자리에 넣으면 직원이 걸어 둔
+   *   "진료실 2로" 가 지워지고, 화장실에서 나온 환자는 갈 곳을 잃는다.
+   * - 화장실은 다른 손님 화면에서 좌표까지 숨기는 방이다(`isPrivateRoom`). 그런 곳으로
+   *   가는 중이라는 사실을 직원 화면·보드에 띄우는 것은 그 원칙과 어긋난다.
+   */
+  private startSelfGuide(gender: ZoneGender): string | null {
+    const to = this.nearestSelfTarget(gender);
+    if (!to) return null;
+    this.selfGuide = { zoneId: to.zoneId, gender };
+    this.syncGuide();
+    return to.name;
+  }
+
+  private cancelSelfGuide(arrived = false): void {
+    if (!this.selfGuide) return;
+    this.selfGuide = null;
+    // 직원 안내가 밀려 있었으면 그게 다시 화살표를 가져간다 (도착 문구는 생략 —
+    // 다음 목적지를 바로 보여주는 편이 낫다)
+    this.syncGuide(arrived && this.staffGuide === null);
+  }
+
+  /**
+   * 그 성별이 쓸 수 있는 가장 가까운 화장실 — **직선거리가 아니라 걸어가는 거리**로 고른다.
+   * 벽 하나 건너 붙어 있는 화장실이 직선으로는 제일 가깝고 실제로는 복도를 크게 돌아
+   * 제일 먼 경우가 이 도면에 있다.
+   *
+   * 재는 길과 그리는 길이 같아야 하므로 `GuideLayer` 와 **같은 옵션**으로 A* 를 돈다
+   * (직원 구역 회피 + 복도 우선). 후보가 세 곳뿐이라 버튼을 누른 순간 세 번 도는 것으로 끝난다.
+   */
+  private nearestSelfTarget(gender: ZoneGender): { zoneId: string; name: string } | null {
+    const from = { x: this.me.x / MAP_SCALE, y: this.me.y / MAP_SCALE };
+    let best: { zoneId: string; name: string; len: number } | null = null;
+    for (const z of this.zones.values()) {
+      if (!isSelfGuidableZone(z) || !zoneAllowsGender(z, gender)) continue;
+      const route = this.pf.findPath(from.x, from.y, z.tilePosition.x, z.tilePosition.y, {
+        avoidStaff: true,
+        preferCorridor: true,
+      });
+      if (!route) continue; // 그 화장실까지 길이 없다 (도면 밖 좌표 등)
+      const len = pathLengthPx(from, route);
+      if (!best || len < best.len) best = { zoneId: z.zoneId, name: z.name, len };
+    }
+    return best && { zoneId: best.zoneId, name: best.name };
+  }
+
+  /**
+   * 화장실 안내의 도착 판정 — **화면이 스스로 한다.**
+   *
+   * 직원 안내는 서버가 판정한다(존 판정이 서버 것이라 화면 말을 믿을 이유가 없다).
+   * 이쪽은 서버에 걸어 둔 지시가 아니라 이 화면의 화살표뿐이라 판정도 여기 있다.
+   * 둘 중 하나면 끝낸다:
+   * - 서버가 찍은 지금 구역이 **아무 공용 화장실이든** 맞다 — 안내한 곳보다 눈에 먼저
+   *   보인 화장실로 들어가는 게 정상이고, 그때 화살표가 계속 남아 있으면 안 된다
+   * - 목적지 라벨에서 {@link IN_ZONE_PX} 안까지 왔다 — 화장실에 게이트웨이가 아직 안
+   *   달린 현장이 있어(계획 배치에만 있다) 존 판정만 믿으면 화살표가 안 꺼진다
+   */
+  private tickSelfGuide(): void {
+    if (!this.selfGuide) return;
+    const zone = this.lastSelf?.zone ? this.zones.get(this.lastSelf.zone) : undefined;
+    if (zone && isSelfGuidableZone(zone) && zoneAllowsGender(zone, this.selfGuide.gender)) {
+      this.cancelSelfGuide(true);
+      return;
+    }
+    const to = this.zones.get(this.selfGuide.zoneId);
+    if (!to) return;
+    const d = Math.hypot(
+      to.tilePosition.x - this.me.x / MAP_SCALE,
+      to.tilePosition.y - this.me.y / MAP_SCALE,
+    );
+    if (d <= IN_ZONE_PX) this.cancelSelfGuide(true);
   }
 
   private setHud(
@@ -860,6 +1005,8 @@ class PatientScene extends Phaser.Scene {
       this.me.x,
       this.me.y - 30 + Math.sin(_time / ARROW_BOB_MS * Math.PI * 2) * ARROW_BOB_PX,
     );
+    // 화장실 도착 판정은 매 프레임 본다 — 좌표 이벤트를 기다리면 화살표가 몇 초 남는다
+    this.tickSelfGuide();
     // 안내 화살표: 지나온 것은 흐려지고, 남은 것은 목적지 쪽으로 밝기가 흐른다
     this.guide?.update(this.me.x, this.me.y, _time);
     this.crowd?.update(delta); // 다른 사람들도 같은 보행 속도로 좁힌다

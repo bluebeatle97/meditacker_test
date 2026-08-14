@@ -29,18 +29,127 @@
         font-size: 14px; font-weight: 700;
       }
       #guide-bar b { color: #ff8a80; font-size: 16px; }
+      /* 밀려 있는 직원 안내 — 지금 가는 곳보다 작고 흐리게 (지금 볼 것이 아니다) */
+      #guide-bar small { display: inline-block; margin-top: 3px; font-size: 11.5px; font-weight: 600; color: #ffc9c4; opacity: .8; }
       #guide-bar.done { background: #1f6b4a33; border-color: #4fae7f88; color: #cdf3e0; }
       #guide-bar.done b { color: #7fe0ae; }
 
       /* ── 우하단 버튼 ──────────────────────────────────────────────────── */
-      #ctrls { position: fixed; right: 12px; bottom: 14px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
-      #ctrls button {
-        padding: 10px 14px; border-radius: 9px; cursor: pointer;
-        border: 1px solid #3a5a7d; background: #16233aee; color: #cfe3f7;
-        font: 700 13px inherit;
+      /* 굽(아래 그림자 한 칸)까지가 버튼이라 세로 간격을 그만큼 벌린다 */
+      #ctrls {
+        position: fixed; right: 14px; bottom: 18px; z-index: 50;
+        display: flex; flex-direction: column; align-items: flex-end; gap: 11px;
       }
-      #ctrls button:hover { background: #1e304d; }
-      #ctrls button.on { background: #2c6b4a; border-color: #4fae7f; color: #fff; }
+
+      /* ── 도트 버튼 ────────────────────────────────────────────────────────
+         도면·캐릭터가 픽셀아트인데 UI 만 매끈하면 둘이 서로 겉돈다. 둥근 모서리와
+         그라디언트를 버리고 **사각 그림자로 계단식 외곽선**을 만든다 (border-radius 는
+         확대된 도트 사이에서 그 곡선만 매끄러워 오히려 튄다).
+
+         한 칸 = 3px 로 못 박는다. 도트 한 칸의 크기가 눈에 보이는 격자를 만들어야
+         테두리·하이라이트·굽이 "찍힌 것" 처럼 읽힌다. */
+      /* 크기는 **못 박는다**. 라벨이 바뀌는 버튼들이라(화장실↔안내 끄기, 통역 호출↔호출 중…)
+         내용에 맞춰 늘었다 줄면 누를 자리가 매번 옮겨 다닌다 — 글자가 바뀌어도 버튼은
+         1px 도 안 움직여야 한다. 세 버튼이 같은 폭이라 오른쪽 변도 딱 맞는다. */
+      .dotbtn {
+        box-sizing: border-box; width: 136px; height: 40px;
+        display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+        padding: 0 13px; border: none; border-radius: 0; cursor: pointer;
+        background: #26415f; color: #e6f2ff;
+        font: 800 13px/1 inherit; letter-spacing: -.01em;
+        /* 외곽선 4장(모서리가 비어 계단이 된다) + 아래 굽 + 위 하이라이트·아래 그늘 */
+        box-shadow:
+          0 -3px #101d33, 0 3px #101d33, -3px 0 #101d33, 3px 0 #101d33,
+          0 6px #0a1220,
+          inset 0 3px #ffffff20, inset 0 -3px #00000045;
+        transition: none; /* 도트 UI 에 부드러운 전환은 어울리지 않는다 — 딱딱 바뀐다 */
+      }
+      .dotbtn:hover { background: #2f5075; }
+      /* 누르면 굽 한 칸만큼 실제로 내려앉는다 */
+      .dotbtn:active {
+        transform: translateY(3px);
+        box-shadow:
+          0 -3px #101d33, 0 3px #101d33, -3px 0 #101d33, 3px 0 #101d33,
+          0 3px #0a1220,
+          inset 0 3px #ffffff14, inset 0 -3px #00000045;
+      }
+      .dotbtn:disabled { cursor: default; color: #93a7c0; }
+      .dotbtn .ico { flex: none; }
+      /* 도트 아이콘 — 확대해도 계단이 살아 있어야 한다 (안티에일리어싱 금지) */
+      .dotbtn .ico svg { display: block; shape-rendering: crispEdges; }
+      .dotbtn .dim { opacity: .5; }
+
+      /* 남/여 고르기 — 화장실은 남녀가 갈리는데(공용 1곳·여자용 2곳) 성별을 물어볼
+         데가 없다. 배정에 성별이 들어오면 이 단계는 없어질 자리다. */
+      #toilet-pick { display: none; }
+      #toilet-pick.show {
+        box-sizing: border-box; display: block; width: 136px; padding: 9px 9px 10px;
+        background: #16233a;
+        box-shadow:
+          0 -3px #101d33, 0 3px #101d33, -3px 0 #101d33, 3px 0 #101d33,
+          0 6px #0a1220,
+          inset 0 3px #ffffff14;
+      }
+      #toilet-pick .ttl { margin-bottom: 8px; font: 700 11px/1.35 inherit; color: #9fb6d2; }
+      #toilet-pick .row { display: flex; gap: 6px; }
+      /* 두 칸이 정확히 반씩 — 글자가 '남'/'여' 한 자라 크기가 변할 일도 없다 */
+      .dotbtn.sm {
+        width: 50%; height: 38px; padding: 0;
+        justify-content: center; font-size: 16px;
+      }
+
+      /* 전체 보기 ↔ 내 위치 — 상태에 따라 아이콘까지 바꾼다 (라벨만 바뀌면 못 읽는다) */
+      #overview-btn .ico-pin { display: none; }
+      #overview-btn.on .ico-map { display: none; }
+      #overview-btn.on .ico-pin { display: block; }
+      .dotbtn.on {
+        background: #2c6b4a; color: #eafff4;
+        box-shadow:
+          0 -3px #123a26, 0 3px #123a26, -3px 0 #123a26, 3px 0 #123a26,
+          0 6px #0a2416,
+          inset 0 3px #ffffff26, inset 0 -3px #00000045;
+      }
+      .dotbtn.on:hover { background: #35815a; }
+
+      /* 안내 중 — 바닥 화살표·안내 띠와 같은 빨강. 셋이 한 벌로 읽힌다 */
+      .dotbtn.guiding {
+        background: #a52a21; color: #ffe9e6;
+        box-shadow:
+          0 -3px #4a0f0a, 0 3px #4a0f0a, -3px 0 #4a0f0a, 3px 0 #4a0f0a,
+          0 6px #2e0906,
+          inset 0 3px #ffffff2b, inset 0 -3px #00000045;
+      }
+      .dotbtn.guiding:hover { background: #bd332a; }
+      /* 통역 계열은 중간톤 틸 — 액팅보드와 같은 색을 쓴다 (액팅보드 설계 디자인 항목) */
+      #itp-btn {
+        background: #2e6157; color: #d8f2ea;
+        box-shadow:
+          0 -3px #123029, 0 3px #123029, -3px 0 #123029, 3px 0 #123029,
+          0 6px #0a1f1a,
+          inset 0 3px #ffffff20, inset 0 -3px #00000045;
+      }
+      #itp-btn:hover { background: #3a7669; }
+      #itp-btn:disabled { background: #24443d; color: #7fa79c; }
+
+      /* 통역 호출 알림 — 화면 아래 가운데. 도트 버튼과 같은 테두리 문법을 쓴다.
+         시연 배지(bottom:10px)보다 위에 둔다 — 배지는 나중에 body 끝에 붙어서
+         CSS 로 비켜 세울 수 없다 */
+      #itp-toast {
+        position: fixed; left: 50%; bottom: 66px; transform: translateX(-50%);
+        /* 폭도 못 박는다 — 문구(통역 호출 / 화장실 실패)마다 넓이가 달라지면
+           같은 자리에 뜨는 알림이 매번 다른 물건처럼 보인다 */
+        z-index: 160; display: none; box-sizing: border-box;
+        width: min(300px, calc(100vw - 40px));
+        padding: 11px 15px; text-align: center; pointer-events: none;
+        background: #2e6157; color: #eafaf5;
+        box-shadow:
+          0 -3px #123029, 0 3px #123029, -3px 0 #123029, 3px 0 #123029,
+          inset 0 3px #ffffff20, inset 0 -3px #00000045;
+      }
+      #itp-toast.show { display: block; }
+      #itp-toast b { display: block; font-size: 14px; }
+      /* 아직 서버에 붙지 않은 기능이다 — 그 사실을 문구에서 숨기지 않는다 */
+      #itp-toast span { display: block; margin-top: 3px; font-size: 11px; color: #a8d6ca; }
 
       /* ── 첫 진입 커스터마이징 ─────────────────────────────────────────── */
       /* 팔찌 번호 입력 — 커스터마이징 화면과 같은 껍데기를 쓴다 */
@@ -204,9 +313,77 @@
       <div id="guide-bar"></div>
     </div>
 
+    <!-- 우하단 조작 버튼.
+         아이콘은 이모지가 아니라 **10×10 도트 그림**이다 — 이모지는 폰마다 그림이
+         달라지고(같은 버튼이 기기마다 다른 그림), 안티에일리어싱된 벡터라 도트 화면에서
+         혼자 매끈하다. rect 로 찍으면 도면·캐릭터와 같은 격자에 놓인다. -->
     <div id="ctrls">
-      <button id="overview-btn" type="button">🗺 전체 보기</button>
+      <!-- 남/여 고르기 — 화장실 버튼을 누르면 이 위로 펼쳐진다.
+           #ctrls 가 아래를 기준으로 서 있어서 이게 열려도 버튼들은 제자리에 있다 -->
+      <div id="toilet-pick">
+        <div class="ttl">어느 화장실로 안내할까요?</div>
+        <div class="row">
+          <button class="dotbtn sm" type="button" data-gender="male">남</button>
+          <button class="dotbtn sm" type="button" data-gender="female">여</button>
+        </div>
+      </div>
+
+      <!-- 화장실 — 직원 손을 탈 이유가 없는 유일한 안내라 환자가 직접 켠다 -->
+      <button id="toilet-btn" class="dotbtn" type="button">
+        <span class="ico" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 10 10" fill="currentColor">
+            <!-- 옆에서 본 변기: 물탱크 → 변기 테두리 → 몸통 → 받침 -->
+            <rect x="1" y="0" width="3" height="3" />
+            <rect x="1" y="3" width="8" height="2" />
+            <rect x="2" y="5" width="6" height="2" />
+            <rect x="4" y="7" width="3" height="2" />
+            <rect x="2" y="9" width="6" height="1" />
+          </svg>
+        </span>
+        <span class="lbl">화장실</span>
+      </button>
+
+      <!-- 통역 호출 — 아직 서버에 안 붙었다 (액팅보드 구현지시서 5: POST /itp-request) -->
+      <button id="itp-btn" class="dotbtn" type="button">
+        <span class="ico" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 10 10" fill="currentColor">
+            <!-- 말풍선 둘 — 두 사람이 주고받는 말 = 통역 -->
+            <rect class="dim" x="4" y="0" width="6" height="4" />
+            <rect class="dim" x="8" y="4" width="1" height="1" />
+            <rect x="0" y="5" width="6" height="4" />
+            <rect x="1" y="9" width="1" height="1" />
+          </svg>
+        </span>
+        <span class="lbl">통역 호출</span>
+      </button>
+
+      <button id="overview-btn" class="dotbtn" type="button">
+        <span class="ico ico-map" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 10 10" fill="currentColor">
+            <!-- 접힌 지도: 네 변 + 접힌 선 둘 -->
+            <rect x="0" y="2" width="10" height="1" />
+            <rect x="0" y="7" width="10" height="1" />
+            <rect x="0" y="3" width="1" height="4" />
+            <rect x="9" y="3" width="1" height="4" />
+            <rect x="3" y="3" width="1" height="4" />
+            <rect x="6" y="3" width="1" height="4" />
+          </svg>
+        </span>
+        <span class="ico ico-pin" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 10 10" fill="currentColor">
+            <!-- 위치 핀 -->
+            <rect x="3" y="0" width="4" height="1" />
+            <rect x="2" y="1" width="6" height="4" />
+            <rect x="3" y="5" width="4" height="1" />
+            <rect x="4" y="6" width="2" height="3" />
+          </svg>
+        </span>
+        <span class="lbl">전체 보기</span>
+      </button>
     </div>
+
+    <!-- 통역 호출 결과 알림 -->
+    <div id="itp-toast"></div>
 
     <!-- 화면이 비어 보일 때 원인을 알 수 있게 오류를 그대로 표시 -->
     <div id="fatal"></div>
