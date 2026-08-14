@@ -1,0 +1,1423 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>액팅 보드 — 프로토타입</title>
+<style>
+  :root {
+    color-scheme: light;
+    /* ── 시그니처 팔레트: #dfeaa0(라임) · #133c36(딥틸) · #414141(그레이) · #eeeeee(라이트) ── */
+    --page: #eeeeee;          /* 바탕 */
+    --surface: #ffffff;
+    --ink: #414141;           /* 본문 — 브랜드 그레이 */
+    --ink-2: #636663;
+    --ink-3: #8f938f;
+    --line: #dcdcda;
+    --border: rgba(19,60,54,0.14);
+    --blue: #133c36;          /* 주 액센트 — 브랜드 딥틸 (변수명은 호환 유지) */
+    --blue-bg: #e6efec;
+    --lime: #dfeaa0;          /* 브랜드 포인트 */
+    --lime-deep: #b9cc66;
+    --good: #0ca30c;          /* 의미색은 브랜드와 분리 유지 (완료·양호) */
+    --good-bg: #eaf6ea;
+    --warn: #b97900;
+    --warn-raw: #fab219;
+    --warn-bg: #fdf3dc;
+    --crit: #d03b3b;
+    --crit-bg: #fbe9e9;
+    --violet: #2e6157;        /* 통역 — 틸 계열 중간톤 */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page); color: var(--ink); font-size: 13px;
+    height: 100vh; overflow: hidden;   /* 한 화면 설계 — 페이지 스크롤 없음 */
+  }
+
+  /* ── 헤더 ─────────────────────────── */
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 7px 14px; background: var(--blue);          /* 딥틸 헤더 — 시그니처 */
+    border-bottom: 3px solid var(--lime);
+    position: relative; z-index: 20; height: 46px;
+  }
+  header h1 { font-size: 15px; font-weight: 700; white-space: nowrap; color: #ffffff; }
+  header h1 small { font-weight: 400; color: #b8c9c2; font-size: 12px; margin-left: 6px; }
+  .tabs { display: flex; gap: 4px; background: rgba(255,255,255,.09); padding: 3px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); }
+  .tabs button {
+    border: 0; background: transparent; padding: 6px 14px; border-radius: 6px;
+    font-size: 13px; cursor: pointer; color: #cfd8d2; font-family: inherit;
+  }
+  .tabs button.on { background: var(--lime); color: var(--blue); font-weight: 700; }
+  .spacer { flex: 1; }
+  #clock { font-variant-numeric: tabular-nums; color: #cfd8d2; font-size: 13px; }
+  .demo-badge {
+    background: var(--lime); border: 1px solid var(--lime-deep); color: var(--blue);
+    font-size: 12px; padding: 4px 10px; border-radius: 6px; font-weight: 700;
+  }
+
+  /* ── 레이아웃 — 3컬럼 고정: 환자(좌) | 방 그리드(중) | 의료진(우), 컬럼별 내부 스크롤만 ── */
+  main {
+    display: flex; gap: 10px; padding: 8px 14px 0; margin: 0 auto;
+    max-width: 1600px; height: calc(100vh - 46px); box-sizing: border-box;
+  }
+  #right { width: 330px; flex-shrink: 0; overflow-y: auto; padding-bottom: 10px; }   /* 환자 대시보드 (좌) */
+  #left { flex: 1; min-width: 0; overflow-y: auto; padding-bottom: 10px; }           /* 방 그리드 (중) */
+  #staff-col { width: 212px; flex-shrink: 0; overflow-y: auto; padding-bottom: 10px; } /* 의료진 (우) */
+
+  /* ── 의료진 줄 (팀장) ──────────────── */
+  .strip-title { font-size: 11px; font-weight: 700; color: var(--ink-3); margin-bottom: 4px; letter-spacing: .02em; }
+  .staff-cards { display: flex; flex-direction: column; gap: 6px; }
+  .staff-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px;
+  }
+  .staff-card .nm { font-weight: 700; font-size: 13px; }
+  .staff-card .nm .role { font-weight: 400; color: var(--ink-3); font-size: 11px; margin-left: 4px; }
+  .staff-card .loc { color: var(--ink-2); font-size: 12px; margin-top: 2px; }
+  .staff-card .st { font-size: 11px; margin-top: 3px; font-weight: 700; }
+  .staff-card.busy .st { color: var(--blue); }
+  .staff-card.free { border-color: var(--lime-deep); background: var(--lime); }
+  .staff-card.free .st { color: var(--blue); }
+  .staff-card.free .loc { color: var(--blue); opacity: .75; }
+  body[data-view="leader"] .staff-card { cursor: grab; }
+  .staff-card.dragging { opacity: .45; }
+  .staff-card.called { border-color: var(--blue); background: var(--blue-bg); }
+  .staff-card.called .st { color: var(--blue); }
+  .callb {
+    display: inline-block; margin-top: 5px; font-size: 11px; font-weight: 700;
+    color: var(--blue); background: var(--blue-bg); border: 1px solid var(--blue);
+    border-radius: 10px; padding: 1px 8px;
+  }
+
+  /* ── 알림 (우측 상단 탭 + 우측 하단 팝업) ── */
+  .alert {
+    display: flex; align-items: flex-start; gap: 8px;
+    border-radius: 8px; padding: 8px 11px; font-size: 12.5px; border: 1px solid;
+    flex-direction: column;
+  }
+  .alert .row1 { display: flex; align-items: center; gap: 8px; }
+  .alert.warn { background: var(--warn-bg); border-color: var(--warn-raw); }
+  .alert.crit { background: var(--crit-bg); border-color: var(--crit); }
+  .alert .ic { font-size: 14px; }
+  .alert b { font-weight: 700; }
+  .alert .hint { color: var(--ink-2); font-size: 11.5px; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .room.idlealert .state-ic { animation: blink 1.1s step-start infinite; }
+
+  .bell {
+    position: relative; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.09);
+    border-radius: 8px; padding: 5px 10px; cursor: pointer; font-family: inherit;
+    font-size: 14px; display: flex; align-items: center; gap: 5px; color: #fff;
+  }
+  .bell .bcount {
+    background: rgba(255,255,255,.25); color: #fff; border-radius: 10px;
+    padding: 0 6px; font-size: 11px; font-weight: 700; min-width: 12px; text-align: center;
+  }
+  @keyframes bellred {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(208,59,59,.55); }
+    55% { box-shadow: 0 0 0 7px rgba(208,59,59,0); }
+  }
+  .bell.hot { border-color: #ff8f8f; color: #ffb1b1; background: rgba(208,59,59,.35); animation: bellred 1.1s infinite; }
+  .bell.hot .bcount { background: var(--crit); animation: blink 1.1s step-start infinite; }
+
+  #alert-pop {
+    display: none; position: fixed; top: 50px; right: 14px; z-index: 45;
+    width: 400px; max-height: 62vh; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.18); padding: 10px;
+  }
+  #alert-pop.on { display: block; }
+  #alert-pop .ap-h { font-size: 12px; font-weight: 700; color: var(--ink-2); margin: 2px 4px 8px; }
+  #alert-pop .alert { margin-bottom: 6px; }
+  #alert-pop .empty { color: var(--ink-3); font-size: 12px; padding: 8px 4px; }
+
+  /* 카톡식 신규 알림 팝업 — 우측 하단에서 슬라이드 인 */
+  #notifs {
+    position: fixed; right: 14px; bottom: 14px; z-index: 55;
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  }
+  @keyframes slidein { from { transform: translateX(120%); opacity: .3; } to { transform: none; opacity: 1; } }
+  .notif {
+    width: 330px; background: var(--surface); border: 1px solid var(--line);
+    border-left: 4px solid var(--crit); border-radius: 10px;
+    box-shadow: 0 6px 22px rgba(0,0,0,.22); padding: 9px 12px;
+    animation: slidein .28s ease; cursor: pointer;
+    transition: opacity .3s, transform .3s;
+  }
+  .notif.warn { border-left-color: var(--warn-raw); }
+  .notif.out { opacity: 0; transform: translateX(30%); }
+  .notif .nt { font-size: 12.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .notif .nb { font-size: 12px; color: var(--ink-2); margin-top: 3px; line-height: 1.45; }
+
+  /* 배정 승인 요청 — 중요 알림이므로 화면 정중앙에 고정, 응답 전까지 유지 */
+  #apprs {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 58; display: flex; flex-direction: column; gap: 10px; align-items: center;
+  }
+  @keyframes poppin { from { transform: scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+  .appr {
+    width: 400px; background: var(--surface); border: 2px solid var(--warn-raw);
+    border-left: 6px solid var(--warn-raw); border-radius: 12px;
+    box-shadow: 0 14px 50px rgba(0,0,0,.4); padding: 14px 16px; animation: poppin .22s ease;
+  }
+  .appr .nt { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; color: var(--warn); }
+  .appr .nb { font-size: 13.5px; color: var(--ink); margin-top: 6px; line-height: 1.55; }
+  .appr .acts { display: flex; gap: 8px; margin-top: 12px; }
+  .appr .acts button { flex: 1; border-radius: 8px; padding: 10px 0; font-size: 13.5px; font-weight: 700; cursor: pointer; font-family: inherit; border: 1px solid var(--line); background: var(--surface); }
+  .appr .acts .ok { background: var(--good); border-color: var(--good); color: #fff; }
+  .appr .acts .no { color: var(--crit); border-color: var(--crit); }
+  .appr.itp { border-color: var(--violet); border-left-color: var(--violet); }
+  .appr.itp .nt { color: var(--violet); }
+
+  /* ── 방 카드 그리드 (압축) ─────────── */
+  .sec { margin-bottom: 8px; border-radius: 8px; }
+  .sec.dragging { opacity: .45; }
+  .sec.sec-dropover { outline: 2px dashed var(--blue); outline-offset: 3px; }
+  .sec-h { display: flex; align-items: baseline; gap: 7px; margin-bottom: 4px; cursor: grab; }
+  .sec-h .t { font-size: 12px; font-weight: 700; }
+  .sec-h .c { font-size: 10.5px; color: var(--ink-3); }
+  .sec-grip { color: var(--ink-3); font-size: 10px; opacity: .45; }
+  .sec-h:hover .sec-grip { opacity: 1; }
+  .rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  .room {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+    padding: 5px 9px; position: relative; min-height: 54px;
+    transition: box-shadow .15s, border-color .15s;
+  }
+  .room .rn { font-size: 11px; font-weight: 700; color: var(--ink-2); }
+  .room .state { margin-top: 3px; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+  .room .state b { font-weight: 700; }
+  .room .sub { font-size: 10.5px; color: var(--ink-2); margin-top: 2px; line-height: 1.4; }
+  .room .timer { font-variant-numeric: tabular-nums; }
+
+  .room.empty { border-left: 4px solid var(--lime-deep); }
+  .room.empty .state { color: var(--blue); font-weight: 700; }
+  .room.ready { border-left: 4px solid var(--good); background: var(--good-bg); }
+  .room.ready .state { color: var(--good); }
+  .room.occupied { border-left: 4px solid var(--blue); }
+  .room.inprogress { border-left: 4px solid var(--blue); background: var(--blue-bg); }
+  .room.inprogress .state { color: var(--blue); }
+  .room.assigned { border-left: 4px solid var(--blue); border-style: dashed; }
+  .room.assigned .state { color: var(--blue); }
+  .room.approval { border-left: 4px solid var(--warn-raw); border-style: dashed; background: var(--warn-bg); }
+  .room.approval .state { color: var(--warn); }
+  .room.idlealert { border-left: 4px solid var(--warn-raw); background: var(--warn-bg); }
+  .room.idlealert .state { color: var(--warn); }
+  .room.overtime { border-left: 4px solid var(--crit); background: var(--crit-bg); }
+  .room.overtime .state { color: var(--crit); }
+
+  .ckpt {
+    display: inline-block; margin-top: 5px; font-size: 11px; font-weight: 700;
+    color: var(--good); background: var(--good-bg); border: 1px solid var(--good);
+    border-radius: 10px; padding: 1px 8px;
+  }
+  .ckpt.final { background: var(--good); color: #fff; }
+  .ckpt-btn {
+    display: block; margin-top: 7px; width: 100%;
+    border: 1px solid var(--good); background: var(--surface); color: var(--good);
+    border-radius: 6px; padding: 5px 0; font-size: 12.5px; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .ckpt-btn:hover { background: var(--good-bg); }
+  body[data-view="care"] #plan-save { display: none; }   /* 피부·시술 스테이션은 플랜 수정 없음 */
+  .room .go {
+    display: none; margin-top: 7px; width: 100%;
+    border: 1px solid var(--blue); background: var(--blue); color: #fff;
+    border-radius: 6px; padding: 5px 0; font-size: 12.5px; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .room.target { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-bg), 0 2px 8px rgba(42,120,214,.25); }
+  .room.target .go { display: block; }
+  body[data-view="info"] .room .go, body[data-view="care"] .room .go { display: none !important; }
+
+  /* ── 환자 줄 ──────────────────────── */
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
+  .panel-h {
+    display: flex; align-items: center; gap: 8px; padding: 6px 11px;
+    border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 700;
+  }
+  .panel-h .n { margin-left: auto; background: var(--page); border: 1px solid var(--line); border-radius: 10px; padding: 0 7px; font-size: 10.5px; color: var(--ink-2); }
+  .prow { padding: 6px 11px; border-bottom: 1px solid var(--line); cursor: pointer; transition: background .12s; }
+  .prow:last-child { border-bottom: 0; }
+  .prow:hover { background: var(--page); }
+  .prow.sel { background: var(--blue-bg); box-shadow: inset 3px 0 0 var(--blue); }
+  body[data-view="info"] .prow, body[data-view="care"] .prow { cursor: default; }
+  .prow .l1 { display: flex; align-items: center; gap: 7px; }
+  .prow .nm { font-weight: 700; font-size: 13.5px; cursor: pointer; border-bottom: 1px dashed var(--ink-3); }
+  .prow .nm:hover { color: var(--blue); border-bottom-color: var(--blue); }
+  .prow.draggable { cursor: grab; }
+  .prow.dragging { opacity: .45; }
+  .room.dropover { box-shadow: 0 0 0 3px var(--blue); }
+  .plan-snip { color: var(--ink-3); font-size: 11.5px; }
+  .occ-link { cursor: pointer; border-bottom: 1px dashed var(--ink-3); }
+  .occ-link:hover { color: var(--blue); }
+  .alerts-more {
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+    border-radius: 8px; padding: 5px 12px; font-size: 12px; cursor: pointer;
+    font-family: inherit; align-self: flex-start;
+  }
+  .prow .lang { font-size: 11px; background: var(--violet); color: #fff; border-radius: 4px; padding: 1px 6px; font-weight: 700; }
+  .prow .wait { margin-left: auto; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .prow .wait.long { color: var(--crit); font-weight: 700; }
+  .prow .l2 { margin-top: 5px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+  .chip {
+    font-size: 10.5px; border-radius: 4px; padding: 2px 6px;
+    background: var(--page); border: 1px solid var(--line); color: var(--ink-3);
+  }
+  .chip.done { text-decoration: line-through; opacity: .55; }
+  .chip.cur { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  .chip.next { border-color: var(--blue); color: var(--blue); font-weight: 700; }
+  .arrowc { color: var(--ink-3); font-size: 10px; }
+  .prow .l3 { margin-top: 5px; font-size: 12px; color: var(--ink-2); }
+  .prow .l3 .sugg { color: var(--blue); font-weight: 700; }
+  .prow .l3 .warn-t { color: var(--warn); font-weight: 700; }
+  .course-edit {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 4px;
+    font-size: 10.5px; color: var(--ink-3); cursor: pointer; padding: 2px 6px; font-family: inherit;
+  }
+  body[data-view="info"] .course-edit, body[data-view="care"] .course-edit { display: none; }
+
+  /* ── 안내/토스트/모달 ─────────────── */
+  #hint-bar {
+    display: none; position: fixed; top: 52px; left: 50%; transform: translateX(-50%);
+    z-index: 30; width: min(860px, calc(100vw - 40px));
+  }
+  #hint-bar.on { display: block; }
+  #hint-bar > div {
+    background: var(--blue); color: #fff; border-radius: 8px; padding: 8px 14px;
+    font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 3px 10px rgba(42,120,214,.35);
+  }
+  #hint-bar button { margin-left: auto; border: 1px solid rgba(255,255,255,.6); background: transparent; color: #fff; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-family: inherit; font-size: 12px; }
+
+  #toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .toast {
+    background: var(--ink); color: #fff; border-radius: 8px; padding: 9px 16px;
+    font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.25); opacity: 0; transition: opacity .25s;
+  }
+  .toast.show { opacity: 1; }
+
+  #modal-bg, #plan-bg, #confirm-bg, #reg-bg, #pin-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 70; align-items: center; justify-content: center; }
+  #modal-bg.on, #plan-bg.on, #confirm-bg.on, #reg-bg.on, #pin-bg.on { display: flex; }
+  #pin-modal { background: var(--surface); border-radius: 12px; padding: 20px 22px; width: 300px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  #pin-modal h3 { font-size: 15px; margin-bottom: 4px; }
+  #pin-modal .who { font-size: 12px; color: var(--ink-2); margin-bottom: 12px; line-height: 1.5; }
+  #pin-modal input {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+    font-family: inherit; font-size: 20px; text-align: center; letter-spacing: 8px;
+    background: var(--page); color: var(--ink); box-sizing: border-box; font-variant-numeric: tabular-nums;
+  }
+  #pin-modal .err { color: var(--crit); font-size: 11.5px; margin-top: 6px; min-height: 15px; }
+  #pin-modal .acts { display: flex; gap: 8px; margin-top: 12px; }
+  #pin-modal .acts button { flex: 1; border-radius: 8px; padding: 9px 0; font-size: 13px; cursor: pointer; font-family: inherit; border: 1px solid var(--line); background: var(--surface); }
+  #pin-modal .acts .ok { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  #pin-modal .note { font-size: 11px; color: var(--ink-3); margin-top: 10px; line-height: 1.5; }
+  .pin-btn {
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+    border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; font-family: inherit; margin-left: 6px;
+  }
+  .auth-line { margin-left: auto; white-space: nowrap; }
+  .auth-line b { color: var(--blue); }
+  #confirm-modal { background: var(--surface); border-radius: 12px; padding: 20px 22px; width: 320px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  #confirm-modal h3 { font-size: 14.5px; margin-bottom: 6px; line-height: 1.5; }
+  #confirm-modal .sub { font-size: 12px; color: var(--ink-2); margin-bottom: 14px; }
+  #confirm-modal .acts { display: flex; gap: 8px; }
+  #confirm-modal .acts button { flex: 1; border-radius: 8px; padding: 9px 0; font-size: 13px; cursor: pointer; font-family: inherit; border: 1px solid var(--line); background: var(--surface); }
+  #confirm-modal .acts .ok { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  #plan-modal { background: var(--surface); border-radius: 12px; padding: 20px 22px; width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  #plan-modal h3 { font-size: 15px; margin-bottom: 4px; }
+  #plan-modal .who { font-size: 12px; color: var(--ink-2); margin-bottom: 12px; }
+  #plan-modal .gl { font-size: 12px; font-weight: 700; color: var(--ink-2); margin-bottom: 5px; }
+  #plan-modal textarea {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+    font-family: inherit; font-size: 13px; resize: vertical; background: var(--page); color: var(--ink);
+  }
+  #plan-modal .meta { font-size: 11px; color: var(--ink-3); margin-top: 6px; line-height: 1.5; }
+  #plan-modal .acts { display: flex; gap: 8px; margin-top: 16px; }
+  #plan-modal .acts button { flex: 1; border-radius: 8px; padding: 9px 0; font-size: 13px; cursor: pointer; font-family: inherit; border: 1px solid var(--line); background: var(--surface); }
+  #plan-modal .acts .ok { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  /* 스테이션에서도 플랜 저장 가능 — 상담팀 권한 (쓰기 예외 ①) */
+  .reg-btn {
+    border: 1px solid var(--blue); background: var(--blue); color: #fff;
+    border-radius: 6px; padding: 3px 10px; font-size: 11.5px; font-weight: 700;
+    cursor: pointer; font-family: inherit; margin-left: 8px;
+  }
+  body:not([data-view="info"]) .reg-btn { display: none; }   /* 환자 등록은 인포·상담 스테이션만 */
+  #reg-modal { background: var(--surface); border-radius: 12px; padding: 20px 22px; width: 340px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  #reg-modal h3 { font-size: 15px; margin-bottom: 4px; }
+  #reg-modal .who { font-size: 12px; color: var(--ink-2); margin-bottom: 12px; }
+  #reg-modal .gl { font-size: 12px; font-weight: 700; color: var(--ink-2); margin: 10px 0 5px; }
+  #reg-modal input[type=text], #reg-modal textarea, #reg-modal select {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+    font-family: inherit; font-size: 13px; background: var(--page); color: var(--ink); box-sizing: border-box;
+  }
+  #reg-modal .acts { display: flex; gap: 8px; margin-top: 16px; }
+  #reg-modal .acts button { flex: 1; border-radius: 8px; padding: 9px 0; font-size: 13px; cursor: pointer; font-family: inherit; border: 1px solid var(--line); background: var(--surface); }
+  #reg-modal .acts .ok { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  #reg-modal .note { font-size: 11px; color: var(--ink-3); margin-top: 10px; line-height: 1.5; }
+  #modal { background: var(--surface); border-radius: 12px; padding: 20px 22px; width: 340px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  #modal h3 { font-size: 15px; margin-bottom: 4px; }
+  #modal .who { font-size: 12px; color: var(--ink-2); margin-bottom: 14px; }
+  #modal .grp { margin-bottom: 12px; }
+  #modal .grp .gl { font-size: 12px; font-weight: 700; color: var(--ink-2); margin-bottom: 5px; }
+  #modal .opts { display: flex; gap: 6px; }
+  #modal .opts button {
+    flex: 1; border: 1px solid var(--line); background: var(--page); border-radius: 8px;
+    padding: 9px 0; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  #modal .opts button.on { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  #modal .acts { display: flex; gap: 8px; margin-top: 16px; }
+  #modal .acts button { flex: 1; border-radius: 8px; padding: 9px 0; font-size: 13px; cursor: pointer; font-family: inherit; border: 1px solid var(--line); background: var(--surface); }
+  #modal .acts .ok { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  #modal .note { font-size: 11px; color: var(--ink-3); margin-top: 10px; line-height: 1.5; }
+
+  footer {
+    max-width: 1500px; margin: 6px auto 20px; padding: 0 18px;
+    font-size: 11.5px; color: var(--ink-3); line-height: 1.6;
+  }
+  .ro-note { display: none; margin: 0 18px 10px; max-width: 1500px; }
+  body[data-view="info"] .ro-note, body[data-view="care"] .ro-note {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--page); border: 1px dashed var(--ink-3);
+    border-radius: 8px; padding: 7px 12px; font-size: 12px; color: var(--ink-2);
+  }
+</style>
+</head>
+<body data-view="leader">
+
+<header>
+  <h1>액팅 보드 <small>프로토타입 · 강남 고트의원 6F</small></h1>
+  <div class="tabs">
+    <button data-v="leader" class="on">팀장 뷰</button>
+    <button data-v="member">팀원 뷰</button>
+    <button data-v="info">인포·상담 스테이션</button>
+    <button data-v="care">피부·시술 스테이션</button>
+  </div>
+  <div class="spacer"></div>
+  <span id="clock"></span>
+  <button id="bell" class="bell" onclick="toggleAlertPop()" title="알림">🔔 <span class="bcount" id="bcount">0</span></button>
+  <span class="demo-badge">⚠ 시연용 가상 데이터 · 5초 = 1분</span>
+</header>
+
+<div id="alert-pop">
+  <div class="ap-h">알림</div>
+  <div id="alert-pop-list"></div>
+</div>
+<div id="notifs"></div>
+
+<div id="hint-bar"><div><span id="hint-txt"></span><button onclick="clearSel()">선택 해제</button></div></div>
+<div class="ro-note"><span id="ro-note-txt"></span>
+<span class="auth-line">권한: <b id="auth-name">미인증</b><button class="pin-btn" onclick="pinCb=null;openPin()">PIN 입력/전환</button></span></div>
+
+<div id="pin-bg">
+  <div id="pin-modal">
+    <h3>권한 인증</h3>
+    <div class="who">본인 <b>직원 비콘 고유번호 뒷 4자리</b>를 입력해 주세요.<br>이후 조작이 이 이름으로 기록됩니다.</div>
+    <input id="pin-in" inputmode="numeric" maxlength="4" placeholder="○○○○" onkeydown="if(event.key==='Enter')submitPin()">
+    <div class="err" id="pin-err"></div>
+    <div class="acts">
+      <button onclick="closePin()">취소</button>
+      <button class="ok" onclick="submitPin()">확인</button>
+    </div>
+    <div class="note">등록된 직원 비콘과 대조합니다. 비콘 등록·관리 페이지는 추후 신설 예정.<br>시연용 PIN: <b>2001</b>(인포) · <b>2002</b>(상담) · <b>3001</b>(피부팀) · <b>3002</b>(시술팀)</div>
+  </div>
+</div>
+
+<main>
+  <div id="right">
+    <div class="panel">
+      <div class="panel-h">🕐 대기 중 <button class="reg-btn" onclick="openReg()">➕ 환자 등록 (인포)</button> <span class="n" id="n-wait"></span></div>
+      <div id="list-wait"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h">🧭 이동 중 <span class="n" id="n-move"></span></div>
+      <div id="list-move"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h">▶ 진행 중 <span class="n" id="n-prog"></span></div>
+      <div id="list-prog"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h">❓ 위치 미상 <span class="n" id="n-lost"></span></div>
+      <div id="list-lost"></div>
+    </div>
+  </div>
+
+  <div id="left">
+    <div id="rooms-wrap"></div>
+  </div>
+
+  <div id="staff-col">
+    <div class="strip-title">의료진 · 실시간 (배정은 팀장만)</div>
+    <div class="staff-cards" id="staff-cards"></div>
+  </div>
+</main>
+
+<div id="apprs"></div>
+
+<footer>
+  화면 구성 시안 — 데이터는 전부 가상이며 실제 비콘 추적이 아닙니다. 방 상태(비어 있음/사용 중/진행 중/의료진 미입실/기준 초과)는
+  실제 구현 시 입력 없이 위치 추적에서 자동 도출됩니다. 상세 설계: <b>docs/액팅보드_설계.md</b> · 기준 시간은 임시값(상담 20 · 시술 40 · 수술 60 · 레이저 30 · 피부 50 · 회복 30분).
+</footer>
+
+<div id="toasts"></div>
+
+<div id="reg-bg">
+  <div id="reg-modal">
+    <h3>환자 등록</h3>
+    <div class="who">인포팀 — 접수 시 팔찌 배정과 함께 기입합니다</div>
+    <div class="gl">환자 이름 *</div>
+    <input type="text" id="rg-name" placeholder="예: 김민서" maxlength="20">
+    <div class="gl">플랜 (시술 내용) *</div>
+    <textarea id="rg-plan" rows="3" placeholder="예: 울쎄라 300샷 + 이마 보톡스 (베가스 예약 기준)"></textarea>
+    <div class="gl">언어 (선택)</div>
+    <select id="rg-lang">
+      <option value="">한국어 (기본)</option>
+      <option value="中文">中文 — 통역 필요</option>
+      <option value="EN">English — 통역 필요</option>
+    </select>
+    <div class="acts">
+      <button onclick="closeReg()">취소</button>
+      <button class="ok" onclick="submitReg()">등록</button>
+    </div>
+    <div class="note">등록 즉시 대기 줄에 올라가고 액팅 보드에 표시됩니다. 코스는 액팅팀이 배정 시 설정합니다. 상담 후 플랜 변경은 상담팀이 「상담 완료」 단계에서 업데이트합니다.</div>
+  </div>
+</div>
+
+<div id="confirm-bg">
+  <div id="confirm-modal">
+    <h3 id="cf-title"></h3>
+    <div class="sub" id="cf-sub"></div>
+    <div class="acts">
+      <button onclick="closeConfirm()">취소</button>
+      <button class="ok" onclick="confirmOk()">이동</button>
+    </div>
+  </div>
+</div>
+
+<div id="plan-bg">
+  <div id="plan-modal">
+    <h3 id="pl-name"></h3>
+    <div class="who" id="pl-state"></div>
+    <div class="gl">플랜 (시술 내용)</div>
+    <textarea id="pl-text" rows="3" placeholder="접수 시 인포팀이 기입 — 아직 미기입"></textarea>
+    <div class="meta">접수 때 <b>인포팀</b>이 기입하고, 상담 후 <b>상담팀</b>이 업데이트합니다. 액팅 보드에서는 배정 판단의 참조 정보로 표시됩니다.</div>
+    <div class="gl" style="margin-top:12px">코스</div>
+    <div id="pl-course"></div>
+    <div class="acts">
+      <button onclick="closePlan()">닫기</button>
+      <button class="ok" id="plan-save" onclick="savePlan()">저장 (플랜 업데이트)</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-bg">
+  <div id="modal">
+    <h3>코스 설정</h3>
+    <div class="who" id="m-who"></div>
+    <div class="grp">
+      <div class="gl">상담</div>
+      <div class="opts" id="m-consult">
+        <button data-val="yes">거침</button>
+        <button data-val="no">안 거침</button>
+      </div>
+    </div>
+    <div class="grp">
+      <div class="gl">피부관리 (전·후 택 1)</div>
+      <div class="opts" id="m-skin">
+        <button data-val="none">없음</button>
+        <button data-val="pre">전관리</button>
+        <button data-val="post">후관리</button>
+      </div>
+    </div>
+    <div class="acts">
+      <button onclick="closeModal()">취소</button>
+      <button class="ok" onclick="applyCourse()">적용</button>
+    </div>
+    <div class="note">탭 한 번으로 방문 코스가 정해집니다. 시술명은 입력하지 않습니다 — 어느 방으로 갈지는 차트를 아는 액팅이 방 선택으로 결정합니다.</div>
+  </div>
+</div>
+
+<script>
+/* ═══════════ 데이터 (가상) ═══════════ */
+const SECTIONS = [
+  { key: '상담',   label: '상담',   stages: ['상담'] },
+  { key: '시술',   label: '시술실', stages: ['시술'] },
+  { key: '수술',   label: '수술실', stages: ['시술'] },
+  { key: '레이저', label: '레이저', stages: ['시술'] },
+  { key: '피부관리', label: '피부관리', stages: ['피부(전)', '피부(후)', '피부관리'] },
+  { key: '회복',   label: '회복 (관찰 자동)', stages: [] },
+];
+const STD = { '상담': 20, '시술': 40, '수술': 60, '레이저': 30, '피부관리': 50, '회복': 30 };
+
+/* 시술별 예상시간 사전 — ⚠ 시연용 임시값. 현장 정리 표를 받으면 이 배열만 교체
+   플랜 자유 텍스트에서 키워드 매칭 → 합산. 매칭 실패 시 방 종류 기본값 폴백 */
+const PROC_TIMES = [
+  { k: '울쎄라',   alias: ['울세라','ulthera'], min: 40 },
+  { k: '보톡스',   alias: ['botox'],           min: 10 },
+  { k: '실리프팅', alias: ['실 리프팅'],        min: 60 },
+  { k: '슈링크',   alias: ['shrink'],          min: 40 },
+  { k: '리쥬란',   alias: [],                  min: 20 },
+  { k: '포텐자',   alias: [],                  min: 30 },
+  { k: '아쿠아필', alias: [],                  min: 30 },
+  { k: '진정관리', alias: [],                  min: 20 },
+  { k: '재생관리', alias: [],                  min: 20 },
+  { k: '제모',     alias: [],                  min: 15 },
+  { k: '피코토닝', alias: ['토닝'],             min: 20 },
+  { k: '지방이식', alias: [],                  min: 60 },
+  { k: '지방재배치', alias: [],                min: 60 },
+  { k: '인모드',   alias: ['inmode'],          min: 30 },
+];
+function planMinutes(plan){
+  if (!plan) return null;
+  const pz = plan.replace(/\s+/g,'').toLowerCase();
+  let sum = 0, hit = false;
+  PROC_TIMES.forEach(e => {
+    const keys = [e.k, ...(e.alias||[])];
+    if (keys.some(k => pz.includes(k.replace(/\s+/g,'').toLowerCase()))) { sum += e.min; hit = true; }
+  });
+  return hit ? sum : null;
+}
+/* 방의 기준 시간 — 시술 계열은 재실 환자의 플랜에서 도출, 아니면 방 종류 기본값 */
+function stdFor(rm){
+  if (rm.occ && ['시술','수술','레이저','피부관리'].includes(rm.sec)) {
+    const t = patients.find(x=>x.name===rm.occ);
+    const pm = t ? planMinutes(t.plan) : null;
+    if (pm) return pm;
+  }
+  return STD[rm.sec];
+}
+
+const rooms = [
+  r('consult_1','상담실 1','상담', null, 5), r('consult_2','상담실 2','상담','오유진',12),
+  r('consult_3','상담실 3','상담', null,32), r('consult_4','상담실 4','상담','문가영',17,[],[{label:'상담 완료',age:2}]),
+  r('consult_5','상담실 5','상담', null,11), r('consult_6','상담실 6','상담', null, 2),
+  r('proc_1','시술실 1','시술','배도윤',22,['이간호사'],[{label:'마취 완료',age:12}]), r('proc_2','시술실 2','시술', null, 3),
+  r('proc_3','시술실 3','시술', null, 6),
+  r('surg_1','수술실 1','수술','한지민',72,['김원장','정간호사']), r('surg_2','수술실 2','수술', null,41),
+  r('surg_3','수술실 3','수술', null,12),
+  r('laser_1','레이저실 1','레이저','정하윤',7,[]), r('laser_2','레이저실 2','레이저', null, 8),
+  r('skin_1','피부관리실','피부관리','강서준',35,['피부팀']), r('skin_p','피부관리 준비실','피부관리', null,15),
+  r('vip_s1','VIP 피부 1','피부관리', null,28), r('vip_s2','VIP 피부 2','피부관리','백혜린',28,['피부팀']),
+  r('rec_1','회복실 1','회복','윤도현',22,['최간호사']), r('rec_2','회복실 2','회복', null,19),
+  r('vip_r','VIP 회복실','회복', null,55),
+];
+function r(id,name,sec,occ,min,staff,cks){ return { id, name, sec, occ, min, staff: staff||[], assignedTo: null, cks: cks||[] }; }
+
+/* 방 종류별 행동 체크포인트 — 스테이션에서 완료 확인, 팀장 보드에 배지로 표시 */
+const ACTIONS = {
+  '상담': ['상담 완료'],
+  '시술': ['마취 완료', '시술 완료'],
+  '수술': ['마취 완료', '수술 완료'],
+  '레이저': ['마취 완료', '시술 완료'],
+  '피부관리': ['관리 완료'],
+  '회복': ['회복 완료'],
+};
+function nextAction(rm){
+  const seq = ACTIONS[rm.sec] || [];
+  const done = new Set(rm.cks.map(c=>c.label));
+  return seq.find(a => !done.has(a)) || null;
+}
+/* ── 스테이션 권한 — 등록된 직원 비콘 핀번호(뒷 4자리)로 인증 ──
+   실제 구현: beacons 화이트리스트의 직원 비콘 MAC 뒷 4자리와 대조.
+   비콘 등록·관리 페이지는 추후 신설 (현재는 관제의 하드웨어 등록만 존재) */
+const STAFF_PINS = {
+  '1101':'김원장','1102':'박과장','1103':'이간호사','1104':'정간호사','1105':'최간호사','1106':'왕통역',
+  '2001':'인포팀 데스크','2002':'상담팀','3001':'피부팀','3002':'시술팀',
+};
+function isStation(){ const v = document.body.dataset.view; return v === 'info' || v === 'care'; }
+/* 의료진이 실제로 손이 묶여 있는가 — 환자 있는 방에 있어도 체크포인트가 전부 끝났으면(완료—이동 대기) 배정 가능 */
+function staffBusy(st){
+  const rm = rooms.find(r => r.name === st.loc && r.occ);
+  if (!rm) return false;
+  if ((ACTIONS[rm.sec]||[]).length && !nextAction(rm)) return false;   /* 시술·수술 완료됨 */
+  return true;
+}
+/* 방 섹션 → 담당 스테이션 (배정 승인·완료 버튼이 어느 화면에 뜨는가) */
+const SEC_STATION = { '상담':'info', '시술':'care', '수술':'care', '레이저':'care', '피부관리':'care', '회복':'care' };
+let stationAuth = null;
+let pinCb = null;
+function requireAuth(cb){
+  if (!isStation() || stationAuth) { cb(); return; }
+  pinCb = cb; openPin();
+}
+function openPin(){
+  document.getElementById('pin-err').textContent = '';
+  document.getElementById('pin-in').value = '';
+  document.getElementById('pin-bg').classList.add('on');
+  setTimeout(()=>document.getElementById('pin-in').focus(), 50);
+}
+function closePin(){ document.getElementById('pin-bg').classList.remove('on'); pinCb = null; }
+function submitPin(){
+  const v = document.getElementById('pin-in').value.trim();
+  const name = STAFF_PINS[v];
+  if (!name) { document.getElementById('pin-err').textContent = '등록되지 않은 번호입니다 — 비콘 뒷 4자리를 확인해 주세요'; return; }
+  stationAuth = { pin: v, name };
+  document.getElementById('auth-name').textContent = `${name} (…${v})`;
+  document.getElementById('pin-bg').classList.remove('on');
+  toast(`🔓 ${name} 인증됨 — 이후 조작이 이 이름으로 기록됩니다`);
+  const cb = pinCb; pinCb = null; if (cb) cb();
+}
+document.getElementById('pin-bg').addEventListener('click', e=>{ if (e.target.id==='pin-bg') closePin(); });
+function byLine(){ return stationAuth ? ` · 기록: ${stationAuth.name}` : ''; }
+
+function confirmAction(roomId){
+  if (isStation() && !stationAuth) { requireAuth(()=>confirmAction(roomId)); return; }
+  const rm = rooms.find(x=>x.id===roomId); if (!rm || !rm.occ) return;
+  const act = nextAction(rm); if (!act) return;
+  /* 상담 완료는 반드시 플랜 확인·업데이트 단계를 거친다 — 상담 결과가 플랜에 항상 반영되도록 */
+  if (act === '상담 완료') {
+    const t = patients.find(x=>x.name===rm.occ);
+    if (t) { openConsultPlan(t, rm); return; }
+  }
+  applyCheckpoint(rm, act);
+  render();
+}
+function applyCheckpoint(rm, act){
+  rm.cks.push({ label: act, age: 0 });
+  const final = !nextAction(rm);
+  toast(`✔ ${rm.name} — ${act}${final ? ' → 이동 대기로 전환' : ''}${byLine()}`);
+}
+
+/* 코스: consult yes/no × skin none/pre/post  (+변형: 관리 단독) */
+const patients = [
+  p('p1','김민서', {consult:'yes',skin:'pre'},  2, 'waiting', {loc:'대기공간 1', wait:24, plan:'울쎄라 300샷 + 이마 보톡스'}),
+  p('p2','왕리에',  {consult:'yes',skin:'none'}, 0, 'waiting', {loc:'대기공간 2', wait:18, lang:'中文', plan:'실리프팅 상담 예정 (통역 동행)'}),
+  p('p3','박지우', {consult:'no', skin:'pre'},  0, 'waiting', {loc:'복도 (시술실 앞)', wait:9, plan:'아쿠아필 + 진정관리'}),   /* 복도 대기도 대기 */
+  p('p4','최수아', {consult:'no', skin:'none'}, 0, 'waiting', {loc:'대기공간 3', wait:4, plan:'제모 레이저 (겨드랑이)'}),
+  p('p5','이서연', {consult:'yes',skin:'post'}, 1, 'moving',  {dest:'proc_3', destName:'시술실 3', elapsed:2, plan:'슈링크 유니버스 300샷 + 후관리'}),
+  p('p6','오유진', {consult:'yes',skin:'post'}, 0, 'inroom',  {room:'consult_2', plan:'리쥬란 (상담 중 — 상담팀이 확정 후 업데이트)'}),
+  p('p7','문가영', {consult:'yes',skin:'none'}, 0, 'inroom',  {room:'consult_4', plan:'눈밑 지방재배치 상담'}),
+  p('p8','배도윤', {consult:'no', skin:'post'}, 0, 'inroom',  {room:'proc_1', plan:'포텐자 + 재생관리'}),
+  p('p9','한지민', {consult:'yes',skin:'none'}, 1, 'inroom',  {room:'surg_1', plan:'지방이식 수술'}),
+  p('p10','정하윤',{consult:'no', skin:'none'}, 0, 'inroom',  {room:'laser_1', plan:'피코토닝 5회차'}),
+  p('p11','강서준',{consult:'no', skin:'post'}, 1, 'inroom',  {room:'skin_1', plan:'시술 후 진정관리 (후관리)'}),
+  p('p12','백혜린',{course:['피부관리'], idx:0}, 0, 'inroom', {room:'vip_s2', plan:'VIP 피부관리 단독'}),   /* 관리 단독 ~10% */
+  p('p13','윤도현',{consult:'yes',skin:'none'}, 1, 'inroom',  {room:'rec_1', recovery:true, plan:'실리프팅 — 회복 관찰 중'}),
+  p('p14','신애라',{consult:'no', skin:'pre'},  0, 'lost',    {last:'복도', ago:6, plan:'아쿠아필 (전관리)'}),
+];
+function courseOf(t){
+  if (t.course) return t.course.slice();
+  const c = [];
+  if (t.consult === 'yes') c.push('상담');
+  if (t.skin === 'pre') c.push('피부(전)');
+  c.push('시술');
+  if (t.skin === 'post') c.push('피부(후)');
+  return c;
+}
+function p(id,name,tmpl,idx,state,extra){
+  return Object.assign({ id, name, tmpl, stageIdx: (tmpl.idx!==undefined?tmpl.idx:idx), state }, extra);
+}
+
+const staff = [
+  { name:'김원장', role:'의사',   loc:'수술실 1',  min:72 },
+  { name:'박과장', role:'의사',   loc:'의국실',    min:9  },
+  { name:'이간호사', role:'간호사', loc:'시술실 1', min:22 },
+  { name:'정간호사', role:'간호사', loc:'수술실 1', min:40 },
+  { name:'최간호사', role:'간호사', loc:'회복실 1', min:22 },
+  { name:'왕통역', role:'통역',   loc:'대기공간 1', min:14 },
+];
+const ROOM_NAMES = new Set(rooms.map(x=>x.name));
+const IDLE_ALERT_MIN = 5;
+
+/* ═══════════ 상태 도출 ═══════════ */
+function roomState(rm){
+  if (rm.assignedTo) {
+    const t = patients.find(x=>x.id===rm.assignedTo);
+    return (t && t.state === 'pending') ? 'approval' : 'assigned';
+  }
+  if (!rm.occ) return 'empty';
+  if ((ACTIONS[rm.sec]||[]).length && !nextAction(rm)) return 'ready';  /* 마지막 체크포인트 완료 → 이동 대기 */
+  if (rm.min > stdFor(rm)) return 'overtime';
+  if (rm.staff.length === 0 && rm.min >= IDLE_ALERT_MIN && (rm.sec==='시술'||rm.sec==='수술'||rm.sec==='레이저')) return 'idlealert';
+  if (rm.staff.length > 0) return 'inprogress';
+  return 'occupied';
+}
+/* 팀장 영역 환자인가 — 시술 계열·회복 재실, 또는 다음 단계가 시술/후관리 */
+function leaderDomain(t){
+  if (t.state === 'inroom' && t.room) {
+    const rm = rooms.find(x=>x.id===t.room);
+    if (rm && ['시술','수술','레이저','회복'].includes(rm.sec)) return true;
+  }
+  const ns = nextStage(t);
+  return ns === '시술' || ns === '피부(후)';
+}
+
+/* 방의 마지막 체크포인트까지 끝난 환자 = 그 단계는 완료 → "이동 대기" */
+function isReady(t){
+  if (t.state !== 'inroom' || !t.room) return false;
+  const rm = rooms.find(x=>x.id===t.room);
+  return !!(rm && rm.occ === t.name && (ACTIONS[rm.sec]||[]).length && !nextAction(rm));
+}
+function effStage(t){ return t.stageIdx + (isReady(t) ? 1 : 0); }
+function nextStage(t){ const c = courseOf(t.tmpl); const i = effStage(t); return i < c.length ? c[i] : null; }
+function allowedSections(stage){
+  if (stage === '상담') return ['상담'];
+  if (stage === '시술') return ['시술','수술','레이저'];
+  if (stage && stage.startsWith('피부')) return ['피부관리'];
+  return [];
+}
+function emptyCount(stage){
+  const secs = allowedSections(stage);
+  return rooms.filter(rm => secs.includes(rm.sec) && roomState(rm)==='empty').length;
+}
+
+/* ═══════════ 렌더 ═══════════ */
+let selected = null;
+let othersOpen = false;   /* 대기 줄 '그 외 환자' 접힘 상태 */
+
+/* ── 알림 탭 + 카톡식 팝업 ── */
+const liveAlertKeys = new Set();   /* 지금 떠 있는 알림 */
+let unreadAlerts = 0;
+let alertPopOpen = false;
+function alertHtml(a){
+  return `<div class="alert ${a.cls}"><div class="row1"><span class="ic">${a.ic}</span><b>${a.title}</b></div>
+    <span class="hint">${a.body}</span></div>`;
+}
+function updateAlertsUI(alerts){
+  const keys = new Set(alerts.map(a=>a.key));
+  alerts.forEach(a => {
+    if (!liveAlertKeys.has(a.key)) {          /* 신규 발생 → 우측 하단 팝업 + 미확인 카운트 */
+      liveAlertKeys.add(a.key);
+      unreadAlerts++;
+      pushNotif(a);
+    }
+  });
+  [...liveAlertKeys].forEach(k => { if (!keys.has(k)) liveAlertKeys.delete(k); });  /* 해소된 알림 정리 */
+  const bell = document.getElementById('bell');
+  document.getElementById('bcount').textContent = alerts.length;
+  bell.classList.toggle('hot', unreadAlerts > 0 && !alertPopOpen);
+  document.getElementById('alert-pop-list').innerHTML =
+    alerts.map(alertHtml).join('') || '<div class="empty">현재 알림 없음</div>';
+}
+function toggleAlertPop(){
+  alertPopOpen = !alertPopOpen;
+  document.getElementById('alert-pop').classList.toggle('on', alertPopOpen);
+  if (alertPopOpen) { unreadAlerts = 0; document.getElementById('bell').classList.remove('hot'); }
+}
+function pushNotif(a){
+  const box = document.getElementById('notifs');
+  while (box.children.length >= 2) box.firstChild.remove();   /* 동시 2개까지 */
+  const el = document.createElement('div');
+  el.className = 'notif ' + a.cls;
+  el.innerHTML = `<div class="nt">${a.ic} ${a.title}</div><div class="nb">${a.body}</div>`;
+  el.onclick = () => { el.remove(); if (!alertPopOpen) toggleAlertPop(); };
+  box.appendChild(el);
+  setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>el.remove(), 320); }, 6500);
+}
+
+/* 모듈(섹션) 배치 — 뷰별 기본값 + 사용자 커스터마이징 (세션 유지, 실제 구현은 사용자별 서버 저장) */
+const SEC_DEFAULTS = {
+  leader:   ['시술','수술','레이저','피부관리','회복','상담'],   /* 팀장: 시술 구간이 주 */
+  member:   ['상담','피부관리','시술','수술','레이저','회복'],   /* 팀원: 상담 쪽이 주 */
+  info: ['상담','피부관리','시술','수술','레이저','회복'],   /* 인포·상담: 상담이 주 */
+  care: ['시술','수술','레이저','피부관리','회복','상담'],   /* 피부·시술: 시술 계열이 주 */
+};
+const secCustom = {};
+function currentOrder(view){ return secCustom[view] || SEC_DEFAULTS[view] || SECTIONS.map(s=>s.key); }
+
+let dragSecKey = null;
+function secDragStart(ev, key){
+  dragSecKey = key;
+  ev.currentTarget.closest('.sec').classList.add('dragging');
+  try { ev.dataTransfer.setData('text/plain', 'sec:'+key); ev.dataTransfer.effectAllowed = 'move'; } catch(e){}
+}
+function secDragEnd(){
+  dragSecKey = null;
+  document.querySelectorAll('.sec.dragging, .sec.sec-dropover').forEach(el=>el.classList.remove('dragging','sec-dropover'));
+}
+function secDragOver(ev, key){
+  if (!dragSecKey || dragSecKey === key) return;
+  ev.preventDefault();
+  ev.currentTarget.classList.add('sec-dropover');
+}
+function secDragLeave(ev){ ev.currentTarget.classList.remove('sec-dropover'); }
+function secDrop(ev, key){
+  if (!dragSecKey || dragSecKey === key) return;
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('sec-dropover');
+  const from = dragSecKey; secDragEnd();
+  const view = document.body.dataset.view;
+  const fromL = SECTIONS.find(s=>s.key===from).label, toL = SECTIONS.find(s=>s.key===key).label;
+  /* 환자·의료진 드래그와 달리 화면 배치 변경은 실수 방지를 위해 확인창을 거친다 */
+  showConfirm(`「${fromL}」 모듈을 「${toL}」 자리로 옮길까요?`, '현재 뷰의 화면 배치만 바뀝니다. 환자·방 상태와는 무관합니다.', () => {
+    const order = currentOrder(view).slice();
+    order.splice(order.indexOf(from), 1);
+    order.splice(order.indexOf(key), 0, from);
+    secCustom[view] = order;
+    render();
+    toast(`모듈 배치 변경됨 — ${fromL}`);
+  });
+}
+let confirmCb = null;
+function showConfirm(title, sub, cb){
+  confirmCb = cb;
+  document.getElementById('cf-title').textContent = title;
+  document.getElementById('cf-sub').textContent = sub;
+  document.getElementById('confirm-bg').classList.add('on');
+}
+function confirmOk(){ const cb = confirmCb; closeConfirm(); if (cb) cb(); }
+function closeConfirm(){ document.getElementById('confirm-bg').classList.remove('on'); confirmCb = null; }
+document.getElementById('confirm-bg').addEventListener('click', e=>{ if (e.target.id==='confirm-bg') closeConfirm(); });
+
+function render(){
+  /* 의료진 줄 */
+  document.getElementById('staff-cards').innerHTML = staff.map((s, i) => {
+    const busy = staffBusy(s);
+    const roomDone = !busy && rooms.some(rm => rm.name === s.loc && rm.occ);   /* 완료된 방 안 */
+    let cls = busy ? 'busy' : 'free';
+    let st = busy ? '진행 중' : (roomDone ? '✔ 완료 — 배정 가능' : '● 대기 중 — 배정 가능');
+    if (s.pending) {
+      const rm = rooms.find(x=>x.id===s.pending.roomId);
+      cls = 'called';
+      st = `🔔 ${rm ? rm.name : ''} 호출됨 · ${s.pending.age}분`;
+    }
+    if (s.pendingItp) {
+      const t = patients.find(x=>x.id===s.pendingItp.pid);
+      cls = 'called';
+      st = `💬 ${t ? t.name+' 님에게 이동' : '통역 이동'} · ${s.pendingItp.age}분`;
+    }
+    return `<div class="staff-card ${cls}" draggable="true"
+      ondragstart="staffDragStart(event,${i})" ondragend="staffDragEnd(event)">
+      <div class="nm">${s.name}<span class="role">${s.role}</span></div>
+      <div class="loc">${s.loc} · <span class="timer">${s.min}분</span></div>
+      <div class="st">${st}</div></div>`;
+  }).join('');
+
+  /* 경고 — 본문이 아니라 우측 상단 알림 탭 + 신규 발생 시 우측 하단 팝업 */
+  const alerts = [];
+  rooms.forEach(rm => {
+    const st = roomState(rm);
+    if (st === 'idlealert') {
+      const free = staff.filter(s=>(s.role==='의사'||s.role==='간호사')&&!staffBusy(s)).map(s=>s.name).join(', ')||'없음';
+      alerts.push({ key: 'idle:'+rm.id, sev: 1, cls: 'warn', ic: '⚠',
+        title: `${rm.name} — 의료진 미입실`,
+        body: `${rm.occ} 님 입실 ${rm.min}분 · 대기 중 의료진: ${free}` });
+    }
+    if (st === 'overtime') alerts.push({ key: 'ot:'+rm.id, sev: 0, cls: 'crit', ic: '⏱',
+      title: `${rm.name} — 기준 시간 초과`,
+      body: `${rm.occ} 님 ${rm.min}분 체류 (기준 ${stdFor(rm)}분) · 회전 지연, 후속 배정 확인` });
+  });
+  patients.filter(t => t.state==='waiting' && t.lang).forEach(t => {
+    const itp = staff.find(s => s.role==='통역');
+    alerts.push({ key: 'lang:'+t.id, sev: 2, cls: 'warn', ic: '💬',
+      title: `${t.name} 님 (${t.lang}) — 통역 동행 필요`,
+      body: itp ? `${itp.name} · ${itp.loc} 대기 중` : '통역 없음' });
+  });
+  /* 승인 지연 알림 — 액팅이 놓치지 않게 */
+  patients.filter(t=>t.state==='pending' && t.pendAge >= 3).forEach(t => {
+    alerts.push({ key: 'appr:'+t.id, sev: 1, cls: 'warn', ic: '⏳',
+      title: `${t.destName} — 배정 승인 지연`,
+      body: `${t.name} 님 배정 후 ${t.pendAge}분째 담당 팀 미응답` });
+  });
+  alerts.sort((a,b)=>a.sev-b.sev);
+  updateAlertsUI(alerts);
+
+  /* 배정 승인 요청 카드 — 담당 스테이션 화면에만 */
+  const view = document.body.dataset.view;
+  const pend = patients.filter(t => {
+    if (t.state !== 'pending') return false;
+    const rm = rooms.find(x=>x.id===t.dest);
+    return rm && SEC_STATION[rm.sec] === view;
+  });
+  let apprHtml = '';
+  if (itpReq && (view === 'leader' || view === 'member')) {
+    const t = patients.find(x=>x.id===itpReq.pid);
+    if (t) apprHtml += `
+    <div class="appr itp">
+      <div class="nt">💬 통역 요청 · <span class="timer">${itpReq.age}분</span></div>
+      <div class="nb"><b>${t.name}</b> 님 (${t.lang}) · 현재 위치: <b>${locOf(t)}</b><br>📋 ${t.plan || '플랜 미기입'}</div>
+      <div class="acts">
+        <button class="no" onclick="declineItp()">보류</button>
+        <button class="ok" onclick="acceptItp()">✔ 통역 보내기</button>
+      </div>
+    </div>`;
+  }
+  apprHtml += pend.map(t => `
+    <div class="appr">
+      <div class="nt">🧭 배정 승인 요청 · <span class="timer">${t.pendAge}분</span></div>
+      <div class="nb"><b>${t.name}</b> 님 → <b>${t.destName}</b>${t.lang?` · ${t.lang}(통역)`:''}<br>📋 ${t.plan || '플랜 미기입'}</div>
+      <div class="acts">
+        <button class="no" onclick="rejectMove('${t.id}')">거절</button>
+        <button class="ok" onclick="approveMove('${t.id}')">✔ 수락 — 환자 안내 시작</button>
+      </div>
+    </div>`).join('');
+  document.getElementById('apprs').innerHTML = apprHtml;
+
+  /* 방 그리드 — 뷰별 기본 순서 + 모듈 드래그 커스터마이징 */
+  document.getElementById('rooms-wrap').innerHTML = currentOrder(view).map(k => SECTIONS.find(s=>s.key===k)).map(sec => {
+    const list = rooms.filter(rm => rm.sec === sec.key);
+    const empt = list.filter(rm => roomState(rm)==='empty').length;
+    return `<div class="sec" ondragover="secDragOver(event,'${sec.key}')" ondragleave="secDragLeave(event)" ondrop="secDrop(event,'${sec.key}')">
+      <div class="sec-h" draggable="true" ondragstart="secDragStart(event,'${sec.key}')" ondragend="secDragEnd(event)" title="끌어서 모듈 순서 바꾸기">
+        <span class="sec-grip">⠿</span><span class="t">${sec.label}</span><span class="c">빈 방 ${empt} / ${list.length}</span></div>
+      <div class="rooms">${list.map(roomCard).join('')}</div></div>`;
+  }).join('');
+
+  /* 환자 줄 — "대기 중" = 이동 지시가 없고 진료가 진행 중이지 않은 사람.
+     대기공간·복도 대기(state waiting) + 방 안 완료 대기(isReady) 모두 포함 */
+  const waiting = patients
+    .filter(t => t.state==='waiting' || isReady(t))
+    .map(t => {
+      if (t.state==='waiting') return { t, wait: t.wait, loc: t.loc, ready: false };
+      const rm = rooms.find(x=>x.id===t.room);
+      const last = rm && rm.cks.length ? rm.cks[rm.cks.length-1] : null;
+      return { t, wait: last ? last.age : 0, loc: rm ? rm.name + ' · ✔완료' : '', ready: true };
+    })
+    .sort((a,b)=>b.wait-a.wait);
+  const moving  = patients.filter(t=>t.state==='moving' || t.state==='pending');
+  const inroom  = patients.filter(t=>t.state==='inroom' && !isReady(t));
+  const lost    = patients.filter(t=>t.state==='lost');
+  /* 대기 줄 도메인 분리 — 팀장: 시술 구간 환자만 / 팀원: 상담·전관리 환자만. 나머지는 접힘 */
+  let mine = waiting, others = [];
+  if (view === 'leader')      { mine = waiting.filter(w=>leaderDomain(w.t)); others = waiting.filter(w=>!leaderDomain(w.t)); }
+  else if (view === 'member') { mine = waiting.filter(w=>!leaderDomain(w.t)); others = waiting.filter(w=>leaderDomain(w.t)); }
+  document.getElementById('n-wait').textContent = others.length ? `${mine.length} +${others.length}` : mine.length;
+  document.getElementById('n-move').textContent = moving.length;
+  document.getElementById('n-prog').textContent = inroom.length;
+  document.getElementById('n-lost').textContent = lost.length;
+  const waitRow = (w, active) => {
+    const t = w.t;
+    const ns = nextStage(t); const ec = ns ? emptyCount(ns) : 0;
+    const dragAttrs = active ? `draggable="true" ondragstart="dragStart(event,'${t.id}')" ondragend="dragEnd(event)" onclick="selectPatient('${t.id}')"` : 'style="opacity:.65"';
+    return `<div class="prow ${active?'draggable':''} ${selected===t.id?'sel':''}" ${dragAttrs}>
+      <div class="l1"><span class="nm" onclick="openPlan(event,'${t.id}')" title="플랜 보기">${t.name}</span>${t.lang?`<span class="lang" onclick="event.stopPropagation();requestInterpreter('${t.id}')" title="통역 요청 시뮬레이션">${t.lang}</span>`:''}
+        <span class="wait ${w.wait>=20?'long':''}">${w.loc} · 대기 <b class="timer">${w.wait}분</b></span></div>
+      <div class="l2">${courseChips(t)} <button class="course-edit" onclick="openModal(event,'${t.id}')">코스 ✎</button></div>
+      <div class="l3"><span class="plan-snip">📋 ${(t.plan||'플랜 미기입').slice(0,24)}${(t.plan||'').length>24?'…':''}</span></div>
+      <div class="l3">${ns ? `<span class="sugg">다음: ${ns} · 빈 방 ${ec}</span>${active?' — 방으로 끌어다 놓기':''}` : '코스 완료 → 데스크 회귀 (수납·반납)'}
+        ${t.lang?` · <span class="warn-t">통역 동행 확인</span>`:''}</div></div>`;
+  };
+  let waitHtml = mine.map(w => waitRow(w, true)).join('') || emptyRow('내 영역 대기 환자 없음');
+  if (others.length) {
+    waitHtml += `<div class="prow" style="cursor:pointer;color:var(--ink-2);font-size:12px;font-weight:700" onclick="othersOpen=!othersOpen;render()">
+      ${othersOpen?'▾':'▸'} 그 외 환자 ${others.length}명 (${view==='leader'?'팀원':'팀장'} 영역 — 보기만)</div>`;
+    if (othersOpen) waitHtml += others.map(w => waitRow(w, false)).join('');
+  }
+  document.getElementById('list-wait').innerHTML = waitHtml;
+  document.getElementById('list-move').innerHTML = moving.map(t => {
+    const pend = t.state === 'pending';
+    return `<div class="prow"><div class="l1"><span class="nm" onclick="openPlan(event,'${t.id}')" title="플랜 보기">${t.name}</span>
+      <span class="wait">→ <b>${t.destName}</b> · <span class="timer">${pend ? t.pendAge : t.elapsed}분</span></span></div>
+      <div class="l3">${pend ? '<span class="warn-t">⏳ 담당 팀 승인 대기</span> — 수락하면 안내 시작' : '환자 폰에 화살표 안내 중 — 도착하면 자동으로 진행 중으로'}</div></div>`;
+  }).join('') || emptyRow('이동 중 환자 없음');
+  document.getElementById('list-prog').innerHTML = inroom.map(t => {
+    const rm = rooms.find(x=>x.id===t.room); if(!rm) return '';
+    const st = roomState(rm);
+    return `<div class="prow draggable" draggable="true" ondragstart="dragStart(event,'${t.id}')" ondragend="dragEnd(event)">
+      <div class="l1"><span class="nm" onclick="openPlan(event,'${t.id}')" title="플랜 보기">${t.name}</span>
+      <span class="wait">${rm.name} · <b class="timer">${rm.min}분</b></span></div>
+      <div class="l2">${courseChips(t)}${rm.cks.length?` <span class="ckpt ${!nextAction(rm)?'final':''}" style="margin-top:0">✔ ${rm.cks[rm.cks.length-1].label}</span>`:''}</div>
+      ${st==='idlealert'?'<div class="l3"><span class="warn-t">⚠ 의료진 미입실</span></div>':''}
+      ${st==='overtime'?`<div class="l3"><span class="warn-t" style="color:var(--crit)">⏱ 기준 ${STD[rm.sec]}분 초과</span></div>`:''}
+      ${t.recovery?'<div class="l3">회복 중 (관찰 자동 표시) — 퇴실 시 다음 단계 제안</div>':''}</div>`;
+  }).join('') || emptyRow('진행 중 환자 없음');
+  document.getElementById('list-lost').innerHTML = lost.map(t =>
+    `<div class="prow"><div class="l1"><span class="nm">${t.name}</span>
+      <span class="wait">마지막: ${t.last} · <span class="timer">${t.ago}분</span> 전</span></div>
+      <div class="l3">신호 끊김 — 위치 확인 필요 (이탈·배터리)</div></div>`
+  ).join('') || emptyRow('전원 위치 확인됨');
+}
+function emptyRow(msg){ return `<div class="prow" style="cursor:default;color:var(--ink-3);font-size:12px">${msg}</div>`; }
+
+function roomCard(rm){
+  const st = roomState(rm);
+  const sel = selected && patients.find(t=>t.id===selected);
+  const targetable = sel && st==='empty' && allowedSections(nextStage(sel)).includes(rm.sec)
+    && !(document.body.dataset.view === 'leader' && rm.sec === '상담');
+  const label = {
+    empty:      `<span class="state-ic">✓</span> <b>비어 있음</b>`,
+    occupied:   `<b>사용 중</b>`,
+    inprogress: `<span class="state-ic">▶</span> <b>진행 중</b>`,
+    ready:      `<span class="state-ic">✔</span> <b>완료 — 이동 대기</b>`,
+    assigned:   `<span class="state-ic">🧭</span> <b>이동 중</b>`,
+    approval:   `<span class="state-ic">⏳</span> <b>승인 대기</b>`,
+    idlealert:  `<span class="state-ic">⚠</span> <b>의료진 미입실</b>`,
+    overtime:   `<span class="state-ic">⏱</span> <b>기준 초과</b>`,
+  }[st];
+  let sub = '';
+  if (st==='empty') sub = `<span class="timer">${rm.min}분째</span> 비어 있음`;
+  else if (st==='assigned') { const t = patients.find(x=>x.id===rm.assignedTo); sub = `${t?t.name:''} 님 오는 중`; }
+  else if (st==='approval') { const t = patients.find(x=>x.id===rm.assignedTo); sub = `${t?t.name:''} 님 배정 — 담당 팀 수락 대기 <span class="timer">${t?t.pendAge:0}분</span>`; }
+  else {
+    const est = stdFor(rm); const fromPlan = est !== STD[rm.sec];
+    sub = `<b class="occ-link" onclick="openPlanByName(event,'${rm.occ}')" title="플랜 보기">${rm.occ}</b> · <span class="timer">${rm.min}분</span> / 기준 ${est}분${fromPlan ? '<span style="color:var(--blue)">·플랜</span>' : ''}`;
+    if (rm.staff.length) sub += `<br>👩‍⚕️ ${rm.staff.join(' · ')}`;
+    else if (st==='idlealert') sub += `<br>의료진 대기 <span class="timer">${rm.min}분째</span>`;
+  }
+  /* 행동 체크포인트 배지 (마지막 확인) + 스테이션 확인 버튼 */
+  let ckptHtml = '';
+  if (rm.occ && rm.cks.length) {
+    const last = rm.cks[rm.cks.length-1];
+    const isFinal = !nextAction(rm);
+    ckptHtml = `<span class="ckpt ${isFinal?'final':''}">✔ ${last.label} · ${last.age===0?'방금':last.age+'분 전'}</span>`;
+  }
+  const act = rm.occ ? nextAction(rm) : null;
+  const showBtn = act && document.body.dataset.view === SEC_STATION[rm.sec];   /* 담당 스테이션에서만 */
+  const actBtn = showBtn ? `<button class="ckpt-btn" onclick="confirmAction('${rm.id}')">✔ ${act}</button>` : '';
+  const calls = staff.filter(s => s.pending && s.pending.roomId === rm.id);
+  const callHtml = calls.map(s => `<span class="callb">🔔 ${s.name} 호출 · ${s.pending.age === 0 ? '방금' : s.pending.age + '분'}</span>`).join(' ');
+  return `<div class="room ${st} ${targetable?'target':''}" id="rm-${rm.id}"
+    ondragover="dragOver(event,'${rm.id}')" ondragleave="dragLeave(event)" ondrop="dropOn(event,'${rm.id}')">
+    <div class="rn">${rm.name}</div>
+    <div class="state">${label}</div>
+    <div class="sub">${sub}</div>
+    ${ckptHtml} ${callHtml}
+    ${targetable?`<button class="go" onclick="dispatch('${rm.id}')">→ 여기로 안내</button>`:''}
+    ${actBtn}
+  </div>`;
+}
+
+function courseChips(t){
+  /* 데스크(시작·회귀)는 모든 코스에 고정이라 표시하지 않는다 — 실제 단계만 */
+  const c = courseOf(t.tmpl);
+  const eff = effStage(t);
+  const active = (t.state==='inroom'||t.state==='moving') && !isReady(t);
+  return c.map((s,idx)=>{
+    let cls = '';
+    if (idx < eff) cls = 'done';
+    else if (idx === eff && active) cls = 'cur';
+    else if (idx === eff) cls = 'next';
+    return `<span class="chip ${cls}">${s}</span>`;
+  }).join('<span class="arrowc">›</span>');
+}
+
+/* ═══════════ 상호작용 ═══════════ */
+function selectPatient(id){
+  if (isStation()) return;
+  selected = (selected === id) ? null : id;
+  const t = patients.find(x=>x.id===id);
+  const bar = document.getElementById('hint-bar');
+  if (selected && t) {
+    const ns = nextStage(t);
+    document.getElementById('hint-txt').textContent =
+      ns ? `${t.name} 님 선택 — 다음 단계 「${ns}」. 빈 방에 끌어다 놓거나 방의 버튼을 누르면 환자 폰으로 안내가 나갑니다.`
+         : `${t.name} 님 — 코스가 끝났습니다. 데스크 회귀(수납·반납) 안내만 남았습니다.`;
+    bar.classList.add('on');
+  } else bar.classList.remove('on');
+  render();
+}
+function clearSel(){ selected = null; document.getElementById('hint-bar').classList.remove('on'); render(); }
+
+function dispatch(roomId){ if (selected) dispatchTo(selected, roomId); }
+
+function dispatchTo(pid, roomId){
+  const t = patients.find(x=>x.id===pid); const rm = rooms.find(x=>x.id===roomId);
+  if (!t || !rm || roomState(rm) !== 'empty') return;
+  if (isReady(t)) t.stageIdx++;                   /* 완료된 단계를 확정하고 다음으로 */
+  if (t.state === 'inroom' && t.room) {           /* 동선 변경 — 있던 방을 비운다 */
+    const old = rooms.find(x=>x.id===t.room);
+    if (old) { old.occ = null; old.staff = []; old.min = 0; old.cks = []; }
+    delete t.room;
+  }
+  rm.assignedTo = t.id;
+  t.prevLoc = t.loc || '대기공간 1';
+  t.state = 'pending'; t.dest = rm.id; t.destName = rm.name; t.pendAge = 0; t.wait = 0;
+  clearSel();
+  const team = SEC_STATION[rm.sec] === 'info' ? '인포·상담팀' : '피부·시술팀';
+  toast(`⏳ ${t.name} 님 → ${rm.name} — ${team} 승인 대기`);
+}
+
+/* ── 통역 요청 — 외국인 환자 앱의 '통역 요청' 버튼 수신측 (프로토타입: 언어 배지 클릭 = 시뮬) ── */
+let itpReq = null, itpReqFired = false;
+function locOf(t){
+  if (t.state === 'inroom' && t.room) { const rm = rooms.find(x=>x.id===t.room); return rm ? rm.name : ''; }
+  if (t.state === 'waiting') return t.loc;
+  if (t.state === 'moving' || t.state === 'pending') return '→ ' + t.destName;
+  return t.last || '';
+}
+function requestInterpreter(pid){
+  const t = patients.find(x=>x.id===pid);
+  if (!t || !t.lang || itpReq) return;
+  itpReq = { pid, age: 0 }; itpReqFired = true;
+  toast(`💬 ${t.name} 님(${t.lang}) 통역 요청 — ${locOf(t)}`);
+  render();
+}
+function acceptItp(){
+  if (!itpReq) return;
+  const t = patients.find(x=>x.id===itpReq.pid);
+  const s = staff.find(x=>x.role==='통역');
+  if (s && t) { s.pendingItp = { pid: t.id, age: 0 }; toast(`✔ ${s.name} → ${t.name} 님에게 이동 (${locOf(t)}) — 환자 앱에 "통역사가 가고 있어요" 표시`); }
+  itpReq = null; render();
+}
+function declineItp(){
+  if (!itpReq) return;
+  toast('✖ 통역 요청 보류 — 통역 진행 중, 순서대로 안내 (환자 앱에 표시)');
+  itpReq = null; render();
+}
+
+/* ── 배정 승인 (담당 스테이션) — 허가해야 환자 안내가 나간다 ── */
+function approveMove(pid){
+  if (isStation() && !stationAuth) { requireAuth(()=>approveMove(pid)); return; }
+  const t = patients.find(x=>x.id===pid); if (!t || t.state !== 'pending') return;
+  t.state = 'moving'; t.elapsed = 0;
+  toast(`✔ ${t.destName} 수락 — ${t.name} 님 폰에 화살표 전송${byLine()}`);
+  render();
+}
+function rejectMove(pid){
+  if (isStation() && !stationAuth) { requireAuth(()=>rejectMove(pid)); return; }
+  const t = patients.find(x=>x.id===pid); if (!t || t.state !== 'pending') return;
+  const rm = rooms.find(x=>x.id===t.dest);
+  if (rm) rm.assignedTo = null;
+  t.state = 'waiting'; t.loc = t.prevLoc || '대기공간 1'; t.wait = 0;
+  toast(`✖ ${t.destName} 배정 거절${byLine()} — ${t.name} 님 대기 복귀 (액팅 보드에 표시)`);
+  render();
+}
+
+/* ── 드래그 앤 드롭 배정/동선 변경 ── */
+let dragId = null;
+function dragStart(ev, id){
+  if (isStation()) { ev.preventDefault(); return; }
+  dragId = id;
+  ev.currentTarget.classList.add('dragging');
+  try { ev.dataTransfer.setData('text/plain', id); ev.dataTransfer.effectAllowed = 'move'; } catch(e){}
+  const t = patients.find(x=>x.id===id);
+  const secs = allowedSections(nextStage(t))
+    .filter(k => !(document.body.dataset.view === 'leader' && k === '상담'));
+  rooms.forEach(rm => {
+    if (roomState(rm) === 'empty' && secs.includes(rm.sec)) {
+      const el = document.getElementById('rm-'+rm.id);
+      if (el) el.classList.add('target');
+    }
+  });
+}
+function dragEnd(ev){
+  ev.currentTarget.classList.remove('dragging');
+  dragId = null;
+  document.querySelectorAll('.room.target, .room.dropover').forEach(el=>el.classList.remove('target','dropover'));
+}
+function dragOver(ev, roomId){
+  const rm = rooms.find(x=>x.id===roomId);
+  if (!rm) return;
+  if (dragId && roomState(rm) === 'empty'
+      && !(document.body.dataset.view === 'leader' && rm.sec === '상담')) {   /* 팀장은 상담실 배치 제외 */
+    ev.preventDefault(); ev.currentTarget.classList.add('dropover');
+  } else if (dragStaffIdx !== null && rm.occ
+      && (!dragStaffAllow || dragStaffAllow.includes(rm.sec))) {   /* 의료진: 허용 구역의 환자 방만 */
+    ev.preventDefault(); ev.currentTarget.classList.add('dropover');
+  }
+}
+function dragLeave(ev){ ev.currentTarget.classList.remove('dropover'); }
+function dropOn(ev, roomId){
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('dropover');
+  if (dragId) { dispatchTo(dragId, roomId); dragId = null; }
+  else if (dragStaffIdx !== null) { callStaff(dragStaffIdx, roomId); dragStaffIdx = null; }
+  render();
+}
+
+/* ── 의료진 드래그 호출 (팀장 전용) — 역할별 배치 범위 제한 ──
+   의사·간호사: 시술·수술·레이저·피부관리·회복만 (팀장 개입 영역) / 통역: 상담 포함 전체 */
+let dragStaffIdx = null;
+let dragStaffAllow = null;   /* null = 전체 허용 */
+function staffAllowSecs(s){ return s.role === '통역' ? null : ['시술','수술','레이저','피부관리','회복']; }
+function staffDragStart(ev, idx){
+  if (document.body.dataset.view !== 'leader') { ev.preventDefault(); return; }
+  dragStaffIdx = idx;
+  dragStaffAllow = staffAllowSecs(staff[idx]);
+  ev.currentTarget.classList.add('dragging');
+  try { ev.dataTransfer.setData('text/plain', 'staff:'+idx); ev.dataTransfer.effectAllowed = 'move'; } catch(e){}
+  rooms.forEach(rm => {                            /* 환자만 있고 의료진 없는, 허용 구역 방만 강조 */
+    if (rm.occ && rm.staff.length === 0 && (!dragStaffAllow || dragStaffAllow.includes(rm.sec))) {
+      const el = document.getElementById('rm-'+rm.id);
+      if (el) el.classList.add('target');
+    }
+  });
+}
+function staffDragEnd(ev){
+  ev.currentTarget.classList.remove('dragging');
+  dragStaffIdx = null;
+  document.querySelectorAll('.room.target, .room.dropover').forEach(el=>el.classList.remove('target','dropover'));
+}
+function callStaff(idx, roomId){
+  const s = staff[idx]; const rm = rooms.find(x=>x.id===roomId);
+  if (!s || !rm || !rm.occ) return;
+  s.pending = { roomId, age: 0 };
+  toast(`🔔 ${s.name} → ${rm.name} 호출 — 입실이 감지되면 자동으로 진행 중 전환`);
+}
+
+/* ── 플랜 팝업 (환자 이름 클릭 / 상담 완료 단계) ── */
+let planTarget = null;
+let consultRoom = null;   /* 상담 완료 모드 — 저장해야 완료 처리 */
+function openPlan(ev, id){
+  ev.stopPropagation();
+  planTarget = patients.find(x=>x.id===id); if (!planTarget) return;
+  consultRoom = null;
+  document.getElementById('pl-name').textContent = planTarget.name + (planTarget.lang ? ' · ' + planTarget.lang : '');
+  document.getElementById('pl-state').textContent = stateLine(planTarget);
+  document.getElementById('pl-text').value = planTarget.plan || '';
+  document.getElementById('pl-course').innerHTML = courseChips(planTarget);
+  document.getElementById('plan-save').textContent = '저장 (플랜 업데이트)';
+  document.getElementById('plan-bg').classList.add('on');
+}
+function openConsultPlan(t, rm){
+  planTarget = t; consultRoom = rm;
+  document.getElementById('pl-name').textContent = `${t.name} — 상담 완료 처리`;
+  document.getElementById('pl-state').textContent = '상담 결과를 플랜에 반영해 주세요 (변경 없으면 그대로 저장)';
+  document.getElementById('pl-text').value = t.plan || '';
+  document.getElementById('pl-course').innerHTML = courseChips(t);
+  document.getElementById('plan-save').textContent = '플랜 저장 + 상담 완료';
+  document.getElementById('plan-bg').classList.add('on');
+}
+function openPlanByName(ev, name){
+  const t = patients.find(x=>x.name===name);
+  if (t) openPlan(ev, t.id); else ev.stopPropagation();
+}
+function stateLine(t){
+  if (t.state==='waiting') return `${t.loc} · 대기 ${t.wait}분`;
+  if (t.state==='moving')  return `→ ${t.destName} 이동 중`;
+  if (t.state==='inroom')  { const rm = rooms.find(x=>x.id===t.room); return rm ? `${rm.name} · ${rm.min}분 체류` : ''; }
+  if (t.state==='lost')    return `위치 미상 — 마지막: ${t.last}`;
+  return '';
+}
+function savePlan(){
+  if (isStation() && !stationAuth) { requireAuth(savePlan); return; }
+  if (planTarget) {
+    planTarget.plan = document.getElementById('pl-text').value.trim();
+    if (consultRoom) applyCheckpoint(consultRoom, '상담 완료');   /* 플랜 저장이 곧 상담 완료 확정 */
+    else toast(`📋 플랜 업데이트됨${byLine()}`);
+  }
+  closePlan(); render();
+}
+function closePlan(){ document.getElementById('plan-bg').classList.remove('on'); planTarget = null; consultRoom = null; }
+
+/* ── 환자 등록 (인포팀, 스테이션) ── */
+let regSeq = 100;
+let simTick = 0;
+function openReg(){ requireAuth(doOpenReg); }
+function doOpenReg(){
+  document.getElementById('rg-name').value = '';
+  document.getElementById('rg-plan').value = '';
+  document.getElementById('rg-lang').value = '';
+  document.getElementById('reg-bg').classList.add('on');
+}
+function closeReg(){ document.getElementById('reg-bg').classList.remove('on'); }
+function submitReg(){
+  const name = document.getElementById('rg-name').value.trim();
+  const plan = document.getElementById('rg-plan').value.trim();
+  const lang = document.getElementById('rg-lang').value;
+  if (!name) { toast('환자 이름을 입력해 주세요'); return; }
+  if (!plan) { toast('플랜(시술 내용)을 입력해 주세요'); return; }
+  const np = { id: 'reg'+(regSeq++), name, tmpl: {consult:'yes', skin:'none'}, stageIdx: 0,
+    state: 'waiting', loc: '접수데스크', wait: 0, plan };
+  if (lang) np.lang = lang;
+  patients.push(np);
+  closeReg(); render();
+  toast(`➕ ${name} 님 등록 — 대기 줄에 표시됨 (코스는 액팅팀이 설정)${byLine()}`);
+}
+document.getElementById('reg-bg').addEventListener('click', e=>{ if (e.target.id==='reg-bg') closeReg(); });
+document.getElementById('plan-bg').addEventListener('click', e=>{ if (e.target.id==='plan-bg') closePlan(); });
+
+/* 코스 모달 */
+let modalTarget = null, mConsult = 'yes', mSkin = 'none';
+function openModal(ev, id){
+  ev.stopPropagation();
+  modalTarget = patients.find(x=>x.id===id); if(!modalTarget) return;
+  mConsult = modalTarget.tmpl.consult || 'yes';
+  mSkin = modalTarget.tmpl.skin || 'none';
+  document.getElementById('m-who').textContent = modalTarget.name + ' 님 — 배정 시 탭 한 번으로 설정';
+  syncModal();
+  document.getElementById('modal-bg').classList.add('on');
+}
+function syncModal(){
+  document.querySelectorAll('#m-consult button').forEach(b=>b.classList.toggle('on', b.dataset.val===mConsult));
+  document.querySelectorAll('#m-skin button').forEach(b=>b.classList.toggle('on', b.dataset.val===mSkin));
+}
+document.getElementById('m-consult').addEventListener('click', e=>{ if(e.target.dataset.val){ mConsult=e.target.dataset.val; syncModal(); }});
+document.getElementById('m-skin').addEventListener('click', e=>{ if(e.target.dataset.val){ mSkin=e.target.dataset.val; syncModal(); }});
+function applyCourse(){
+  if (modalTarget){ modalTarget.tmpl = {consult:mConsult, skin:mSkin}; if(modalTarget.stageIdx>courseOf(modalTarget.tmpl).length) modalTarget.stageIdx=0; }
+  closeModal(); render();
+  toast('코스 변경됨 — 다음 단계 제안이 새 코스를 따릅니다');
+}
+function closeModal(){ document.getElementById('modal-bg').classList.remove('on'); modalTarget=null; }
+document.getElementById('modal-bg').addEventListener('click', e=>{ if(e.target.id==='modal-bg') closeModal(); });
+
+/* 뷰 탭 */
+const RO_NOTES = {
+  info: '<b>인포·상담 스테이션</b> — 조작: ➕ 환자 등록(이름+플랜) · 환자 이름 클릭 → 플랜 수정 · 상담실 「상담 완료」(플랜 확인 필수) · 배정 승인. 조작 시 비콘 핀번호(뒷 4자리) 인증.',
+  care: '<b>피부·시술 스테이션</b> — 읽기 + 행동 완료 확인(마취·시술·수술·관리·회복 완료) + 배정 승인만. 조작 시 비콘 핀번호(뒷 4자리) 인증.',
+};
+function syncRoNote(){ const v = document.body.dataset.view; const el = document.getElementById('ro-note-txt'); if (RO_NOTES[v]) el.innerHTML = RO_NOTES[v]; }
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  document.body.dataset.view = b.dataset.v;
+  syncRoNote();
+  clearSel();
+}));
+syncRoNote();
+
+/* 토스트 — 동시에 최대 2개만 (오래된 것부터 밀어냄) */
+function toast(msg){
+  const box = document.getElementById('toasts');
+  while (box.children.length >= 2) box.firstChild.remove();
+  const el = document.createElement('div'); el.className='toast'; el.textContent=msg;
+  box.appendChild(el);
+  requestAnimationFrame(()=>el.classList.add('show'));
+  setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=>el.remove(), 300); }, 3000);
+}
+
+/* ═══════════ 시뮬레이션 (5초 = 1분) ═══════════ */
+setInterval(() => {
+  rooms.forEach(rm => { rm.min++; rm.cks.forEach(c => c.age++); });
+  staff.forEach(s => {
+    s.min++;
+    if (s.pending) {                    /* 호출 2분 뒤 입실 — 실제로는 비콘이 입실을 감지 */
+      s.pending.age++;
+      if (s.pending.age >= 2) {
+        const rm = rooms.find(x=>x.id===s.pending.roomId);
+        if (rm) {
+          rooms.forEach(x => { const i = x.staff.indexOf(s.name); if (i>=0) x.staff.splice(i,1); });
+          rm.staff.push(s.name);
+          s.loc = rm.name; s.min = 0;
+          toast(`✔ ${s.name} ${rm.name} 입실 감지 — 진행 중 전환`);
+        }
+        s.pending = null;
+      }
+    }
+  });
+  simTick++;
+  if (itpReq) itpReq.age++;
+  if (simTick === 6 && !itpReqFired) {   /* 30초 뒤 데모: 외국인 환자가 앱에서 통역 요청 */
+    const t = patients.find(x=>x.state==='waiting' && x.lang);
+    if (t) requestInterpreter(t.id);
+  }
+  staff.forEach(s => {
+    if (s.pendingItp) {
+      s.pendingItp.age++;
+      if (s.pendingItp.age >= 2) {
+        const t = patients.find(x=>x.id===s.pendingItp.pid);
+        if (t) { s.loc = locOf(t) || s.loc; s.min = 0; toast(`✔ ${s.name} 도착 — ${t.name} 님 통역 동행 시작`); }
+        s.pendingItp = null;
+      }
+    }
+  });
+  patients.forEach(t => {
+    if (t.state==='waiting') t.wait++;
+    if (t.state==='pending') t.pendAge++;
+    if (t.state==='lost') t.ago++;
+    if (t.state==='moving') {
+      t.elapsed++;
+      if (t.elapsed >= 3) { /* 3분(15초) 뒤 도착 */
+        const rm = rooms.find(x=>x.id===t.dest);
+        if (rm) { rm.assignedTo=null; rm.occ=t.name; rm.min=0; rm.staff=[]; rm.cks=[]; t.state='inroom'; t.room=rm.id; }
+        toast(`✓ ${t.name} 님 ${t.destName} 도착 — 안내 자동 해제 (소요 기록됨)`);
+      }
+    }
+  });
+  render();
+}, 5000);
+
+/* 시계 */
+function tickClock(){
+  const d = new Date();
+  document.getElementById('clock').textContent =
+    `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+}
+setInterval(tickClock, 1000); tickClock();
+render();
+</script>
+</body>
+</html>
