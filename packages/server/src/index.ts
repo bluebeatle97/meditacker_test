@@ -17,6 +17,7 @@ import { MqttIngestion } from './ingestion/mqtt-ingestion.js';
 import { AutoAdapter } from './ingestion/adapters/auto.adapter.js';
 import { PresenceService } from './presence/presence-service.js';
 import { PositionEstimator } from './presence/position-estimator.js';
+import { ScanRateMeter, smoothingFor } from './presence/scan-rate.js';
 import { WalkableMap } from './presence/walkable-map.js';
 import {
   assignBeacon,
@@ -202,12 +203,16 @@ const recorder = SERVER_CONFIG.recordScans
  * 미등록(지나가는 폰·이어버드·워치, 15분마다 바뀌는 랜덤 MAC)은 여기서 끝 —
  * 판정·좌표·로그·관제 피드 어디에도 안 들어가고 등록 화면에만 잠깐 뜬다.
  */
+/** 태그마다 평활 세기를 다르게 주려고 수신 빈도를 잰다 (느린 비콘만 세게 누른다) */
+const scanRate = new ScanRateMeter();
+
 const scanRouter = new ScanRouter(
   knownTags,
   unknownTags,
   (scan) => {
     engine.ingest(scan, false);
     dirtyTags.add(scan.tagId);
+    scanRate.record(scan.tagId); // 평활 세기를 이 태그의 수신 빈도로 고른다
     monitor?.recordScan(scan); // 관제 피드로 raw 스캔 탭
     recorder?.record(scan); // 녹화 중이면 원본 그대로 적재
   },
@@ -1245,10 +1250,22 @@ const smoothed = new Map<
   { x: number; y: number; zone: string | null; inTransit?: boolean }
 >();
 setInterval(() => {
-  const a = SERVER_CONFIG.posSmoothing;
   const maxStep = (SERVER_CONFIG.maxSpeedPxPerSec * SERVER_CONFIG.posSampleMs) / 1000;
 
   for (const p of estimator.estimateAll()) {
+    /**
+     * 평활은 태그마다 다르다 — 드문드문 들리는 비콘만 세게 누르고 나머지는 빠르게 둔다.
+     *
+     * 빈도를 **듣고 있는 게이트웨이 수로 나눈다.** 합계는 배치가 촘촘할수록 커져서,
+     * 같은 비콘이 게이트웨이를 늘렸다는 이유만으로 '빠른 태그' 가 되어 버린다.
+     */
+    const heard = engine.readingsOf(p.tagId).length || 1;
+    const total = scanRate.rateOf(p.tagId);
+    const a = smoothingFor(total === null ? null : total / heard, {
+      normal: SERVER_CONFIG.posSmoothing,
+      slow: SERVER_CONFIG.posSmoothingSlow,
+      slowBelow: SERVER_CONFIG.slowTagRate,
+    });
     let target = walkable.clamp(p.x, p.y);
 
     /**

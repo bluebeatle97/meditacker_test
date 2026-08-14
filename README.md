@@ -722,4 +722,7 @@ npm run pos:check -w @meditracker/server -- --tag 배 --spot mid:창고,상담�
 `ZONE_EVAL_MS` (판정 주기, 기본 200) · `PATIENT_SEES_EVERYONE=0` (환자 화면에서 타인 좌표 차단) ·
 `MQTT_SCAN_TOPIC` (구독 토픽, 쉼표로 여러 개 · 기본 `gw/+/scan,meditracker/scan`) ·
 `AB_MAC_REVERSE=1` (실장비 비콘 MAC 바이트 순서 뒤집기 — 위 "1. 게이트웨이 페이로드 포맷" 참고) ·
-`HYSTERESIS_DB` · `CONFIRM_COUNT` (존 전환 억제 — 재빌드 없이 현장에서 바로 바꿔 보라고 열어 뒀다)
+`HYSTERESIS_DB` · `CONFIRM_COUNT` (존 전환 억제 — 재빌드 없이 현장에서 바로 바꿔 보라고 열어 뒀다) ·
+`POS_SMOOTHING` / `POS_SMOOTHING_SLOW` / `SLOW_TAG_RATE` (평활 — **태그마다 다르게 걸린다.**
+게이트웨이 한 대당 초당 수신이 `SLOW_TAG_RATE` 미만인 태그만 `POS_SMOOTHING_SLOW` 로 세게
+누른다. 실측 CP35 1.05~1.17/s · 카드형 BP105N 0.37~0.47/s)
