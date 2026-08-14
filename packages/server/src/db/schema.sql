@@ -71,6 +71,42 @@ CREATE TABLE IF NOT EXISTS patient_profiles (
   updated_at INTEGER
 );
 
+-- 방 안내 이력 — 안내 한 건당 한 줄 (발행 → 도착/해제).
+--
+-- **살아 있는 안내(화살표)는 여기 없다.** 그건 GuidanceStore 가 메모리로 들고 있고,
+-- 재시작하면 사라지는 게 맞다. 이 표는 그 반대편 — "무슨 지시를 내렸고 어떻게 끝났나" 다.
+--
+-- ⚠️ 이 표가 DB 인 이유는 **알림톡** 이다. 외부로 나간 메시지는 서버 재시작으로 같이
+--    사라져 주지 않는다. 안내를 메모리에만 두면 "사과 환자가 시술실 1로 이동중입니다" 를
+--    보낸 뒤 재시작이 일어났을 때 도착 판정이 영영 안 뜨고, 메신저에는 **영원히 이동 중인
+--    환자**가 남는다. 그래서 발행 사실을 먼저 여기 적고, 상태 전이를 여기서 확정한다.
+--    (앞으로 붙일 발송함(outbox)은 이 표의 id 를 참조해 중복 발송을 막는다.)
+CREATE TABLE IF NOT EXISTS navigation_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tag_id TEXT NOT NULL,
+  -- 배정마다 새로 생기는 id. 비콘을 돌려쓰므로 tag_id 만으로는 사람을 못 가린다
+  person_id TEXT,
+  /* 발송된 알림 문구의 원본이라 **그 시점 이름을 박아 둔다**.
+     persons.display_name 은 나중에 고쳐질 수 있는데(renameHolder), 이미 보낸 메시지의
+     내용은 과거 사실이라 따라 바뀌면 안 된다. */
+  person_name TEXT,
+  -- 안내를 걸 때 있던 방 (복도·자리비움이면 NULL)
+  from_zone TEXT,
+  to_zone TEXT NOT NULL,
+  issued_at INTEGER NOT NULL,
+  arrived_at INTEGER,
+  -- 어떤 사유로든 끝난 시각 (도착 포함)
+  closed_at INTEGER,
+  -- moving | arrived | cancelled | superseded | aborted
+  status TEXT NOT NULL,
+  -- 발행 → 도착까지 걸린 시간. 대기시간 분석의 원천
+  travel_sec INTEGER
+);
+-- 진행 중인 안내 조회가 도착 판정마다 일어난다
+CREATE INDEX IF NOT EXISTS idx_nav_open ON navigation_logs(tag_id, closed_at);
+CREATE INDEX IF NOT EXISTS idx_nav_person ON navigation_logs(person_id);
+CREATE INDEX IF NOT EXISTS idx_nav_issued ON navigation_logs(issued_at);
+
 CREATE TABLE IF NOT EXISTS tag_meta (
   tag_id TEXT PRIMARY KEY,
   name TEXT,

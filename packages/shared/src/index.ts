@@ -119,6 +119,47 @@ export interface Guidance {
 }
 
 /**
+ * 안내가 끝난 사유.
+ *
+ * `moving` 만 진행 중이고 나머지는 종료 상태다. 끝난 사유를 하나로 뭉치지 않는 이유는
+ * **알림 문구가 사유마다 다르기** 때문이다 — 도착은 관련 인원에게 알려야 하고, 해제는
+ * 조용히 취소돼야 하고, `aborted` 는 애초에 알릴 사람이 없다.
+ */
+export type NavigationStatus =
+  /** 진행 중 — 아직 도착도 해제도 안 됐다 */
+  | 'moving'
+  /** 목적지 방에 들어왔다 (서버 존 판정 기준) */
+  | 'arrived'
+  /** 직원이 안내를 풀었다 */
+  | 'cancelled'
+  /** 도착 전에 **다른 방으로** 목적지가 바뀌었다 (그 새 안내가 다음 줄로 남는다) */
+  | 'superseded'
+  /**
+   * 끝을 볼 수 없게 된 안내 — 비콘 반납, 또는 서버 재시작으로 살아 있던 화살표가 사라짐.
+   * 이 상태가 있어야 "영원히 이동 중" 인 줄이 표에 남지 않는다.
+   */
+  | 'aborted';
+
+/**
+ * 방 안내 한 건의 이력 (발행 → 도착/해제). 살아 있는 화살표(`Guidance`)와 달리
+ * 재시작을 넘어 남는다 — 알림톡·대기시간 분석의 원본.
+ */
+export interface NavigationLog {
+  id: number;
+  tagId: string;
+  personId: string | null;
+  /** 발행 시점의 표시 이름 (보낸 메시지 내용이라 나중 개명에 따라 바뀌지 않는다) */
+  personName: string | null;
+  fromZone: string | null;
+  toZone: string;
+  issuedAt: number;
+  arrivedAt: number | null;
+  closedAt: number | null;
+  status: NavigationStatus;
+  travelSec: number | null;
+}
+
+/**
  * 도면에만 표시되는 라벨 — 존이 아니다(추적 대상 없음).
  * 도면 PDF 에 이름이 있지만 방이 아닌 것(가구·설비): 대기석, 직원PC, 서브데스크, 실외기실.
  */

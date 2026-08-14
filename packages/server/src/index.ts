@@ -44,6 +44,7 @@ import { KnownTagStore } from './presence/known-tag-store.js';
 import { AssignedTagStore } from './presence/assigned-tag-store.js';
 import { IdleBeaconStore } from './presence/idle-beacon-store.js';
 import { GuidanceStore } from './presence/guidance-store.js';
+import { NavigationLogStore } from './presence/navigation-log.js';
 import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
 import { ScanRouter } from './ingestion/scan-router.js';
 import { ScanRecorder } from './recording/scan-recorder.js';
@@ -133,6 +134,19 @@ const assignedTags = new AssignedTagStore(db);
 const idleBeacons = new IdleBeaconStore();
 /** 진행 중인 방 안내 (직원이 걸고, 도착하면 서버가 자동으로 푼다) */
 const guidance = new GuidanceStore();
+/**
+ * 안내 **이력** (DB). 위의 `guidance` 는 화면에 뜨는 살아 있는 화살표고, 이쪽은
+ * "무슨 지시를 내렸고 어떻게 끝났나" 다 — 알림톡이 붙는 자리라 재시작을 넘어 남아야 한다.
+ */
+const navLog = new NavigationLogStore(db);
+/**
+ * 재시작으로 화살표를 잃은 안내들을 끊는다.
+ * 안 끊으면 아무도 도착 판정을 못 해 주는 줄이 `moving` 으로 영원히 남는다.
+ */
+{
+  const stale = navLog.reconcileOnBoot();
+  if (stale > 0) console.log(`[server] 재시작 전 진행 중이던 방 안내 ${stale}건 정리(aborted)`);
+}
 
 /**
  * 손님 통제구역 마스크 — 직원이 도면에 칠해 준 구역.
@@ -619,6 +633,14 @@ const httpServer = createServer((req, res) => {
         const label = (name ?? '').trim();
         if (!label) throw new Error('이름을 입력하세요');
 
+        /**
+         * 배정은 열려 있던 배정을 먼저 닫는다(assignBeacon) — 인포에서 반납을 안 찍고
+         * 바로 다음 환자에게 넘기는 일이 실제로 생긴다. 그때 앞 사람의 안내가 살아 있으면
+         * **새 환자가 앞 사람의 목적지로 안내된다.** 배정 전에 끊는다.
+         */
+        guidance.clear(tagId);
+        navLog.aborted(tagId);
+
         const group = (tagMeta.all()[tagId]?.group ?? 'patient') as TagGroup;
         const { personId } = assignBeacon(db, { tagId, displayName: label, group });
         // 화면에 뜰 이름을 지금 사람 것으로. 메모는 비콘 설명이라 그대로 둔다
@@ -649,6 +671,12 @@ const httpServer = createServer((req, res) => {
         releaseBeacon(db, tagId);
         tagMeta.set(tagId, '', tagMeta.all()[tagId]?.memo ?? '', tagMeta.all()[tagId]?.group);
         assignedTags.reload();
+        /**
+         * 이동 중에 반납되면 그 안내는 끝을 볼 수 없다 — 추적이 끊기니 도착 판정이 안 온다.
+         * 화살표와 이력을 같이 끊어야 메신저에 "영원히 이동 중" 이 남지 않는다.
+         */
+        guidance.clear(tagId);
+        navLog.aborted(tagId);
 
         console.log(`[server] 반납: ${tagId}`);
         res.writeHead(200, CORS_JSON);
@@ -679,8 +707,15 @@ const httpServer = createServer((req, res) => {
             throw new Error(`안내할 수 없는 방: ${zoneId}`);
           }
           guidance.set(tagId, zoneId, Date.now());
+          /**
+           * 이력을 남긴다 — 출발지는 **지금 판정된 방**(복도·자리비움이면 null).
+           * 화살표를 세운 뒤에 적는 이유는 없다(순서는 무관); 다만 이력이 먼저 실패하면
+           * 화살표만 서는 상태가 되므로, 실패는 catch 로 같이 400 이 되게 둔다.
+           */
+          navLog.issue(tagId, zoneId, engine.getState(tagId)?.currentZone ?? null);
         } else {
           guidance.clear(tagId);
+          navLog.cancelled(tagId);
         }
         patient.guide(tagId, zoneId ?? null);
         console.log(`[server] 방 안내: ${tagId} → ${zoneId ?? '해제'}`);
@@ -691,6 +726,24 @@ const httpServer = createServer((req, res) => {
         res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
       }
     });
+    return;
+  }
+
+  /**
+   * 방 안내 이력 — `?limit=`, `?tag=`, `?person=` 로 좁힌다.
+   *
+   * 알림톡 연동이 읽어 갈 자리이자, 지금은 "안내가 제대로 닫히고 있나" 를 눈으로 보는 창구다.
+   * 진행 중(`moving`)인 줄도 같이 나온다 — 안 나오면 이동 중인 환자를 조회할 수 없다.
+   */
+  if (req.url?.startsWith('/nav-logs')) {
+    const url = new URL(req.url, 'http://localhost');
+    const logs = navLog.list({
+      limit: Number(url.searchParams.get('limit') ?? 100),
+      tagId: url.searchParams.get('tag') ?? undefined,
+      personId: url.searchParams.get('person') ?? undefined,
+    });
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify({ logs }));
     return;
   }
 
@@ -965,11 +1018,22 @@ setInterval(() => {
   });
   if (list.length === 0) return;
   io.of('/staff').emit('pos:update', list);
-  // 목적지 방에 들어왔으면 안내를 푼다 (판정 규칙은 GuidanceStore.arrived 참고)
+  /**
+   * 목적지 방에 들어왔으면 안내를 푼다 (판정 규칙은 GuidanceStore.arrived 참고).
+   *
+   * ⚠️ **여기서 외부 API(알림톡)를 기다리면 안 된다.** 이 루프는 전 화면의 좌표 방송이라,
+   *    메신저가 3초 버벅이면 모든 아바타가 3초 멈춘다. 이력은 DB 에 적기만 하고
+   *    (better-sqlite3 는 동기여도 인덱스 조회 한 번이라 빠르다), 발송은 앞으로 붙일
+   *    발송함 워커가 navLog.onEvent 를 받아 **이 루프 밖에서** 한다.
+   */
   for (const g of guidance.arrived(list)) {
+    const done = navLog.arrived(g.tagId);
     guidance.clear(g.tagId);
     patient.guide(g.tagId, null);
-    console.log(`[server] 방 안내 도착: ${g.tagId} → ${g.zoneId}`);
+    console.log(
+      `[server] 방 안내 도착: ${g.tagId} → ${g.zoneId}`
+        + (done?.travelSec != null ? ` (${done.travelSec}초 소요)` : ''),
+    );
   }
   // 환자 화면도 같은 좌표를 쓴다 (도트 스킨 + 확대만 다른 같은 그림).
   // 본인 좌표는 항상, 다른 사람은 patientSeesEveryone 이 켜졌을 때만 —

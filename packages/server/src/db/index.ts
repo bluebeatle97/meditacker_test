@@ -4,6 +4,8 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
+  NavigationLog,
+  NavigationStatus,
   PatientProfile,
   Person,
   PersonType,
@@ -327,6 +329,114 @@ export function closePresenceLog(db: Db, tagId: string, exitedAt: number, durati
     `UPDATE presence_logs SET exited_at = ?, duration_sec = ?
      WHERE id = (SELECT id FROM presence_logs WHERE tag_id = ? AND exited_at IS NULL ORDER BY entered_at DESC LIMIT 1)`,
   ).run(exitedAt, durationSec, tagId);
+}
+
+// ── 방 안내 이력 (알림톡·대기시간 분석의 원본) ──────────────────────────────
+//
+// 살아 있는 화살표는 GuidanceStore(메모리)에 있고, 여기는 그 이력이다.
+// 상태 전이는 전부 `closeNavLog` 한 곳을 지난다 — 종료 경로가 넷(도착·해제·변경·중단)이라
+// 각자 UPDATE 를 쓰면 travel_sec 을 빼먹거나 이미 닫힌 줄을 두 번 닫는 일이 생긴다.
+
+/** 진행 중인 안내 한 줄 (비콘당 최대 하나) */
+export function findOpenNavLog(db: Db, tagId: string): NavigationLog | undefined {
+  return db
+    .prepare(
+      `SELECT id, tag_id AS tagId, person_id AS personId, person_name AS personName,
+              from_zone AS fromZone, to_zone AS toZone, issued_at AS issuedAt,
+              arrived_at AS arrivedAt, closed_at AS closedAt, status, travel_sec AS travelSec
+       FROM navigation_logs WHERE tag_id = ? AND closed_at IS NULL
+       ORDER BY issued_at DESC LIMIT 1`,
+    )
+    .get(tagId) as NavigationLog | undefined;
+}
+
+export function openNavLog(
+  db: Db,
+  row: {
+    tagId: string;
+    personId: string | null;
+    personName: string | null;
+    fromZone: string | null;
+    toZone: string;
+    issuedAt: number;
+  },
+): number {
+  const info = db
+    .prepare(
+      `INSERT INTO navigation_logs
+         (tag_id, person_id, person_name, from_zone, to_zone, issued_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'moving')`,
+    )
+    .run(row.tagId, row.personId, row.personName, row.fromZone, row.toZone, row.issuedAt);
+  return Number(info.lastInsertRowid);
+}
+
+/**
+ * 진행 중인 안내를 닫는다. 열린 줄이 없으면 아무것도 안 하고 undefined.
+ *
+ * `travel_sec` 은 도착일 때만 채운다 — 해제·중단은 "몇 초 걸렸다" 가 의미 없는 값이고,
+ * 채워 두면 나중에 평균 이동시간을 낼 때 걸러야 할 쓰레기가 섞인다.
+ */
+export function closeNavLog(
+  db: Db,
+  tagId: string,
+  status: Exclude<NavigationStatus, 'moving'>,
+  at: number,
+): NavigationLog | undefined {
+  const open = findOpenNavLog(db, tagId);
+  if (!open) return undefined;
+  const arrived = status === 'arrived';
+  const travelSec = arrived ? Math.max(0, Math.round((at - open.issuedAt) / 1000)) : null;
+  db.prepare(
+    `UPDATE navigation_logs SET status = ?, closed_at = ?, arrived_at = ?, travel_sec = ?
+     WHERE id = ?`,
+  ).run(status, at, arrived ? at : null, travelSec, open.id);
+  return { ...open, status, closedAt: at, arrivedAt: arrived ? at : null, travelSec };
+}
+
+/**
+ * 서버가 뜰 때 남아 있는 `moving` 줄을 정리한다.
+ *
+ * 살아 있던 안내는 메모리에 있었으므로 재시작으로 전부 사라졌다 — 그 줄들을 그대로 두면
+ * 아무도 도착 판정을 해 줄 수 없어 **영원히 이동 중**으로 남는다. 알림을 붙이면 그게 곧
+ * 끝나지 않는 알림이 되므로, 뜰 때 한 번 끊어 준다.
+ */
+export function abortOpenNavLogs(db: Db, at: number): number {
+  const info = db
+    .prepare(
+      `UPDATE navigation_logs SET status = 'aborted', closed_at = ?
+       WHERE closed_at IS NULL`,
+    )
+    .run(at);
+  return info.changes;
+}
+
+/** 최근 이력 (관제·알림 연동에서 읽는다). 진행 중인 줄도 섞여 나온다 */
+export function listNavLogs(
+  db: Db,
+  opts: { limit?: number; personId?: string; tagId?: string } = {},
+): NavigationLog[] {
+  const where: string[] = [];
+  const args: unknown[] = [];
+  if (opts.personId) {
+    where.push('person_id = ?');
+    args.push(opts.personId);
+  }
+  if (opts.tagId) {
+    where.push('tag_id = ?');
+    args.push(opts.tagId);
+  }
+  args.push(Math.min(Math.max(opts.limit ?? 100, 1), 500));
+  return db
+    .prepare(
+      `SELECT id, tag_id AS tagId, person_id AS personId, person_name AS personName,
+              from_zone AS fromZone, to_zone AS toZone, issued_at AS issuedAt,
+              arrived_at AS arrivedAt, closed_at AS closedAt, status, travel_sec AS travelSec
+       FROM navigation_logs
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY issued_at DESC LIMIT ?`,
+    )
+    .all(...args) as NavigationLog[];
 }
 
 // ── 환자용 캐릭터 커스터마이징 (첫 진입 시 선택 → 반납 시 초기화) ───────────
