@@ -113,6 +113,41 @@ export class GatewayLayer {
     this.paint();
   }
 
+  /**
+   * 목록이 바뀌었을 때 (장비 관리에서 등록·이동·삭제) — 마커를 새로 세운다.
+   *
+   * 마커만 즉시 다시 만들고 **커버리지는 버리기만 한다.** 커버리지 계산은 1.4초쯤 걸려서
+   * 클릭 직후에 돌리면 화면이 그만큼 굳는다. 지금 화면에 깔려 있을 때만 다시 칠하고,
+   * 꺼져 있으면 다음에 켤 때 새 배치로 계산된다.
+   */
+  setGateways(list: Gateway[]): void {
+    this.d.gateways = list;
+    this.markers?.destroy(true);
+    this.markers = undefined;
+    this.dots = [];
+    this.rims = [];
+    this.labels = [];
+    this.isolated = null;
+    this.coverage = undefined;
+    // 캐시해 둔 커버리지 그림은 옛 배치다 — 이름을 지워야 다음 paint 가 다시 그린다
+    for (const key of this.drawn) this.d.scene.textures.remove(key);
+    this.drawn.clear();
+
+    const wasOn = this.overlay?.visible ?? false;
+    if (this.mode !== 'off') this.ensureMarkers().setVisible(true);
+    if (wasOn) this.paint();
+    this.d.onChange?.();
+  }
+
+  /**
+   * 마커만 잠깐 보이기 (도면에서 설치 지점을 찍는 동안).
+   * 커버리지는 건드리지 않는다 — 색칠 위에 점을 찍으면 어디가 빈자리인지 안 보인다.
+   */
+  showMarkers(on: boolean): void {
+    if (on) this.ensureMarkers().setVisible(true);
+    else this.markers?.setVisible(this.mode !== 'off');
+  }
+
   /** 게이트웨이 하나만 보기 (마커 클릭). 같은 것을 다시 누르면 해제 */
   isolate(index: number | null): void {
     this.isolated = this.isolated === index ? null : index;
@@ -144,6 +179,20 @@ export class GatewayLayer {
     }
     const img = this.ensureOverlay();
     img.setTexture(key);
+    /**
+     * 크기는 **텍스처를 바꾼 다음에** 잡아야 한다.
+     *
+     * `setDisplaySize` 는 배율을 `요청크기 / 현재프레임크기` 로 저장한다. 이 이미지는
+     * 빈 텍스처(`__MISSING`, 32px)로 태어나므로 그때 잡아 두면 배율이 32px 기준으로
+     * 굳고, 나중에 도면 크기(1650px) 캔버스로 갈아 끼워도 그 배율이 그대로 곱해져
+     * 50배쯤 확대된다. 그러면 화면에는 커버리지의 왼쪽 위 귀퉁이만 오는데 그 자리는
+     * 대개 벽이라 투명하다 — **버튼을 눌러도 아무 변화가 없는 것처럼 보인다.**
+     * 도면·통제구역 오버레이가 멀쩡한 건 진짜 텍스처를 들고 태어나기 때문이다.
+     */
+    img.setDisplaySize(
+      this.d.plan.width * this.d.worldScale,
+      this.d.plan.height * this.d.worldScale,
+    );
     img.setVisible(true);
   }
 
