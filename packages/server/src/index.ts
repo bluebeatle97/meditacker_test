@@ -1,14 +1,14 @@
 import { createServer, type IncomingMessage } from 'node:http';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildGatewayZoneMap,
-  gatewaysFilePath,
   loadFloorplan,
   loadGateways,
   loadRealGateways,
   loadZones,
+  saveGateways,
   SERVER_CONFIG,
   ZONE_ENGINE_CONFIG,
 } from './config/index.js';
@@ -21,6 +21,7 @@ import { WalkableMap } from './presence/walkable-map.js';
 import {
   assignBeacon,
   claimAssignment,
+  findBeacon,
   findBeaconByPin,
   getOpenAssignment,
   isClaimed,
@@ -32,6 +33,7 @@ import {
   registerBeacon,
   releaseBeacon,
   renameHolder,
+  retireBeacon,
   upsertPatientProfile,
 } from './db/index.js';
 import { createWsServer } from './ws/index.js';
@@ -45,6 +47,17 @@ import { AssignedTagStore } from './presence/assigned-tag-store.js';
 import { IdleBeaconStore } from './presence/idle-beacon-store.js';
 import { GuidanceStore } from './presence/guidance-store.js';
 import { NavigationLogStore } from './presence/navigation-log.js';
+import {
+  announceToManager,
+  channelTalkConfigured,
+  escapeMarkup,
+  listGroups,
+  listManagers,
+  mentionMarkup,
+  sendGroupMessage,
+  type ChannelTalkResult,
+} from './notifications/channel-talk/client.js';
+import { channelTalkTestPageHtml } from './notifications/channel-talk/test-page.js';
 import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
 import { ScanRouter } from './ingestion/scan-router.js';
 import { ScanRecorder } from './recording/scan-recorder.js';
@@ -55,6 +68,7 @@ import {
   TAG_GROUP_IDS,
   ZoneDwellFilter,
   ZONE_DWELL_MS,
+  type Gateway,
   type TagGroup,
 } from '@meditracker/shared';
 
@@ -80,7 +94,7 @@ let gateways = loadGateways();
  *
  * 두 목록이 서로 겹치지 않는 별개라(계획 50대에 실장비 2대가 없다) 이렇게 따로 읽는다.
  */
-const REAL_GATEWAYS = new Set(loadRealGateways().map((g) => g.gatewayId));
+let REAL_GATEWAYS = new Set(loadRealGateways().map((g) => g.gatewayId));
 /**
  * 목업 비콘 판정 — **시드 MAC 접두사**로 본다.
  *
@@ -106,7 +120,7 @@ let gatewayZoneMap = buildGatewayZoneMap(gateways);
 const engine = new ZoneEngine(gatewayZoneMap, ZONE_ENGINE_CONFIG);
 
 const presence = new PresenceService(engine, db);
-const estimator = new PositionEstimator(gateways, engine);
+const estimator = new PositionEstimator(gateways, engine, ZONE_ENGINE_CONFIG.POS_WEIGHT_DIV);
 const tagMeta = new TagMetaStore(db);
 // 도면 벽 정보 — 운영 화면 좌표를 벽 안쪽으로 보정 (관제는 raw 유지)
 const walkable = new WalkableMap();
@@ -273,6 +287,39 @@ function patientForToken(tagId: string | null): string {
   return row?.personId ?? 'patient-001';
 }
 
+/**
+ * 손으로 친 MAC 을 장비가 보내는 표기로 맞춘다 (`28562f79b420`·`28-56-2F-…` → `28:56:2F:…`).
+ *
+ * 장비 관리 화면에서는 사람이 스티커를 보고 직접 넣는다. 표기가 한 글자만 달라도
+ * `gatewayZoneMap`·화이트리스트가 **조용히** 안 맞아서 "등록했는데 아무 일도 안 일어난다"
+ * 가 된다 — 어댑터가 쓰는 것과 같은 규칙으로 여기서 한 번 펴 준다.
+ *
+ * 12자리 16진수가 아니면 빈 문자열 → 호출부가 거절한다.
+ */
+function normalizeMac(raw: string): string {
+  const hex = (raw ?? '').replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+  if (hex.length !== 12) return '';
+  return (hex.match(/.{2}/g) as string[]).join(':');
+}
+
+/**
+ * 게이트웨이 목록 교체 — 파일에 쓰고 **재시작 없이** 관문·판정·좌표추정·관제에 전부 민다.
+ *
+ * 등록·수정·삭제가 전부 여기를 지난다. 예전엔 등록 한 곳에만 이 다섯 줄이 있었는데,
+ * 한 군데라도 빠뜨리면 파일과 돌아가는 목록이 갈라져 화면이 조용히 거짓말을 한다.
+ */
+function applyGateways(list: Gateway[]): void {
+  saveGateways(list);
+  // 실장비 파일을 고쳤으면 '실장비' 판정도 같이 갱신 — 테스트 장비 스위치의 기준이다
+  REAL_GATEWAYS = new Set(loadRealGateways().map((g) => g.gatewayId));
+  // 테스트 장비를 꺼 둔 상태면 올릴 목록은 실장비뿐이다 (켜면 방금 쓴 파일 그대로)
+  gateways = scanRouter.isTestGearOn() ? list : loadRealGateways();
+  gatewayZoneMap = buildGatewayZoneMap(gateways);
+  engine.setGatewayZoneMap(gatewayZoneMap);
+  estimator.setGateways(gateways);
+  monitor?.setGateways(gateways);
+}
+
 const CORS_JSON = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
 
 /** 본문 수신 + 크기 방어. content-type 을 안 붙여 preflight 없는 simple request 로 받는다. */
@@ -373,6 +420,8 @@ const httpServer = createServer((req, res) => {
           assigned: b.personId !== null,
           group: tagMeta.all()[b.tagId]?.group ?? 'unassigned',
           name: tagMeta.all()[b.tagId]?.name ?? null,
+          // 비콘 설명 ('창고 3번 서랍') — 장비 관리 화면이 여기서 읽어 고친다
+          memo: tagMeta.all()[b.tagId]?.memo ?? null,
           lastSeen: idle?.lastSeen ?? null,
           lastGateway: idle?.gatewayId ?? null,
           lastRssi: idle?.rssi ?? null,
@@ -413,7 +462,14 @@ const httpServer = createServer((req, res) => {
             memo?: string;
             group?: string;
           };
-          const who = (name ?? '').trim();
+          /**
+           * `name` 을 아예 안 보내면 **지금 값을 그대로 둔다** (빈 문자열은 '지우기'로 남긴다).
+           *
+           * 장비 관리 화면은 그룹·메모만 고치는데, 거기서 이름을 같이 보내면 그 순간
+           * 비콘을 들고 있는 사람의 이름을 화면이 들고 있던 낡은 값으로 되돌린다.
+           */
+          const cur = tagMeta.all()[tagId];
+          const who = name === undefined ? (cur?.name ?? '') : name.trim();
           tagMeta.set(tagId, who, (memo ?? '').trim(), group);
           // 이름은 한 값이다 — 사람 쪽도 같이 바꿔야 환자 등록/반납과 어긋나지 않는다
           renameHolder(db, tagId, who);
@@ -839,43 +895,277 @@ const httpServer = createServer((req, res) => {
   if (req.url === '/register-gateway' && req.method === 'POST') {
     readBody(req, 2_000, (body) => {
       try {
-        const { gatewayId, zoneId, label } = JSON.parse(body) as {
+        const raw = JSON.parse(body) as {
           gatewayId: string;
           zoneId: string;
           label?: string;
+          tile?: { x: number; y: number };
+          /** 손으로 친 MAC 을 다른 것으로 고칠 때 — 이 값이 지금 목록에 있는 쪽이다 */
+          prevGatewayId?: string;
         };
-        const zone = loadZones().find((z) => z.zoneId === zoneId);
-        if (!gatewayId) throw new Error('gatewayId 없음');
-        if (!zone) throw new Error(`모르는 zoneId: ${zoneId}`);
+        const zone = loadZones().find((z) => z.zoneId === raw.zoneId);
+        const gatewayId = normalizeMac(raw.gatewayId);
+        if (!raw.gatewayId) throw new Error('gatewayId 없음');
+        if (!gatewayId) throw new Error(`MAC 형식이 아닙니다: ${raw.gatewayId}`);
+        if (!zone) throw new Error(`모르는 zoneId: ${raw.zoneId}`);
 
         const list = loadGateways();
-        const entry = {
-          gatewayId,
-          zoneId,
-          label: (label ?? '').trim() || `${zone.name} 게이트웨이`,
-          // 설치 지점을 사람이 알려주기 전까지는 그 방의 라벨 위치를 쓴다
-          tile: { x: zone.tilePosition.x, y: zone.tilePosition.y },
-        };
+        // MAC 을 고치는 수정이면 옛 줄을 먼저 뺀다 — 안 그러면 유령 게이트웨이가 남는다
+        const prev = raw.prevGatewayId ? normalizeMac(raw.prevGatewayId) : '';
+        const before = prev && prev !== gatewayId ? list.find((g) => g.gatewayId === prev) : undefined;
+        if (before) list.splice(list.indexOf(before), 1);
+
         const at = list.findIndex((g) => g.gatewayId === gatewayId);
+        const old = at >= 0 ? list[at] : before;
+        const moved = old !== undefined && old.zoneId !== raw.zoneId;
+        /** 옛 구역의 이름표 위치 — 사람이 좌표를 준 적 없다는 표시다 (등록할 때 넣는 자리표시자) */
+        const oldAnchor = old ? loadZones().find((z) => z.zoneId === old.zoneId)?.tilePosition : undefined;
+        const isPlaceholder = (t: { x: number; y: number } | undefined): boolean =>
+          !!t && !!oldAnchor && t.x === oldAnchor.x && t.y === oldAnchor.y;
+
+        const given =
+          raw.tile && Number.isFinite(raw.tile.x) && Number.isFinite(raw.tile.y)
+            ? { x: Math.round(raw.tile.x), y: Math.round(raw.tile.y) }
+            : undefined;
+        /**
+         * 설치 좌표는 **덮어쓰지 않는다** — 단, 구역을 옮겼는데 좌표가 옛 방 이름표
+         * 그대로면 따라 옮긴다.
+         *
+         * 두 규칙이 다 필요하다.
+         * - 현장에서 실측 지점을 넣어 둔 게이트웨이의 구역만 고쳤을 때 좌표가 조용히
+         *   라벨 위치로 되돌아가면 안 된다 (그래서 준 값을 우선한다).
+         * - 반대로 자리표시 좌표를 그대로 들고 방을 옮기면 **존 판정만 새 방이고 도면
+         *   마커는 옛 방에 남는다.** 실제로 상담실 4 → 대기공간 2 로 옮겼는데 게이트웨이가
+         *   상담실 4 에 그대로 그려졌다 — 화면이 조용히 거짓말을 하는 쪽이라 더 나쁘다.
+         */
+        const tile =
+          given && !(moved && isPlaceholder(given))
+            ? given
+            : !moved && old?.tile
+              ? old.tile
+              : { x: zone.tilePosition.x, y: zone.tilePosition.y };
+        /**
+         * 라벨도 같은 이유로 따라간다 — 서버가 지어 준 `상담실 4 게이트웨이` 가 대기공간 2
+         * 줄에 남아 있으면 목록만 보고는 어느 쪽이 맞는지 알 수 없다.
+         * 사람이 손으로 쓴 라벨은 그 사람의 말이라 건드리지 않는다.
+         */
+        const wasAuto = (l: string | undefined): boolean =>
+          !l?.trim() || loadZones().some((z) => l.trim() === `${z.name} 게이트웨이`);
+        const asked = (raw.label ?? '').trim();
+        const label =
+          asked && !(moved && wasAuto(asked))
+            ? asked
+            : !moved && old?.label
+              ? old.label
+              : `${zone.name} 게이트웨이`;
+        const entry: Gateway = { gatewayId, zoneId: raw.zoneId, label, tile };
         if (at >= 0) list[at] = entry;
         else list.push(entry);
-        writeFileSync(gatewaysFilePath(), JSON.stringify(list, null, 2) + '\n');
 
         // 재시작 없이 즉시 반영 (관문·판정·좌표추정·관제 표 전부)
-        gateways = list;
-        gatewayZoneMap = buildGatewayZoneMap(list);
-        engine.setGatewayZoneMap(gatewayZoneMap);
-        estimator.setGateways(list);
-        monitor?.setGateways(list);
+        applyGateways(list);
         scanRouter.forgetGateway(gatewayId);
+        if (before) scanRouter.forgetGateway(before.gatewayId);
 
-        console.log(`[server] 게이트웨이 등록: ${gatewayId} → ${zone.name} (총 ${list.length}대)`);
+        console.log(
+          `[server] 게이트웨이 ${at >= 0 || before ? '수정' : '등록'}: ${gatewayId} → ${zone.name}`
+            + ` (총 ${list.length}대)`,
+        );
         res.writeHead(200, CORS_JSON);
         res.end(JSON.stringify({ ok: true, gateways: list.length, entry }));
       } catch (e) {
         res.writeHead(400, CORS_JSON);
         res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
       }
+    });
+    return;
+  }
+  /**
+   * 게이트웨이 삭제 — 떼어 낸 장비, 잘못 친 MAC 을 목록에서 뺀다.
+   *
+   * 지운 뒤에도 그 장비가 살아서 신호를 보내면 "미등록 게이트웨이" 로 다시 뜬다.
+   * 그게 맞다 — 목록에서 뺐다고 전파가 멈추지는 않으니, 화면은 그 사실을 보여줘야 한다.
+   */
+  if (req.url === '/delete-gateway' && req.method === 'POST') {
+    readBody(req, 1_000, (body) => {
+      try {
+        const { gatewayId } = JSON.parse(body) as { gatewayId?: string };
+        const id = normalizeMac(gatewayId ?? '');
+        if (!id) throw new Error('gatewayId 없음');
+        const list = loadGateways();
+        const at = list.findIndex((g) => g.gatewayId === id);
+        if (at < 0) throw new Error(`목록에 없는 게이트웨이: ${id}`);
+        list.splice(at, 1);
+
+        applyGateways(list);
+        scanRouter.forgetGateway(id);
+
+        console.log(`[server] 게이트웨이 삭제: ${id} (총 ${list.length}대)`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, gateways: list.length }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+  /**
+   * 비콘 **입고** — 하드웨어 대장에만 올린다. 사람은 안 붙는다 (창고행).
+   *
+   * `/register-tag`(관제)와 다른 점이 여기다. 관제 쪽은 "지금 신호가 오는 미등록 비콘을
+   * 보고 바로 추적을 시작한다" 는 흐름이라 등록과 배정을 같이 한다. 장비 관리는
+   * **박스로 들어온 팔찌 100개를 대장에 올리는** 일이라 사람이 없다 — 창고에 있는 상태가
+   * 정상이고, 환자에게 넘기는 건 인포의 '환자 등록' 이 따로 한다.
+   */
+  if (req.url === '/register-beacon' && req.method === 'POST') {
+    readBody(req, 4_000, (body) => {
+      try {
+        const { tagId, group, memo } = JSON.parse(body) as {
+          tagId?: string;
+          group?: string;
+          memo?: string;
+        };
+        const id = normalizeMac(tagId ?? '');
+        if (!tagId) throw new Error('tagId 없음');
+        if (!id) throw new Error(`MAC 형식이 아닙니다: ${tagId}`);
+        const exists = findBeacon(db, id);
+        // 이미 있는 비콘을 '신규 등록' 으로 또 올리면 아무 일도 안 일어난 것처럼 보인다.
+        // 폐기된 것을 다시 올리는 건 되살리기라 허용한다 (registerBeacon 이 retired=0 로 되돌린다)
+        if (exists && !exists.retired) throw new Error(`이미 등록된 비콘입니다: ${id}`);
+        const g = (TAG_GROUP_IDS.includes(group as TagGroup) ? group : 'unassigned') as TagGroup;
+
+        registerBeacon(db, id);
+        /**
+         * 이름은 **비우고** 그룹·메모만 붙인다. 비콘의 이름은 6자리 코드 하나고,
+         * 이름 칸은 그 비콘을 지금 든 사람의 자리다 (환자 등록이 채운다).
+         */
+        tagMeta.set(id, '', (memo ?? '').trim(), g);
+        knownTags.reload(); // 다음 스캔부터 화이트리스트 통과 → 창고에서도 마지막 신호가 잡힌다
+        unknownTags.forget(id);
+
+        console.log(`[server] 비콘 입고: ${id} (${g}) — 창고`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, tagId: id, pin: pinOf(id), knownTags: knownTags.size() }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+  /**
+   * 비콘 폐기 — 분실·고장으로 재고에서 뺀다.
+   *
+   * 줄을 지우지 않고 `retired` 표시만 남긴다 (schema.sql 참고). 체류 기록·안내 이력이
+   * 이 tag_id 를 가리키고 있어서, 진짜로 지우면 지난 기록이 주인 없는 값이 된다.
+   * 화면에서는 사라지고 화이트리스트에서도 빠지므로 운영상으로는 삭제와 같다.
+   */
+  if (req.url === '/delete-beacon' && req.method === 'POST') {
+    readBody(req, 1_000, (body) => {
+      try {
+        const { tagId } = JSON.parse(body) as { tagId?: string };
+        const id = normalizeMac(tagId ?? '');
+        if (!id) throw new Error('tagId 없음');
+        if (!findBeacon(db, id)) throw new Error(`등록되지 않은 비콘: ${id}`);
+
+        // 들고 있는 사람이 있으면 배정부터 닫힌다 (retireBeacon 안에서 release)
+        retireBeacon(db, id);
+        // 이동 중이었다면 도착 판정을 해 줄 사람이 없다 — 화살표와 이력을 같이 끊는다
+        guidance.clear(id);
+        navLog.aborted(id);
+        knownTags.reload(); // 다음 스캔부터 관문에서 막힌다
+        assignedTags.reload();
+        idleBeacons.forget(id);
+        engine.forget((t) => t === id); // 화면에 남은 아바타를 바로 치운다
+        smoothed.delete(id);
+
+        console.log(`[server] 비콘 폐기: ${id}`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, knownTags: knownTags.size() }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+  /**
+   * ── 채널톡(채널 웍스) 알림 연동 테스트 ─────────────────────────────
+   * GET  /channeltalk-test      버튼 눌러 손으로 확인하는 테스트 페이지
+   * GET  /channeltalk/status    키 설정 여부 + 기본값 (키 자체는 절대 안 나간다)
+   * GET  /channeltalk/managers  멘션·공지 대상 고르기용 매니저 목록
+   * GET  /channeltalk/groups    팀챗 그룹 목록
+   * POST /channeltalk/send      { kind:'group'|'announce', managerId, managerName, text, group? }
+   *
+   * 채널톡 호출이 전부 서버 경유인 이유: 키를 프론트에 주면 안 되고(비밀값),
+   * api.channel.io 는 브라우저 CORS 도 막혀 있다.
+   * ⚠️ 인증 없음 — /register-gateway 와 같은 수준. staff 토큰 뒤로 같이 옮길 것.
+   *    공개 배포에 키를 올리면 아무나 이 경로로 팀챗에 글을 쓸 수 있다.
+   */
+  if (req.url === '/channeltalk-test') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(channelTalkTestPageHtml());
+    return;
+  }
+  if (req.url === '/channeltalk/status') {
+    res.writeHead(200, CORS_JSON);
+    res.end(
+      JSON.stringify({
+        configured: channelTalkConfigured(),
+        botName: SERVER_CONFIG.channelTalk.botName,
+        group: SERVER_CONFIG.channelTalk.group,
+        managerId: SERVER_CONFIG.channelTalk.managerId,
+      }),
+    );
+    return;
+  }
+  if (req.url === '/channeltalk/managers' || req.url === '/channeltalk/groups') {
+    const call = req.url === '/channeltalk/managers' ? listManagers : listGroups;
+    void call().then((r) => {
+      // 채널톡 쪽 실패(키 오류·요금제·429)는 502 로 구분한다 — 400 은 우리 요청 문제
+      res.writeHead(r.ok ? 200 : 502, CORS_JSON);
+      res.end(JSON.stringify(r));
+    });
+    return;
+  }
+  if (req.url === '/channeltalk/send' && req.method === 'POST') {
+    readBody(req, 4_000, (body) => {
+      void (async () => {
+        try {
+          const { kind, managerId, managerName, text, group } = JSON.parse(body) as {
+            kind?: 'group' | 'announce';
+            managerId?: string;
+            managerName?: string;
+            text?: string;
+            group?: string;
+          };
+          const msg = (text ?? '').trim();
+          if (!msg) throw new Error('text 없음');
+          if (!managerId) throw new Error('managerId 없음 — 매니저 목록에서 선택');
+
+          let r: ChannelTalkResult;
+          if (kind === 'announce') {
+            // 그룹을 안 거치고 그 사람 알림함으로 직행 (봇이 팀챗 DM 을 열어주는 API 는 없다)
+            r = await announceToManager(managerId, msg);
+          } else {
+            const g = (group ?? '').trim() || SERVER_CONFIG.channelTalk.group;
+            if (!g) throw new Error('group 없음 — 그룹 목록에서 선택하거나 CHANNELTALK_GROUP 설정');
+            r = await sendGroupMessage(
+              g,
+              `${mentionMarkup(managerId, managerName ?? 'manager')} ${escapeMarkup(msg)}`,
+            );
+          }
+          console.log(`[server] 채널톡 ${kind ?? 'group'} 전송 → HTTP ${r.status}${r.ok ? '' : ' 실패'}`);
+          res.writeHead(r.ok ? 200 : 502, CORS_JSON);
+          res.end(JSON.stringify(r));
+        } catch (e) {
+          res.writeHead(400, CORS_JSON);
+          res.end(
+            JSON.stringify({ ok: false, status: 0, body: { error: (e as Error).message } }),
+          );
+        }
+      })();
     });
     return;
   }

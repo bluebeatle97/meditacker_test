@@ -1,9 +1,20 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { FloorplanMeta, Gateway, Zone } from '@meditracker/shared';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * 로컬 개발용 비밀값 로딩 (packages/server/.env — 커밋 금지, .env.example 참고).
+ * 셸에 이미 있는 환경변수가 항상 이긴다(loadEnvFile 기본 동작). Render 에는 파일이
+ * 없으니 조용히 넘어가고, 거기서는 대시보드 환경변수를 쓴다.
+ */
+try {
+  process.loadEnvFile(join(here, '../../.env'));
+} catch {
+  // .env 없음 — 환경변수만 사용
+}
 
 /** 존 판정 튜닝 파라미터 (설계서 6.2 — 현장 테스트로 실측 조정) */
 export const ZONE_ENGINE_CONFIG = {
@@ -21,6 +32,11 @@ export const ZONE_ENGINE_CONFIG = {
   HYSTERESIS_DB: Number(process.env.HYSTERESIS_DB ?? 8),
   /** 후보존이 연속 N회 최강일 때 전환 확정 (판정 주기 × N 만큼 버틴다) */
   CONFIRM_COUNT: Number(process.env.CONFIRM_COUNT ?? 3),
+  /**
+   * 좌표 가중치의 가파르기 (`POS_WEIGHT_DIV`). 자세한 근거는 `PositionEstimator` 주석 —
+   * 20 = 1/거리, 10 = 1/거리². 낮출수록 점이 가장 센 게이트웨이에 붙는다.
+   */
+  POS_WEIGHT_DIV: Number(process.env.POS_WEIGHT_DIV ?? 20),
   ABSENT_TIMEOUT_MS: 15000, // 이 시간 신호 없으면 자리비움(null)
   /**
    * 이 시간 무신호면 상태를 **메모리에서 완전히 제거**한다 (자리비움과 다름).
@@ -165,6 +181,21 @@ export const SERVER_CONFIG = {
    * `RECORD_SCANS=1` 처럼 아무 값이나 주면 시각 기반 이름으로 저장한다.
    */
   recordScans: process.env.RECORD_SCANS ?? null,
+  /**
+   * 채널톡(채널 웍스) 알림 연동 — Access Key/Secret 둘 다 있어야 켜진 것으로 본다.
+   * 발급: 채널 데스크 → 설정 → API 키 관리. 손 테스트는 GET /channeltalk-test.
+   * 그룹·매니저 ID 는 외우는 값이 아니라 테스트 페이지의 목록 버튼으로 알아내는 값이다.
+   */
+  channelTalk: {
+    accessKey: process.env.CHANNELTALK_ACCESS_KEY ?? '',
+    accessSecret: process.env.CHANNELTALK_ACCESS_SECRET ?? '',
+    /** 팀챗에 찍히는 봇 이름 */
+    botName: process.env.CHANNELTALK_BOT_NAME ?? '메디트래커',
+    /** 알림이 갈 팀챗 그룹 — 이름 또는 숫자 ID. 테스트 페이지에서 그때그때 고를 수도 있다 */
+    group: process.env.CHANNELTALK_GROUP ?? '',
+    /** 기본 멘션·공지 대상 매니저 ID (테스트 페이지 기본 선택값) */
+    managerId: process.env.CHANNELTALK_MANAGER_ID ?? '',
+  },
 };
 
 export function loadZones(): Zone[] {
@@ -203,6 +234,16 @@ export function gatewaysFilePath(): string {
 
 export function loadGateways(): Gateway[] {
   return JSON.parse(readFileSync(gatewaysFilePath(), 'utf-8'));
+}
+
+/**
+ * 게이트웨이 목록을 파일에 쓴다 (등록·수정·삭제의 단일 출구).
+ *
+ * 쓰는 파일은 `loadGateways()` 가 읽는 그 파일이다 — 계획 배치로 띄웠으면 계획 파일이
+ * 바뀐다. 읽는 곳과 쓰는 곳이 갈리면 "등록했는데 재시작하니 없다" 가 된다.
+ */
+export function saveGateways(list: Gateway[]): void {
+  writeFileSync(gatewaysFilePath(), JSON.stringify(list, null, 2) + '\n');
 }
 
 /**

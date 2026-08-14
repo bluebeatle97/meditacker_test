@@ -14,6 +14,22 @@ export class PositionEstimator {
   constructor(
     gateways: Gateway[],
     private engine: ZoneEngine,
+    /**
+     * 가중치의 가파르기 — `w = 10^((RSSI+100) / 이 값)`.
+     *
+     * 경로손실을 대입하면 `w ∝ 거리^(-10n/이 값)` 이 된다. 실내 감쇠지수 n≈2 기준으로
+     * **20 이면 1/거리, 10 이면 1/거리²** 이다. 낮출수록 가장 센 게이트웨이 하나가
+     * 무게를 독식해 점이 그 위로 바짝 붙고, 높일수록 여러 대 사이로 퍼진다.
+     *
+     * 왜 열어 뒀나 — 5대를 깔고 재 보니, 창고 게이트웨이 **바로 옆**에 둔 비콘 셋이
+     * 하나같이 2.0~2.7m 북동쪽으로 밀렸다. 창고가 1등(-50)이어도 나머지 넷이 -64 언저리로
+     * 다 듣는 탓에 그쪽 가중치 합이 44%나 되고, 그 넷의 무게중심이 북동쪽이라 그렇다.
+     * 20 → 10 이면 같은 14dB 차이가 5배에서 25배로 벌어져 그 끌림이 줄어든다.
+     *
+     * 대가가 있다. 게이트웨이 **사이**에 있는 비콘의 보간이 뭉툭해진다 — 중간에 서 있어도
+     * 가까운 쪽으로 붙는다. 어느 쪽이 나은지는 배치와 용도에 달렸으니 현장에서 고른다.
+     */
+    private weightDiv = 20,
   ) {
     this.setGateways(gateways);
   }
@@ -54,8 +70,8 @@ export class PositionEstimator {
          */
         const tile = this.gatewayTiles.get(r.gatewayId);
         if (!tile) continue;
-        // 신호 세기 → 선형 가중치. +100 오프셋 후 지수화 (-55dBm ≈ 178, -85dBm ≈ 5.6)
-        const w = Math.pow(10, (r.rssi + 100) / 20);
+        // 신호 세기 → 가중치. +100 오프셋 후 지수화 (기본 20 기준 -55dBm ≈ 178, -85dBm ≈ 5.6)
+        const w = Math.pow(10, (r.rssi + 100) / this.weightDiv);
         wSum += w;
         xSum += tile.x * w;
         ySum += tile.y * w;
