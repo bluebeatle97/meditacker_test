@@ -22,6 +22,7 @@ import type {
 } from '@meditracker/shared';
 import { AlertPanel, STUCK_ALERT_MS, type StuckAlert } from './alert-panel';
 import { BeaconAdmin } from './beacon-admin';
+import { EquipmentAdmin, type PickedPoint } from './equipment-admin';
 import { escapeHtml } from './format';
 import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mode';
 import { GatewayLayer, type GatewayMode } from './gateway-layer';
@@ -82,6 +83,33 @@ const SPREAD_DOT_R = 9; // 비키는 거리. 실제 위치에서 이 이상 떼�
  */
 const TRANSIT_ZONE_ID = '__transit';
 const TRANSIT_ZONE_LABEL = '복도 이동 중';
+
+/**
+ * 포인터의 **화면(page) 좌표** — 커서 옆에 DOM 말풍선을 붙이는 데 쓴다.
+ *
+ * 마우스면 원본 이벤트의 clientX/Y 를 그대로 쓴다. 터치는 그 값이 없을 수 있어
+ * 캔버스 위치와 Scale.FIT 배율로 되돌려 계산한다 (게임 좌표 → 화면 픽셀).
+ */
+function pagePoint(p: Phaser.Input.Pointer, canvas: HTMLCanvasElement): { x: number; y: number } {
+  const e = p.event as MouseEvent | undefined;
+  if (e && Number.isFinite(e.clientX)) return { x: e.clientX, y: e.clientY };
+  const r = canvas.getBoundingClientRect();
+  return { x: r.left + (p.x / CW) * r.width, y: r.top + (p.y / CH) * r.height };
+}
+
+/** 이름표가 가장 가까운 존 (방 상자로 못 가릴 때의 차선책) */
+function nearestZone(zones: Zone[], x: number, y: number): Zone | null {
+  let best: Zone | null = null;
+  let bestD = Infinity;
+  for (const z of zones) {
+    const d = Math.hypot(z.tilePosition.x - x, z.tilePosition.y - y);
+    if (d < bestD) {
+      bestD = d;
+      best = z;
+    }
+  }
+  return best;
+}
 
 /** 태그마다 고정된 회피 방향 — 무리 구성이 바뀌어도 각도가 변하지 않아야 안 흔들린다 */
 function spreadAngleFor(tagId: string): number {
@@ -305,6 +333,7 @@ class StaffMapScene extends Phaser.Scene {
     this.time.addEvent({ delay: 1000, loop: true, callback: () => this.refreshPanel() });
 
     this.setupBeaconAdmin();
+    this.setupEquipmentAdmin(zones);
     this.setupZoom();
     if (this.demo) {
       markDemoUi();
@@ -335,6 +364,126 @@ class StaffMapScene extends Phaser.Scene {
       (tagId) => this.guidance.get(tagId) ?? null,
     );
     btn.onclick = () => admin.open();
+  }
+
+  /**
+   * 장비 관리 — 게이트웨이·비콘 등록/수정/삭제.
+   *
+   * 구역 목록은 **안내 목적지가 아니라 존 전체**를 준다. 게이트웨이는 화장실·직원구역
+   * 천장에도 달리고, 거기 달린 장비도 존에 매여야 판정에 쓰인다.
+   *
+   * 시연 모드(서버 없음)에서는 고칠 대상이 없으므로 버튼을 내린다 — 환자 등록/반납과 같다.
+   */
+  private setupEquipmentAdmin(zones: Zone[]): void {
+    const btn = document.getElementById('eqadmin-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    if (this.demo) {
+      btn.remove();
+      return;
+    }
+    const admin = new EquipmentAdmin(SERVER_URL, zones, {
+      pickOnMap: (who) => this.pickOnMap(who),
+      // 저장 직후 도면의 마커가 따라 움직인다 — 창을 닫아 봐야 아는 것보다 낫다
+      onGateways: (list) => this.gwLayer?.setGateways(list),
+    });
+    btn.onclick = () => admin.open();
+  }
+
+  /**
+   * 도면에서 한 지점을 찍게 한다 (게이트웨이 설치 지점).
+   *
+   * **왜 도면에서 찍나.** 설치 좌표는 도면 픽셀값이라 사람이 외울 수 있는 수가 아니다.
+   * 그래서 실제로는 아무도 안 넣고 방 이름표 위치(자리표시자)로 남는데, 그러면 커버리지
+   * 그림이 통째로 가정이 된다. 천장을 올려다보며 "여기" 를 짚는 일은 도면 위 클릭 한 번이
+   * 맞는 형태다.
+   *
+   * 확대·드래그는 그대로 살려 둔다 — 좁은 방의 한 지점을 기본 배율에서 찍을 수는 없다.
+   * 그래서 **끌지 않은 클릭만** 지점 선택으로 친다 (누른 자리에서 8px 이내에서 뗐을 때).
+   */
+  private pickOnMap(who: string): Promise<PickedPoint | null> {
+    const bar = document.getElementById('pickbar')!;
+    const tip = document.getElementById('picktip')!;
+    const cancel = document.getElementById('pickbar-cancel') as HTMLButtonElement;
+    document.getElementById('pickbar-who')!.textContent = who;
+    bar.hidden = false;
+    // 이미 달린 게이트웨이를 보면서 골라야 한다 (겹쳐 달면 둘 다 헛돈다)
+    this.gwLayer?.showMarkers(true);
+    this.input.setDefaultCursor('crosshair');
+
+    const ring = this.add.circle(0, 0, 9).setStrokeStyle(2.5, PICK_RING_COLOR, 1).setDepth(5);
+    this.uiCam?.ignore(ring);
+
+    return new Promise<PickedPoint | null>((resolve) => {
+      const done = (p: PickedPoint | null): void => {
+        this.input.off('pointermove', onMove);
+        this.input.off('pointerup', onUp);
+        document.removeEventListener('keydown', onKey);
+        cancel.onclick = null;
+        bar.hidden = true;
+        tip.hidden = true;
+        ring.destroy();
+        this.gwLayer?.showMarkers(false);
+        this.renderZoomUi(); // 커서를 원래대로 (확대 중이면 grab)
+        resolve(p);
+      };
+
+      const at = (p: Phaser.Input.Pointer): PickedPoint => {
+        const x = Math.round((p.worldX - this.offX) / this.worldScale);
+        const y = Math.round((p.worldY - this.offY) / this.worldScale);
+        const zone = this.zoneAt(x, y);
+        return { x, y, zoneId: zone?.zoneId ?? null, zoneName: zone?.name ?? null };
+      };
+
+      const onMove = (p: Phaser.Input.Pointer): void => {
+        const hit = at(p);
+        ring.setPosition(this.sx(hit.x), this.sy(hit.y)).setVisible(true);
+        // 커서 옆에 붙인다 — 화면 오른쪽·아래 끝에서는 안쪽으로 밀어 잘리지 않게
+        tip.hidden = false;
+        tip.innerHTML = `<b>${escapeHtml(hit.zoneName ?? '방 밖')}</b> · ${hit.x}, ${hit.y}`;
+        const cursor = pagePoint(p, this.game.canvas);
+        const w = tip.offsetWidth;
+        const h = tip.offsetHeight;
+        tip.style.left = `${Math.min(cursor.x + 14, window.innerWidth - w - 6)}px`;
+        tip.style.top = `${Math.min(cursor.y + 16, window.innerHeight - h - 6)}px`;
+      };
+
+      // 끌어서 도면을 옮긴 것은 선택이 아니다 (게이트웨이 마커 클릭과 같은 규칙)
+      const onUp = (p: Phaser.Input.Pointer): void => {
+        if (p.getDistance() < 8) done(at(p));
+      };
+
+      const onKey = (e: KeyboardEvent): void => {
+        if (e.key === 'Escape') done(null);
+      };
+
+      this.input.on('pointermove', onMove);
+      this.input.on('pointerup', onUp);
+      document.addEventListener('keydown', onKey);
+      cancel.onclick = () => done(null);
+    });
+  }
+
+  /**
+   * 이 지점이 어느 방인가.
+   *
+   * 벽 격자로 그 자리의 **방 상자**를 재고, 그 안에 이름표가 있는 존을 고른다 —
+   * 가장 가까운 이름표를 고르는 방법은 벽 하나를 사이에 둔 옆방을 자주 집는다.
+   * 벽 위·복도처럼 방 상자가 안 나오는 자리는 가장 가까운 이름표로 되돌아간다
+   * (천장 설비는 벽에 붙기도 한다).
+   */
+  private zoneAt(x: number, y: number): Zone | null {
+    const box = this.pf.roomBoxAt(x, y);
+    if (box) {
+      const inside = [...this.zones.values()].filter(
+        (z) =>
+          Math.abs(z.tilePosition.x - box.cx) <= box.w / 2 &&
+          Math.abs(z.tilePosition.y - box.cy) <= box.h / 2,
+      );
+      if (inside.length === 1) return inside[0];
+      // 상자 안에 이름표가 여럿이면(문이 열려 이어진 공간) 그중 가까운 쪽
+      if (inside.length > 1) return nearestZone(inside, x, y);
+    }
+    return nearestZone([...this.zones.values()], x, y);
   }
 
   /**

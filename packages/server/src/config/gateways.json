@@ -16,5 +16,41 @@
       "x": 807,
       "y": 415
     }
+  },
+  {
+    "gatewayId": "28:56:2F:77:1E:A8",
+    "zoneId": "reception",
+    "label": "접수데스크 게이트웨이",
+    "tile": {
+      "x": 1178,
+      "y": 727
+    }
+  },
+  {
+    "gatewayId": "80:F3:DA:92:23:D0",
+    "zoneId": "waiting_1",
+    "label": "대기공간 1 게이트웨이",
+    "tile": {
+      "x": 901,
+      "y": 791
+    }
+  },
+  {
+    "gatewayId": "34:94:54:B3:CF:B0",
+    "zoneId": "waiting_2",
+    "label": "대기공간 2 게이트웨이",
+    "tile": {
+      "x": 1251,
+      "y": 862
+    }
+  },
+  {
+    "gatewayId": "28:56:2F:79:69:1C",
+    "zoneId": "photo",
+    "label": "촬영실 게이트웨이",
+    "tile": {
+      "x": 1232,
+      "y": 414
+    }
   }
 ]

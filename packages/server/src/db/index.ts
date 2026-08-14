@@ -158,6 +158,14 @@ export function registerBeacon(db: Db, tagId: string, label?: string): void {
   ).run(tagId, label ?? null, Date.now());
 }
 
+/** 이 MAC 이 이미 재고에 있나 (폐기된 것도 포함 — 되살리는 건 등록과 다른 일이다) */
+export function findBeacon(db: Db, tagId: string): { tagId: string; retired: boolean } | undefined {
+  const row = db
+    .prepare(`SELECT tag_id AS tagId, retired FROM beacons WHERE tag_id = ?`)
+    .get(tagId) as { tagId: string; retired: number } | undefined;
+  return row ? { tagId: row.tagId, retired: row.retired === 1 } : undefined;
+}
+
 /** 분실·고장으로 재고에서 뺀다. 열린 배정이 있으면 같이 닫는다 */
 export function retireBeacon(db: Db, tagId: string): void {
   db.transaction(() => {

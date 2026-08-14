@@ -310,6 +310,129 @@
       .badmin-gsel:hover { background: #4a201d; color: #fff; }
       .badmin-gsel option, .badmin-gsel optgroup { background: #141a26; color: #dbe4f0; }
 
+      /* ── 장비 관리: 게이트웨이·비콘 등록/수정/삭제 ──────────────────── */
+      #eqadmin-btn { border: 1px solid #6f8fbf; background: #182535; color: #a8c8f0; }
+      #eqadmin-btn:hover { background: #21344a; }
+      #eqadmin {
+        position: fixed; inset: 0; z-index: 220; background: #000a;
+        display: flex; align-items: center; justify-content: center;
+      }
+      #eqadmin[hidden] { display: none; }
+      #eqadmin-box {
+        width: 620px; max-height: 86vh; display: flex; flex-direction: column;
+        background: #141a24; border: 1px solid #2f3a4c; border-radius: 10px;
+        box-shadow: 0 12px 40px #000b; overflow: hidden;
+      }
+      #eqadmin-head {
+        display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+        border-bottom: 1px solid #2f3a4c; background: #1a212d; color: #e6edf6;
+      }
+      #eqadmin-tabs { display: flex; gap: 4px; margin-left: auto; }
+      #eqadmin-tabs button {
+        padding: 3px 11px; border-radius: 999px; cursor: pointer;
+        border: 1px solid #3a4658; background: none; color: #9fb0c6; font: 600 11.5px inherit;
+      }
+      #eqadmin-tabs button.on { background: #35608f; border-color: #35608f; color: #fff; }
+      #eqadmin-close {
+        padding: 2px 7px; border-radius: 6px; cursor: pointer;
+        border: 1px solid #3a4658; background: none; color: #9fb0c6;
+      }
+      #eqadmin-body { overflow-y: auto; padding: 8px 10px 14px; color: #cfdcec; }
+      /* 실패 사유는 줄 위가 아니라 화면 맨 위 한 자리에 모은다 — 어디를 봐야 할지 헷갈리지 않게 */
+      .eq-warn:empty { display: none; }
+      .eq-warn {
+        margin: 4px 2px 8px; padding: 7px 10px; border-radius: 7px;
+        background: #3a1620; border: 1px solid #8c3b4a; color: #ffc9d1; font-size: 12px;
+      }
+      .eq-empty { padding: 20px; text-align: center; color: #6d7d94; font-size: 12px; }
+      .eq-gh {
+        margin: 14px 2px 5px; color: #8fa0b8; font-size: 11px; font-weight: 700;
+        letter-spacing: .03em;
+      }
+      .eq-gh b { color: #cfdcec; }
+      /* 신규 등록 칸은 목록과 확실히 갈라 놓는다 (아래 줄들과 같은 모양이면 어디가 새 줄인지 모른다) */
+      .eq-new {
+        margin: 2px 0 6px; padding: 9px 10px; border-radius: 8px;
+        background: #16202e; border: 1px solid #2b3a52;
+      }
+      .eq-new-t { margin-bottom: 6px; color: #a8c8f0; font: 700 12px inherit; }
+      .eq-new-r { display: flex; align-items: center; gap: 6px; }
+      .eq-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+      .eq-card {
+        margin: 4px 0; padding: 6px 8px; border-radius: 7px;
+        background: #171f2c; border: 1px solid #232f42;
+      }
+      .eq-card:hover { border-color: #33445f; }
+      #eqadmin-body input, #eqadmin-body select {
+        box-sizing: border-box; padding: 4px 6px; border-radius: 6px;
+        border: 1px solid #2c3a52; background: #101725; color: #dbe4f0;
+        font: 400 12px inherit;
+      }
+      #eqadmin-body input:focus, #eqadmin-body select:focus {
+        outline: none; border-color: #58a6ff;
+      }
+      #eqadmin-body option { background: #141a26; color: #dbe4f0; }
+      .eq-mac { width: 190px; font-family: ui-monospace, monospace; }
+      .eq-num { width: 58px; font-family: ui-monospace, monospace; }
+      .eq-grow { flex: 1; min-width: 0; }
+      .eq-xy {
+        display: flex; align-items: center; gap: 4px; flex: none;
+        color: #7f8ea6; font-size: 11px;
+      }
+      .eq-id { color: #8fa0b8; font: 600 11px ui-monospace, monospace; }
+      .eq-pin {
+        flex: none; padding: 2px 6px; border-radius: 5px; background: #101725;
+        color: #cfdcec; font: 700 11.5px ui-monospace, monospace; letter-spacing: .4px;
+      }
+      .eq-sub { color: #6d7d94; font-size: 11px; overflow: hidden;
+        white-space: nowrap; text-overflow: ellipsis; }
+      .eq-on { flex: none; padding: 1px 7px; border-radius: 5px;
+        background: #16302a; color: #7fe0bd; font: 600 11px inherit; }
+      .eq-hint { margin-top: 6px; color: #7f8ea6; font-size: 11px; line-height: 1.5; }
+      .eq-hint b, .eq-note b { color: #a8c8f0; }
+      .eq-note:empty { display: none; }
+      .eq-note { margin: 4px 2px; color: #a9915f; font-size: 11px; line-height: 1.5; }
+      .eq-btn {
+        flex: none; padding: 4px 11px; border-radius: 6px; cursor: pointer;
+        border: 1px solid #3a4658; background: none; color: #9fb0c6; font: 600 11.5px inherit;
+      }
+      .eq-btn:hover { background: #263141; color: #cfdcec; }
+      .eq-btn.ok { border-color: #35608f; background: #17263a; color: #a8c8f0; }
+      .eq-btn.ok:hover { background: #21395a; color: #fff; }
+      .eq-btn.pick { border-color: #58a6ff; background: #16233a; color: #a8c8f0; }
+      .eq-btn.pick:hover { background: #1f3352; color: #fff; }
+      .eq-btn.del { border-color: #8c3b36; background: #2a1512; color: #ff9c94; }
+      .eq-btn.del:hover { background: #4a201d; color: #fff; }
+
+      /* ── 도면에서 설치 지점 찍기 ──────────────────────────────────────
+         찍는 동안에는 장비 관리 창을 감추고 도면만 남긴다. 창을 띄운 채로는
+         가려진 방을 고를 수 없어서 결국 창을 옮기거나 닫아야 한다. */
+      #pickbar {
+        position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 300;
+        display: flex; align-items: center; gap: 12px;
+        padding: 9px 14px; border-radius: 9px;
+        background: #10243af5; border: 1px solid #58a6ff;
+        box-shadow: 0 8px 26px #000a;
+        color: #dbe9fb; font: 600 13px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+      }
+      #pickbar[hidden] { display: none; }
+      #pickbar .who { color: #a8c8f0; font-family: ui-monospace, monospace; font-size: 12px; }
+      #pickbar .esc { color: #7f97b3; font-weight: 400; font-size: 11.5px; }
+      #pickbar button {
+        padding: 3px 10px; border-radius: 6px; cursor: pointer;
+        border: 1px solid #3a4658; background: none; color: #9fb0c6; font: 600 11.5px inherit;
+      }
+      #pickbar button:hover { background: #22364c; color: #fff; }
+      /* 커서 옆 좌표 — 도면 위에서 눈을 떼지 않고 값을 읽을 수 있어야 한다 */
+      #picktip {
+        position: fixed; z-index: 300; pointer-events: none;
+        padding: 4px 8px; border-radius: 6px;
+        background: #0d1520f2; border: 1px solid #58a6ff;
+        color: #dbe9fb; font: 600 11.5px ui-monospace, monospace; white-space: nowrap;
+      }
+      #picktip[hidden] { display: none; }
+      #picktip b { color: #ffd489; font-family: ui-sans-serif, system-ui, "Malgun Gothic", sans-serif; }
+
       /* 테스트 장비 on/off — 켜져 있는 게 기본이라 '켜짐'을 눈에 띄게 */
       #testgear-btn { border: 1px solid #6f7bd1; background: #1e2340; color: #c3ccff; }
       #testgear-btn:hover { background: #262c50; }
@@ -405,6 +528,31 @@
       </div>
     </div>
 
+    <!-- 도면에서 설치 지점 찍는 중 — 장비 관리에서 「도면에서 찍기」를 누르면 뜬다 -->
+    <div id="pickbar" hidden>
+      <span>📍 설치 지점을 도면에서 클릭하세요</span>
+      <span class="who" id="pickbar-who"></span>
+      <span class="esc">확대·드래그해도 됩니다 · ESC 취소</span>
+      <button id="pickbar-cancel" type="button">취소</button>
+    </div>
+    <div id="picktip" hidden></div>
+
+    <!-- 장비 관리 — 게이트웨이·비콘의 신규 등록/수정/삭제. 줄은 JS 가 만든다.
+         관제(/monitor)에도 등록 화면이 있지만 수정·삭제는 여기에만 있다. -->
+    <div id="eqadmin" hidden>
+      <div id="eqadmin-box">
+        <div id="eqadmin-head">
+          <b>장비 관리</b>
+          <div id="eqadmin-tabs">
+            <button data-tab="gateway" class="on">게이트웨이</button>
+            <button data-tab="beacon">비콘</button>
+          </div>
+          <button id="eqadmin-close" type="button" title="닫기">✕</button>
+        </div>
+        <div id="eqadmin-body"></div>
+      </div>
+    </div>
+
     <!-- 환자·미지정 비콘이 10분 넘게 같은 자리에 있으면 여기에 뜬다 (줄은 JS 가 만든다) -->
     <div id="alerts" hidden>
       <div id="alerts-head">
@@ -429,6 +577,8 @@
       <button id="blocked-btn" type="button">🚧 통제구역 보기</button>
       <!-- 인포 데스크: 비콘 재고 전체에서 환자 등록/반납 -->
       <button id="badmin-btn" type="button">👥 환자 등록/반납</button>
+      <!-- 장비 관리: 게이트웨이·비콘 신규 등록/수정/삭제 -->
+      <button id="eqadmin-btn" type="button">🛠 장비 관리</button>
       <!-- 게이트웨이 위치·커버리지 (담당 구역 → 수신 세기 → 끔 순서로 순환) -->
       <button id="gw-btn" type="button">📡 게이트웨이</button>
       <!-- 테스트 장비 on/off — 끄면 실장비만 돈다 (화면 필터가 아니라 서버가 스캔을 막는다) -->
