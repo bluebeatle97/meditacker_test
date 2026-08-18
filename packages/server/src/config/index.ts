@@ -104,6 +104,14 @@ export const SERVER_CONFIG = {
    */
   staffPin: process.env.STAFF_PIN ?? '000111',
   /**
+   * 계획 배치 게이트웨이·목업 비콘(= 테스트 장비)을 처음부터 태울지.
+   *
+   * **기본은 끔 = 실장비만.** 가짜가 기본으로 섞여 있으면 지금 깔린 장비로 실제로 뭐가
+   * 되는지 볼 수 없고, 무엇보다 보는 사람이 그걸 실제 추적으로 받아들인다.
+   * 켜는 길은 둘 — 화면의 🧪 버튼(재시작 없이) 또는 `TEST_GEAR=1` 로 띄우기.
+   */
+  testGear: process.env.TEST_GEAR === '1',
+  /**
    * 핀 없이 토큰을 내주는 개발 편의 (`GET /staff-token`·`GET /dev-token`).
    *
    * 기본값이 **NODE_ENV 로 갈린다** — 로컬 개발은 켜져 있어 새로고침마다 핀을 묻지 않고,

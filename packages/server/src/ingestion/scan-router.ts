@@ -73,8 +73,16 @@ export class ScanRouter {
     private isTestTag: (tagId: string) => boolean = () => false,
   ) {}
 
-  /** 테스트 장비를 태울 것인가 (기본 on — 지금까지의 동작) */
-  private testGear = true;
+  /**
+   * 테스트 장비를 태울 것인가.
+   *
+   * **기본은 off = 실장비만.** 예전엔 on 이었는데, 그러면 화면을 처음 열었을 때 보이는
+   * 것이 가짜인지 실제인지 보는 사람이 구분할 수 없다. 켜는 것은 누른 사람이 아는
+   * 행동이지만, 기본으로 켜져 있는 것은 아무도 모르는 상태다.
+   *
+   * 켜는 길은 화면의 🧪 버튼(재시작 없이) 또는 `TEST_GEAR=1` 로 띄우기.
+   */
+  private testGear = false;
 
   setTestGear(on: boolean): void {
     this.testGear = on;

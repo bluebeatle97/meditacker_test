@@ -28,14 +28,19 @@ export function monitorPageHtml(): string {
   }
   .gate-box h2 { margin: 0 0 6px; font-size: 15px; }
   .gate-box p { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  /* 입력창과 버튼은 **같은 폭·같은 높이**여야 한다. 한쪽이 삐져나오면 상자가 어긋나 보인다 */
+  #gate-pin,
+  #gate-ok {
+    display: block; width: 100%; height: 38px; border-radius: 6px;
+    font-family: var(--mono); font-size: 14px;
+  }
   #gate-pin {
-    width: 100%; height: 34px; padding: 0 10px; text-align: center; letter-spacing: 4px;
+    padding: 0 10px; text-align: center; letter-spacing: 4px;
     background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; font-family: var(--mono); font-size: 15px;
   }
   #gate-ok {
-    width: 100%; height: 34px; margin-top: 10px; border-radius: 6px; cursor: pointer;
-    border: 1px solid #4d5b8a; background: #1b2136; color: #b9c4e6; font-family: var(--mono);
+    margin-top: 10px; cursor: pointer;
+    border: 1px solid #4d5b8a; background: #1b2136; color: #b9c4e6;
   }
   /* 메시지 칸은 높이를 고정한다 — 글이 생겼다 없어질 때 상자가 들썩이면 안 된다 */
   #gate-msg { height: 18px; margin-top: 10px; font-size: 12px; color: var(--bad); }
@@ -46,9 +51,9 @@ export function monitorPageHtml(): string {
   }
   header h1 { font-size: 15px; margin: 0; font-weight: 600; }
   .stat { color: var(--muted); }
-  /* 테스트 장비 스위치 — 끈 상태가 '평소와 다름' 이라 붉게 */
+  /* 테스트 장비 스위치 — 켠 상태가 '평소와 다름'(가짜가 섞였다) 이라 붉게 */
   #testgear-btn { border: 1px solid #4d5b8a; background: #1b2136; color: #b9c4e6; }
-  #testgear-btn.off { border-color: #a84b3d; background: #33130f; color: #ffb3a7; }
+  #testgear-btn.on { border-color: #a84b3d; background: #33130f; color: #ffb3a7; }
   .stat b { color: var(--text); font-variant-numeric: tabular-nums; }
   #dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; margin-right: 6px; }
   #dot.on { background: var(--ok); }
@@ -628,7 +633,7 @@ export function monitorPageHtml(): string {
   var tgOn = true;
   function tgRender(gwCount){
     tgBtn.textContent = tgOn ? '🧪 테스트 장비 끄기' : '🧪 실장비만 (' + gwCount + '대)';
-    tgBtn.classList.toggle('off', !tgOn);
+    tgBtn.classList.toggle('on', tgOn);
     tgBtn.title = tgOn
       ? '끄면 계획 배치 게이트웨이와 목업 비콘이 빠지고 실장비만 돕니다'
       : '실장비만 돌고 있습니다 — 게이트웨이 근처가 아니면 자리비움으로 뜹니다';

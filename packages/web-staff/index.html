@@ -453,7 +453,8 @@
       /* 테스트 장비 on/off — 켜져 있는 게 기본이라 '켜짐'을 눈에 띄게 */
       #testgear-btn { border: 1px solid #6f7bd1; background: #1e2340; color: #c3ccff; }
       #testgear-btn:hover { background: #262c50; }
-      #testgear-btn.off { border-color: #c05b4d; background: #3a1c18; color: #ffb3a7; }
+      /* 켜진 상태 = 가짜 데이터가 섞여 있는 상태. 그쪽이 눈에 띄어야 한다 */
+      #testgear-btn.on { border-color: #c05b4d; background: #3a1c18; color: #ffb3a7; }
       #tools > #testgear-hint {
         width: 224px; padding: 8px 11px; box-sizing: border-box;
         font-size: 11px; line-height: 1.5; color: #ffb3a7;

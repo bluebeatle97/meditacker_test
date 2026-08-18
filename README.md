@@ -351,6 +351,11 @@ npm run replay -w @meditracker/server -- walk-1 --grid --hys 4,6,8,12 --confirm 
 하드웨어 없이 **가상 환자·직원이 돌아다니는 상태**로 올려, 링크만 보내 보여주는 구성.
 두 가지가 있고 보여줄 수 있는 범위가 다르다.
 
+> ⚠️ **기본 화면은 실장비만이라 비어 있다.** 가상 인원은 화면 우상단 **🧪 테스트 장비 켜기**
+> 를 눌러야 걸어다닌다 (`TEST_GEAR=1` 로 띄우면 처음부터 켜진 상태). 처음 보는 사람이
+> 가짜를 실제 추적으로 받아들이지 않게 하려고 기본을 껐다 — 켜는 것은 누른 사람이 아는
+> 행동이지만, 기본으로 켜져 있는 것은 아무도 모르는 상태다.
+
 | | A. 서버 통째로 (Docker) | B. GitHub Pages (서버 없음) |
 |---|---|---|
 | 실제 서버 코드 | ✅ 그대로 돈다 | ❌ 안 돈다 |
@@ -423,6 +428,7 @@ docker build -t meditracker-demo . && docker run -p 8080:8080 meditracker-demo
 | `JWT_SECRET` | `dev-only-change-me` | 토큰 서명 키 (배포 시 반드시 교체) |
 | `STAFF_PIN` | `000111` | **직원용·관제 진입 핀** (배포 시 반드시 교체) |
 | `DEV_TOKEN` | (NODE_ENV 로 결정) | 핀 없이 토큰을 내주는 개발 창구. 배포에서 1 로 켜면 핀이 무의미해진다 |
+| `TEST_GEAR` | (꺼짐) | `1` 이면 계획 배치 게이트웨이·목업 비콘을 **켠 상태로** 시작. 기본은 실장비만 |
 | `DB_PATH` | `packages/server/data/meditracker.db` | SQLite 위치 |
 | `MOCK_SPEED` | 1 | 가상 인원 이동 속도 (2 = 2배속) |
 | `MOCK_TAGS_N` | 0 | 가상 태그 증식 (부하 시험용) |

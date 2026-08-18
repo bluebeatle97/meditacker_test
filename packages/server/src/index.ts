@@ -96,7 +96,13 @@ const serveStatic = createStaticHandler([
 
 const db = openDb(SERVER_CONFIG.dbPath);
 
-let gateways = loadGateways();
+/**
+ * 지금 태우는 게이트웨이 목록. **기본은 실장비만이다.**
+ *
+ * 계획 배치(테스트) 게이트웨이는 `TEST_GEAR=1` 이나 화면의 🧪 버튼으로 켤 때 합쳐진다 —
+ * 그때 이 변수를 통째로 갈아끼운다 (applyGateways · /test-gear).
+ */
+let gateways = SERVER_CONFIG.testGear ? loadGateways() : loadRealGateways();
 /**
  * 실장비 게이트웨이 id — 나머지는 계획 배치(테스트용)다.
  *
@@ -230,6 +236,9 @@ const scanRouter = new ScanRouter(
   isTestGateway,
   isTestTag,
 );
+
+// 테스트 장비는 기본으로 안 태운다(실장비만). TEST_GEAR=1 로 띄우면 켠 상태로 시작한다
+scanRouter.setTestGear(SERVER_CONFIG.testGear);
 
 const ingestion = new MqttIngestion(
   SERVER_CONFIG.mqttUrl,

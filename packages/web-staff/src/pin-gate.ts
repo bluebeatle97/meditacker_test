@@ -93,6 +93,10 @@ function askPin(serverUrl: string): Promise<string> {
  *
  * ⚠️ 칸 크기를 다 고정한다. 메시지가 생겼다 없어질 때 상자가 늘었다 줄면 누르려던 버튼이
  *    움직인다.
+ *
+ * ⚠️ 입력창과 버튼은 `box-sizing:border-box` 로 **폭·높이를 같게** 맞춘다. 기본값
+ *    (content-box)에서는 `width:100%` 에 좌우 padding 과 테두리가 더해져 입력창만
+ *    22px 넓어진다 — 상자 안에서 한 칸이 삐져나와 보인다.
  */
 function buildBox(): {
   overlay: HTMLDivElement;
@@ -131,36 +135,41 @@ function buildBox(): {
   hint.textContent = '진입 핀을 입력하세요.';
   hint.style.cssText = 'font-size:12px;color:#8b949e;margin-bottom:14px';
 
+  /** 입력창과 버튼이 공유하는 상자 — 이 값이 어긋나면 한 칸이 삐져나온다 */
+  const FIELD = [
+    'box-sizing:border-box',
+    'display:block',
+    'width:100%',
+    'height:38px',
+    'border-radius:6px',
+    'font-family:inherit',
+    'font-size:14px',
+  ];
+
   const input = document.createElement('input');
   input.type = 'password';
   input.inputMode = 'numeric';
   input.autocomplete = 'off';
   input.placeholder = '핀';
   input.style.cssText = [
-    'width:100%',
-    'height:36px',
+    ...FIELD,
     'padding:0 10px',
     'text-align:center',
     'letter-spacing:4px',
-    'font-size:15px',
     'background:#0d1117',
     'color:#c9d1d9',
     'border:1px solid #30363d',
-    'border-radius:6px',
   ].join(';');
 
   const button = document.createElement('button');
   button.type = 'button';
   button.textContent = '들어가기';
   button.style.cssText = [
-    'width:100%',
-    'height:36px',
+    ...FIELD,
     'margin-top:10px',
     'border:1px solid #4d5b8a',
-    'border-radius:6px',
     'background:#1b2136',
     'color:#b9c4e6',
-    'font-size:13px',
     'cursor:pointer',
   ].join(';');
 

@@ -967,7 +967,9 @@ class StaffMapScene extends Phaser.Scene {
     let gwCount = 0;
     const render = (): void => {
       btn.textContent = on ? '🧪 테스트 장비 끄기' : '🧪 테스트 장비 켜기';
-      btn.classList.toggle('off', !on);
+      // 눈에 띄는 쪽은 **켜진 상태**다 — 가짜가 섞여 있다는 표시라야 한다.
+      // (예전에는 끈 쪽을 붉게 했다. 그때는 켜진 것이 기본이었기 때문이다.)
+      btn.classList.toggle('on', on);
       if (hint) {
         hint.hidden = on;
         hint.textContent = `실장비만 돌고 있습니다 — 게이트웨이 ${gwCount}대. `
