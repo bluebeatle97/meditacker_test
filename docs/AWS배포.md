@@ -197,12 +197,19 @@ IMAGE_TAG=sha-<커밋해시> docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-### 배포를 자동으로 넘기려면 (아직 안 했다)
+### 자동 배포 (지금 이렇게 돈다)
 
-Actions 가 서버에 들어가 `pull` + `up -d` 까지 하게 만들 수 있다. 남은 것은 접속 수단 하나 —
-Instance Connect 안에서 새 공개키를 `~/.ssh/authorized_keys` 에 넣고 비밀키를 GitHub Secrets
-에 두면 된다. 처음에는 `workflow_dispatch`(버튼 눌러 배포)로 시작하고, 익숙해지면
-`on: push` 로 바꾸는 순서를 권한다.
+`main` 에 push 하면 이미지 빌드 → **EC2 에 ssh → `git pull` → `pull` → `up -d` → 헬스체크**
+까지 자동이다. 필요한 것은 저장소 시크릿 하나(`DEPLOY_SSH_KEY`, 배포 전용 비밀키)와 서버
+`~/.ssh/authorized_keys` 에 넣은 그 공개키다. 시크릿이 없으면 배포 단계를 **건너뛰고**
+초록불로 끝난다 — 이미지는 그대로 올라간다.
+
+> ⚠️ **시연 중에는 push 하지 않는다.** 재기동하면 붙어 있던 소켓이 끊기고, 존 판정이 처음부터
+> 다시 수렴하고, 테스트 장비 토글이 기본값(실장비)으로 돌아간다. 급하면 커밋 메시지에
+> `[no deploy]` 를 넣는다 — 이미지는 만들고 배포만 건너뛴다.
+
+헬스체크가 60초 안에 `"ok":true` 를 못 받으면 워크플로가 **실패로 표시된다.** 배포는 됐는데
+서버가 안 뜬 상태를 초록불로 넘기지 않으려는 것이다.
 
 > ⚠️ 재기동하면 붙어 있던 소켓이 다 끊기고 존 판정이 처음부터 다시 수렴한다(인메모리 상태).
 > medibible 처럼 "배포 중 잠깐 죽어도 무해" 하지 않다 — 시연 중에는 배포하지 않는다.
