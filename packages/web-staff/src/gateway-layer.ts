@@ -72,6 +72,11 @@ export class GatewayLayer {
     return this.mode;
   }
 
+  /** 지금 그리고 있는 목록 — 실측 진척(자리표시자 몇 대 남았나)을 세는 데 쓴다 */
+  get list(): Gateway[] {
+    return this.d.gateways;
+  }
+
   get isolatedLabel(): string | null {
     if (this.isolated === null) return null;
     const g = this.d.gateways[this.isolated];

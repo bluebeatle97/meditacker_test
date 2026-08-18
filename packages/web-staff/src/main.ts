@@ -23,11 +23,14 @@ import type {
 import { AlertPanel, STUCK_ALERT_MS, type StuckAlert } from './alert-panel';
 import { BeaconAdmin } from './beacon-admin';
 import { EquipmentAdmin, type PickedPoint } from './equipment-admin';
+import { FeedbackNotes } from './feedback-note';
 import { escapeHtml } from './format';
 import { demoSocket, localConfigUrl, markDemoUi, resolveZones } from './demo-mode';
 import { GatewayLayer, type GatewayMode } from './gateway-layer';
 import { Pathfinder, type WalkableGrid } from './pathfinder';
 import { groupColor, TagPanel, type TagRow } from './tag-panel';
+import { authFetch, setStaffToken, staffToken } from './api';
+import { resolveStaffToken } from './pin-gate';
 
 /**
  * 직원용 화면 (설계서 8) — 실제 도면 배경 방식
@@ -43,13 +46,6 @@ import { groupColor, TagPanel, type TagRow } from './tag-panel';
  * (서버가 화면까지 서빙하는 배포 구성). 개발 기본값은 별도로 뜬 서버.
  */
 const SERVER_URL = (import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
-
-async function resolveToken(): Promise<string> {
-  const urlToken = new URLSearchParams(window.location.search).get('token');
-  if (urlToken) return urlToken;
-  const res = await fetch(`${SERVER_URL}/dev-token?type=staff`);
-  return (await res.json()).token;
-}
 
 const adminBtn = document.getElementById('admin-btn') as HTMLAnchorElement | null;
 if (adminBtn) {
@@ -256,6 +252,11 @@ class StaffMapScene extends Phaser.Scene {
     const source = await resolveZones(SERVER_URL);
     this.demo = source.demo;
     const zones = source.zones;
+
+    // 서버가 있으면 여기서 진입 핀을 받는다. 이 토큰이 없으면 직원 전용 API 가 전부 401 이라
+    // 도면만 뜨고 목록·등록이 조용히 빈 화면이 된다 — 그래서 아래 fetch 들보다 먼저 한다.
+    // 시연 모드(서버 없음)면 묻지 않는다: 물어볼 상대가 없다.
+    if (!this.demo) setStaffToken(await resolveStaffToken(SERVER_URL));
     const from = (route: string, local: string): string =>
       this.demo ? localConfigUrl(local) : `${SERVER_URL}${route}`;
 
@@ -263,7 +264,7 @@ class StaffMapScene extends Phaser.Scene {
       fetch(from('/floorplan', 'floorplan')).then((r) => r.json() as Promise<FloorplanMeta>),
       this.demo
         ? Promise.resolve({} as TagMetaMap) // 이름·그룹은 아래 가짜 소켓이 바로 보내준다
-        : fetch(`${SERVER_URL}/tag-meta`).then((r) => r.json() as Promise<TagMetaMap>),
+        : authFetch(`${SERVER_URL}/tag-meta`).then((r) => r.json() as Promise<TagMetaMap>),
       fetch(from('/walkable', 'walkable')).then((r) => r.json() as Promise<WalkableGrid>),
       // 직원 전용 구역 — 안내선이 여길 지나지 않게 돌아가는 데만 쓴다
       fetch(from('/staff-area', 'staff-area'))
@@ -334,12 +335,13 @@ class StaffMapScene extends Phaser.Scene {
 
     this.setupBeaconAdmin();
     this.setupEquipmentAdmin(zones);
+    this.setupFeedback();
     this.setupZoom();
     if (this.demo) {
       markDemoUi();
       this.connect(demoSocket(zones).socket as unknown as Socket);
     } else {
-      this.connect(io(`${SERVER_URL}/staff`, { auth: { token: await resolveToken() } }));
+      this.connect(io(`${SERVER_URL}/staff`, { auth: { token: staffToken() } }));
     }
   }
 
@@ -390,6 +392,45 @@ class StaffMapScene extends Phaser.Scene {
   }
 
   /**
+   * 피드백 노트 — 버그 신고·개선 메모를 보던 화면에서 그대로 남긴다.
+   *
+   * **화면 상태를 자동으로 같이 보낸다.** 구두로 넘어오는 신고에서 늘 빠지는 게 그
+   * 맥락이라(확대 배율·추적 중인 태그 수·그때 고른 비콘), 되묻는 왕복을 없애려는 것이다.
+   * 사람이 적을 수 있는 것(무슨 일이 있었나)은 넣지 않는다 — 그건 본문이 할 일이다.
+   *
+   * 시연 모드에서는 받아 줄 서버가 없으므로 버튼을 내린다 (환자 등록/반납과 같다).
+   */
+  private setupFeedback(): void {
+    const btn = document.getElementById('fb-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    if (this.demo) {
+      btn.remove();
+      return;
+    }
+    const badge = btn.querySelector('.n') as HTMLElement | null;
+    const notes = new FeedbackNotes(SERVER_URL, {
+      context: () =>
+        [
+          `확대 ${Math.round(this.worldScale * 100)}%`,
+          `추적 ${this.avatars.size}개`,
+          this.pickedTag ? `선택 ${this.pickedTag}` : null,
+          `창 ${window.innerWidth}x${window.innerHeight}`,
+          new Date().toLocaleString('ko-KR'),
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      onCount: (open) => {
+        if (!badge) return;
+        // 세 자리가 되면 버튼 폭이 밀린다 — 99 에서 멈춘다
+        badge.textContent = open > 99 ? '99+' : String(open);
+        badge.classList.toggle('zero', open === 0);
+      },
+    });
+    btn.onclick = () => void notes.open();
+    void notes.pollCount();
+  }
+
+  /**
    * 도면에서 한 지점을 찍게 한다 (게이트웨이 설치 지점).
    *
    * **왜 도면에서 찍나.** 설치 좌표는 도면 픽셀값이라 사람이 외울 수 있는 수가 아니다.
@@ -406,6 +447,12 @@ class StaffMapScene extends Phaser.Scene {
     const cancel = document.getElementById('pickbar-cancel') as HTMLButtonElement;
     document.getElementById('pickbar-who')!.textContent = who;
     bar.hidden = false;
+    /**
+     * 도면 위에 겹쳐 있는 패널(왼쪽 목록·경고창·오른쪽 버튼단)을 잠깐 치운다.
+     * 안 치우면 그 아래 방을 못 찍는다 — 안내 띠 하나 때문에 도면 윗부분이
+     * 통째로 막혔던 것과 같은 문제다. 되돌리는 건 done() 한 곳뿐이다.
+     */
+    document.body.classList.add('picking');
     // 이미 달린 게이트웨이를 보면서 골라야 한다 (겹쳐 달면 둘 다 헛돈다)
     this.gwLayer?.showMarkers(true);
     this.input.setDefaultCursor('crosshair');
@@ -421,6 +468,7 @@ class StaffMapScene extends Phaser.Scene {
         cancel.onclick = null;
         bar.hidden = true;
         tip.hidden = true;
+        document.body.classList.remove('picking');
         ring.destroy();
         this.gwLayer?.showMarkers(false);
         this.renderZoomUi(); // 커서를 원래대로 (확대 중이면 grab)
@@ -428,8 +476,9 @@ class StaffMapScene extends Phaser.Scene {
       };
 
       const at = (p: Phaser.Input.Pointer): PickedPoint => {
-        const x = Math.round((p.worldX - this.offX) / this.worldScale);
-        const y = Math.round((p.worldY - this.offY) / this.worldScale);
+        const w = this.screenToWorld(p.x, p.y);
+        const x = Math.round((w.x - this.offX) / this.worldScale);
+        const y = Math.round((w.y - this.offY) / this.worldScale);
         const zone = this.zoneAt(x, y);
         return { x, y, zoneId: zone?.zoneId ?? null, zoneName: zone?.name ?? null };
       };
@@ -500,7 +549,7 @@ class StaffMapScene extends Phaser.Scene {
   /** 방 안내 걸기/끄기 — 서버가 대상 환자에게만 전달하고, 도착하면 알아서 푼다 */
   private async setGuide(tagId: string, zoneId: string | null): Promise<void> {
     try {
-      const res = await fetch(`${SERVER_URL}/guide`, {
+      const res = await authFetch(`${SERVER_URL}/guide`, {
         method: 'POST',
         body: JSON.stringify({ tagId, zoneId }),
       });
@@ -608,6 +657,28 @@ class StaffMapScene extends Phaser.Scene {
     this.renderZoomUi();
   }
 
+  /**
+   * 캔버스 좌표 → 월드 좌표 (확대·이동을 되돌린다).
+   *
+   * `pointer.worldX/worldY` 대신 이걸 쓴다. 이 씬은 카메라가 둘이라(도면을 그리는 main 과
+   * 제목만 그리는 uiCam) worldX 가 어느 카메라 기준인지가 Phaser 내부 규칙에 달려 있다.
+   * uiCam 은 확대도 이동도 하지 않으므로 그쪽으로 잡히면 확대한 상태에서 어긋난다.
+   * 어느 카메라인지를 코드에 못 박아 두는 편이 낫다.
+   *
+   * 휠 확대(zoomTo)가 커서 밑 지점을 붙잡는 데 쓰던 식이 이것이다. 찍기와 확대가 **같은
+   * 식**을 쓰게 한 곳으로 모아 둔다 — 둘이 갈라지면 링이 가리키는 자리와 저장되는 자리가
+   * 어긋나고, 그건 화면만 보고는 알 수 없다.
+   */
+  private screenToWorld(sx: number, sy: number): { x: number; y: number } {
+    const cam = this.cameras.main;
+    const cx = cam.width / 2;
+    const cy = cam.height / 2;
+    return {
+      x: cam.scrollX + cx + (sx - cx) / cam.zoom,
+      y: cam.scrollY + cy + (sy - cy) / cam.zoom,
+    };
+  }
+
   /** 화면의 (screenX, screenY) 밑에 있는 도면 지점을 붙잡은 채 배율만 바꾼다 */
   private zoomTo(next: number, screenX: number, screenY: number): void {
     const cam = this.cameras.main;
@@ -616,8 +687,7 @@ class StaffMapScene extends Phaser.Scene {
     // 카메라 중심 = scroll + 화면 절반, 화면 1px = 도면 1/zoom px
     const cx = cam.width / 2;
     const cy = cam.height / 2;
-    const wx = cam.scrollX + cx + (screenX - cx) / cam.zoom;
-    const wy = cam.scrollY + cy + (screenY - cy) / cam.zoom;
+    const { x: wx, y: wy } = this.screenToWorld(screenX, screenY);
     cam.setZoom(z);
     cam.setScroll(wx - cx - (screenX - cx) / z, wy - cy - (screenY - cy) / z);
     this.renderZoomUi();
@@ -785,7 +855,7 @@ class StaffMapScene extends Phaser.Scene {
     const btn = document.getElementById('gw-btn') as HTMLButtonElement | null;
     if (!btn) return;
     const url = this.demo ? localConfigUrl('gateways') : `${SERVER_URL}/gateways`;
-    const list = await fetch(url)
+    const list = await authFetch(url)
       .then((r) => r.json() as Promise<Gateway[]>)
       .catch(() => [] as Gateway[]);
     // 설치 좌표가 없는 게이트웨이는 그릴 수가 없다 — 버튼도 내리는 편이 정직하다
@@ -817,15 +887,18 @@ class StaffMapScene extends Phaser.Scene {
      * 설치 좌표가 존 라벨 앵커 그대로면 실측이 아니라 자리표시자다. 그 상태의 커버리지는
      * '이 자리에 달면 이렇다' 는 가정이므로, 그림만 보고 실제 범위로 읽지 않게 알린다.
      */
-    const placeholders = list.filter((g) => {
-      const a = zones.find((z) => z.zoneId === g.zoneId)?.tilePosition;
-      return a && g.tile && a.x === g.tile.x && a.y === g.tile.y;
-    }).length;
-    const caveat =
-      placeholders > 0
-        ? `<i>⚠️ ${placeholders}/${list.length} 대는 설치 좌표가 방 이름표 위치 그대로 —` +
+    const caveat = (): string => {
+      // ⚠️ 부팅 때 한 번 세면 안 된다 — 방을 돌며 실측하는 동안 이 숫자가 곧 진척도다
+      const gws = this.gwLayer!.list;
+      const placeholders = gws.filter((g) => {
+        const a = zones.find((z) => z.zoneId === g.zoneId)?.tilePosition;
+        return a && g.tile && a.x === g.tile.x && a.y === g.tile.y;
+      }).length;
+      return placeholders > 0
+        ? `<i>⚠️ ${placeholders}/${gws.length} 대는 설치 좌표가 방 이름표 위치 그대로 —` +
           ` 실측 지점이 아니다. 모델 예측</i>`
-        : '<i>모델 예측 · 실측 아님</i>';
+        : `<i>${gws.length}대 모두 실측 지점 · 커버리지는 모델 예측</i>`;
+    };
 
     const hint = document.getElementById('gw-hint');
     const render = (): void => {
@@ -836,10 +909,10 @@ class StaffMapScene extends Phaser.Scene {
       const only = this.gwLayer!.isolatedLabel;
       hint.hidden = mode === 'off';
       hint.innerHTML = only
-        ? `<b>${escapeHtml(only)}</b> 한 대만 — 다시 누르면 전체<br>${caveat}`
+        ? `<b>${escapeHtml(only)}</b> 한 대만 — 다시 누르면 전체<br>${caveat()}`
         : mode === 'owner'
-          ? `색 = 그 자리에서 가장 센 게이트웨이. 방 색이 옆방 색에 먹히면 오판이 나는 자리다.<br>${caveat}`
-          : `초록 = 강함, 빨강 = 약함 (가장 센 신호).<br>${caveat}`;
+          ? `색 = 그 자리에서 가장 센 게이트웨이. 방 색이 옆방 색에 먹히면 오판이 나는 자리다.<br>${caveat()}`
+          : `초록 = 강함, 빨강 = 약함 (가장 센 신호).<br>${caveat()}`;
     };
 
     btn.onclick = () => {
@@ -903,7 +976,7 @@ class StaffMapScene extends Phaser.Scene {
     };
     const pull = async (): Promise<void> => {
       try {
-        const r = await fetch(`${SERVER_URL}/test-gear`);
+        const r = await authFetch(`${SERVER_URL}/test-gear`);
         const d = (await r.json()) as { on: boolean; gateways: number };
         on = d.on;
         gwCount = d.gateways;
@@ -915,7 +988,7 @@ class StaffMapScene extends Phaser.Scene {
     btn.onclick = async () => {
       btn.disabled = true;
       try {
-        const r = await fetch(`${SERVER_URL}/test-gear`, {
+        const r = await authFetch(`${SERVER_URL}/test-gear`, {
           method: 'POST',
           body: JSON.stringify({ on: !on }),
         });
@@ -1077,7 +1150,7 @@ class StaffMapScene extends Phaser.Scene {
       this.refreshPanel();
       return;
     }
-    void fetch(`${SERVER_URL}/tag-meta`, {
+    void authFetch(`${SERVER_URL}/tag-meta`, {
       method: 'POST',
       body: JSON.stringify({ tagId, name, memo, group }),
     });

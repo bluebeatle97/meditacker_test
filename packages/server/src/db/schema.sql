@@ -115,3 +115,29 @@ CREATE TABLE IF NOT EXISTS tag_meta (
   tag_group TEXT,
   updated_at INTEGER
 );
+
+-- 직원이 화면에서 바로 남기는 버그 신고·개선 메모.
+--
+-- **왜 저장소가 아니라 DB 인가.** 신고하는 사람은 현장 직원이고, 이슈 트래커 계정이 없다.
+-- 지금은 구두나 카톡으로 넘어와서 "언제 어느 화면이었는지" 가 늘 빠진 채로 도착한다.
+-- 화면에서 바로 적게 하면 그 맥락(확대 배율·선택 비콘·추적 태그 수 등)을 사람이 적지
+-- 않아도 같이 남길 수 있다 — `context` 열이 그것이다.
+--
+-- 내용 그대로가 원본이므로 수정하지 않는다. 처리 여부만 status 로 뒤집는다.
+CREATE TABLE IF NOT EXISTS feedback_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- bug | idea | etc — 분류만 하고 판단은 사람이 한다
+  kind TEXT NOT NULL,
+  body TEXT NOT NULL,
+  -- 누가 남겼나 (선택). 안 적어도 받는 게 낫다 — 이름 칸이 필수면 그냥 말로 하고 만다
+  author TEXT,
+  /* 적을 때의 화면 상태 스냅샷. 사람이 적지 않아도 되는 부분을 자동으로 채운다 —
+     "이 버그 언제 봤어요?" 를 되묻지 않으려고 있는 열이다. */
+  context TEXT,
+  user_agent TEXT,
+  created_at INTEGER NOT NULL,
+  -- open | done
+  status TEXT NOT NULL DEFAULT 'open',
+  resolved_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_open ON feedback_notes(status, created_at);

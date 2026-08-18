@@ -86,11 +86,15 @@ const samples = new Map<string, Array<{ x: number; y: number }>>();
 const zoneOf = new Map<string, string | null>();
 let names: Record<string, { name?: string }> = {};
 
-const res = await fetch(`${BASE}/tag-meta`).then((r) => r.json() as Promise<typeof names>).catch(() => ({}));
+// 토큰을 먼저 받는다 — /tag-meta 는 직원 전용이라 헤더 없이 부르면 401 이고, 그러면
+// 이름 없이 MAC 뒤 5자리만 나오는 표가 조용히 만들어진다
+const { token } = (await fetch(`${BASE}/dev-token?type=staff`).then((r) => r.json())) as { token: string };
+
+const res = await fetch(`${BASE}/tag-meta`, { headers: { Authorization: `Bearer ${token}` } })
+  .then((r) => r.json() as Promise<typeof names>)
+  .catch(() => ({}));
 names = res;
 const nameOf = (tagId: string) => names[tagId]?.name ?? tagId.slice(-5);
-
-const { token } = (await fetch(`${BASE}/dev-token?type=staff`).then((r) => r.json())) as { token: string };
 const sock = io(`${BASE}/staff`, { auth: { token }, transports: ['websocket'] });
 sock.onAny((_e, payload) => {
   for (const x of Array.isArray(payload) ? payload : [payload]) {

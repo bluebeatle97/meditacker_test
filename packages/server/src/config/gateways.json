@@ -1,56 +1,56 @@
 [
   {
     "gatewayId": "28:56:2F:79:B4:20",
-    "zoneId": "storage",
+    "zoneId": "proc_1",
     "label": "창고 벽 (도면에서 손으로 짚은 지점)",
     "tile": {
-      "x": 778,
-      "y": 916
+      "x": 60,
+      "y": 51
     }
   },
   {
     "gatewayId": "80:F3:DA:45:5A:10",
-    "zoneId": "consult_1",
+    "zoneId": "proc_3",
     "label": "상담실 1 (도면에서 손으로 짚은 지점)",
     "tile": {
-      "x": 807,
-      "y": 415
+      "x": 615,
+      "y": 51
     }
   },
   {
     "gatewayId": "28:56:2F:77:1E:A8",
-    "zoneId": "reception",
-    "label": "접수데스크 게이트웨이",
+    "zoneId": "proc_3",
+    "label": "시술실 3 게이트웨이",
     "tile": {
-      "x": 1178,
-      "y": 727
+      "x": 471,
+      "y": 229
     }
   },
   {
     "gatewayId": "80:F3:DA:92:23:D0",
-    "zoneId": "waiting_1",
-    "label": "대기공간 1 게이트웨이",
+    "zoneId": "surgery_1",
+    "label": "수술실 1 게이트웨이",
     "tile": {
-      "x": 901,
-      "y": 791
+      "x": 62,
+      "y": 505
     }
   },
   {
     "gatewayId": "34:94:54:B3:CF:B0",
-    "zoneId": "waiting_2",
-    "label": "대기공간 2 게이트웨이",
+    "zoneId": "consult_2",
+    "label": "상담실 2 게이트웨이",
     "tile": {
-      "x": 1251,
-      "y": 862
+      "x": 608,
+      "y": 487
     }
   },
   {
     "gatewayId": "28:56:2F:79:69:1C",
-    "zoneId": "photo",
-    "label": "촬영실 게이트웨이",
+    "zoneId": "vip_recovery",
+    "label": "VIP 회복실 게이트웨이",
     "tile": {
-      "x": 1232,
-      "y": 414
+      "x": 439,
+      "y": 489
     }
   }
 ]

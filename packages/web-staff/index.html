@@ -405,24 +405,41 @@
       .eq-btn.del:hover { background: #4a201d; color: #fff; }
 
       /* ── 도면에서 설치 지점 찍기 ──────────────────────────────────────
-         찍는 동안에는 장비 관리 창을 감추고 도면만 남긴다. 창을 띄운 채로는
-         가려진 방을 고를 수 없어서 결국 창을 옮기거나 닫아야 한다. */
+         찍는 동안에는 **도면을 가리는 것을 전부 치운다.**
+
+         처음엔 안내 띠를 화면 위 가운데에 뒀는데, 그 자리가 곧 도면 윗부분이라
+         거기 있는 방을 아예 못 찍었다. 안내는 안내일 뿐이라 클릭을 먹으면 안 된다:
+         (1) 아래로 내리고 (2) 클릭이 도면으로 통과하게 하고 (3) 왼쪽 목록·경고창·
+         오른쪽 버튼단은 잠깐 숨긴다. 클릭을 받는 것은 취소 버튼 하나뿐이다. */
       #pickbar {
-        position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 300;
+        position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 300;
         display: flex; align-items: center; gap: 12px;
         padding: 9px 14px; border-radius: 9px;
         background: #10243af5; border: 1px solid #58a6ff;
         box-shadow: 0 8px 26px #000a;
         color: #dbe9fb; font: 600 13px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+        /* 띠 아래의 도면도 찍을 수 있어야 한다 — 클릭은 그대로 통과시킨다 */
+        pointer-events: none;
+        /* 한 줄로 — 라벨이 길다고 띠가 두 줄로 부풀면 그만큼 도면을 더 덮는다 */
+        white-space: nowrap; max-width: calc(100% - 24px);
       }
       #pickbar[hidden] { display: none; }
-      #pickbar .who { color: #a8c8f0; font-family: ui-monospace, monospace; font-size: 12px; }
+      #pickbar .who {
+        min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        color: #a8c8f0; font-family: ui-monospace, monospace; font-size: 12px;
+      }
       #pickbar .esc { color: #7f97b3; font-weight: 400; font-size: 11.5px; }
       #pickbar button {
         padding: 3px 10px; border-radius: 6px; cursor: pointer;
         border: 1px solid #3a4658; background: none; color: #9fb0c6; font: 600 11.5px inherit;
+        pointer-events: auto; /* 띠에서 이것만 눌린다 */
       }
       #pickbar button:hover { background: #22364c; color: #fff; }
+      /* 도면 위에 겹쳐 있는 패널들 — 찍는 동안만 치운다 (ESC·취소로 빠져나온다).
+         특히 장기체류 경고창은 안내 띠와 같은 자리라 그대로 두면 또 막힌다. */
+      body.picking #sidebar,
+      body.picking #alerts,
+      body.picking #tools { display: none; }
       /* 커서 옆 좌표 — 도면 위에서 눈을 떼지 않고 값을 읽을 수 있어야 한다 */
       #picktip {
         position: fixed; z-index: 300; pointer-events: none;
@@ -490,6 +507,111 @@
         border-left: 1px solid #2c3a52; border-right: 1px solid #2c3a52;
       }
       #zoom-box #zoom-level:hover { color: #fff; }
+
+      /* ── 피드백 노트 (버그 신고·개선 메모) ─────────────────────────────
+         크기를 전부 못 박는다. 목록이 늘어도 창이 커지지 않고, 배지 숫자가
+         한 자리에서 두 자리가 돼도 버튼 폭이 안 바뀐다. */
+      #fb-btn { border: 1px solid #cf6f9b; background: #331c28; color: #f0a8c8; }
+      #fb-btn:hover { background: #452534; }
+      /* 미처리 건수 — 자리를 늘 차지하게 두어 나타났다 사라져도 폭이 안 변한다 */
+      #fb-btn .n {
+        display: inline-block; min-width: 20px; margin-left: 6px; padding: 0 5px;
+        box-sizing: border-box; border-radius: 999px;
+        background: #cf6f9b; color: #2a0f1c; font-size: 11px; font-weight: 700;
+        text-align: center;
+      }
+      #fb-btn .n.zero { visibility: hidden; }
+
+      #fb { position: fixed; inset: 0; z-index: 230; background: #000a;
+        display: flex; align-items: center; justify-content: center; }
+      #fb[hidden] { display: none; }
+      /* 높이까지 고정 — 목록이 0건이든 50건이든 창 크기가 같아야 한다 */
+      #fb-box {
+        width: 520px; height: 620px; max-height: 88vh;
+        display: flex; flex-direction: column; box-sizing: border-box;
+        background: #141a24; border: 1px solid #3a2531; border-radius: 10px;
+        box-shadow: 0 12px 40px #000b; overflow: hidden;
+      }
+      #fb-head {
+        flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+        border-bottom: 1px solid #3a2531; background: #241722; color: #f3dde7;
+        font: 700 13px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+      }
+      #fb-head .hint { font-weight: 400; font-size: 11px; color: #b98da3; }
+      #fb-close {
+        margin-left: auto; padding: 2px 7px; border-radius: 6px; cursor: pointer;
+        border: 1px solid #4a3540; background: none; color: #c3a3b3;
+      }
+      #fb-close:hover { background: #33232c; color: #fff; }
+
+      /* 작성 칸 — 위쪽 고정 높이 */
+      #fb-form { flex: none; padding: 10px 12px; border-bottom: 1px solid #2a1f26; }
+      #fb-kinds { display: flex; gap: 5px; margin-bottom: 7px; }
+      /* 세 칸이 같은 폭 — 글자 수가 달라도 버튼이 들쭉날쭉하면 안 된다 */
+      #fb-kinds button {
+        width: 76px; padding: 5px 0; box-sizing: border-box; cursor: pointer;
+        border: 1px solid #4a3540; border-radius: 6px; background: #1d1620;
+        color: #c3a3b3; font: 600 12px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+      }
+      #fb-kinds button:hover { background: #2a1f26; }
+      #fb-kinds button.on { background: #8d3f63; border-color: #cf6f9b; color: #fff; }
+      #fb-body {
+        width: 100%; height: 84px; box-sizing: border-box; resize: none;
+        padding: 7px 9px; border-radius: 6px;
+        border: 1px solid #3a2b33; background: #101725; color: #dbe4f0;
+        font: 400 12.5px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif; line-height: 1.5;
+      }
+      #fb-body:focus, #fb-author:focus { outline: none; border-color: #cf6f9b; }
+      #fb-body::placeholder, #fb-author::placeholder { color: #6a5560; }
+      #fb-row2 { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+      #fb-author {
+        flex: 1; min-width: 0; box-sizing: border-box; padding: 5px 8px; border-radius: 6px;
+        border: 1px solid #3a2b33; background: #101725; color: #dbe4f0;
+        font: 400 12px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+      }
+      #fb-send {
+        flex: none; width: 92px; padding: 6px 0; box-sizing: border-box; cursor: pointer;
+        border: 1px solid #cf6f9b; border-radius: 6px; background: #8d3f63; color: #fff;
+        font: 700 12px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+      }
+      #fb-send:hover:not(:disabled) { background: #a04a73; }
+      #fb-send:disabled { opacity: .5; cursor: default; }
+      /* 안내문 자리를 늘 비워 둔다 — 떴다 사라질 때 아래 목록이 밀리면 안 된다 */
+      #fb-msg { height: 16px; margin-top: 5px; font-size: 11px; color: #8fbfa3; }
+      #fb-msg.err { color: #ff9d9d; }
+
+      /* 목록 — 남는 높이를 다 쓰고 여기서만 스크롤한다 */
+      #fb-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px 10px; }
+      #fb-empty { padding: 26px 12px; text-align: center; color: #6d7d94; font-size: 12px; }
+      .fb-row { padding: 8px 7px; border-radius: 7px; }
+      .fb-row + .fb-row { border-top: 1px solid #232b3a; }
+      .fb-row:hover { background: #1a2130; }
+      .fb-row.done { opacity: .5; }
+      .fb-top { display: flex; align-items: center; gap: 7px; }
+      /* 분류 칩 — 세 종류가 같은 폭이라 글자 길이로 줄이 흔들리지 않는다 */
+      .fb-kind {
+        flex: none; width: 40px; padding: 1px 0; border-radius: 4px;
+        font: 700 10.5px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+        text-align: center;
+      }
+      .fb-kind.bug { background: #4b1a24; color: #ffc9d1; }
+      .fb-kind.idea { background: #163a2e; color: #9fe3c4; }
+      .fb-kind.etc { background: #242c3b; color: #b9c8dc; }
+      .fb-who { flex: 1; min-width: 0; color: #9fb0c6; font-size: 11px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .fb-act {
+        flex: none; padding: 2px 8px; border-radius: 5px; cursor: pointer;
+        border: 1px solid #3a4658; background: none; color: #8fa0b8;
+        font: 600 11px ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+      }
+      .fb-act:hover { background: #263141; color: #fff; }
+      .fb-act.del { border-color: #6b3a3a; color: #d99; }
+      .fb-act.del:hover { background: #3a2323; color: #fff; }
+      /* 줄바꿈을 적은 그대로 살린다 — 재현 절차가 여러 줄로 들어온다 */
+      .fb-text { margin: 5px 0 0; color: #dbe4f0; font-size: 12.5px; line-height: 1.55;
+        white-space: pre-wrap; word-break: break-word; }
+      .fb-ctx { margin-top: 4px; color: #6d7d94; font: 400 10.5px ui-monospace, monospace;
+        word-break: break-all; }
     </style>
   </head>
   <body>
@@ -532,7 +654,7 @@
     <div id="pickbar" hidden>
       <span>📍 설치 지점을 도면에서 클릭하세요</span>
       <span class="who" id="pickbar-who"></span>
-      <span class="esc">확대·드래그해도 됩니다 · ESC 취소</span>
+      <span class="esc">휠로 확대 · 끌어서 이동 · ESC 취소</span>
       <button id="pickbar-cancel" type="button">취소</button>
     </div>
     <div id="picktip" hidden></div>
@@ -563,6 +685,32 @@
       <ul id="alerts-list"></ul>
     </div>
 
+
+    <!-- 피드백 노트 — 직원이 버그·개선안을 그 자리에서 남긴다. 줄은 JS 가 만든다 -->
+    <div id="fb" hidden>
+      <div id="fb-box">
+        <div id="fb-head">
+          <b>피드백 노트</b>
+          <span class="hint">화면 상태는 자동으로 같이 남습니다</span>
+          <button id="fb-close" type="button" title="닫기">✕</button>
+        </div>
+        <div id="fb-form">
+          <div id="fb-kinds">
+            <button data-kind="bug" class="on" type="button">버그</button>
+            <button data-kind="idea" type="button">개선</button>
+            <button data-kind="etc" type="button">기타</button>
+          </div>
+          <textarea id="fb-body" placeholder="무엇이 어떻게 됐는지 적어주세요. 재현 방법을 알면 같이 적으면 좋습니다."></textarea>
+          <div id="fb-row2">
+            <input id="fb-author" type="text" placeholder="이름 (선택)" maxlength="30" />
+            <button id="fb-send" type="button">남기기</button>
+          </div>
+          <div id="fb-msg"></div>
+        </div>
+        <div id="fb-list"></div>
+      </div>
+    </div>
+
     <div id="tools">
       <!-- 도면 확대/축소 — 배율을 누르면 원래 크기로. 휠·드래그로도 된다 -->
       <div id="zoom-box">
@@ -585,6 +733,8 @@
       <button id="testgear-btn" type="button">🧪 테스트 장비</button>
       <div id="testgear-hint" hidden></div>
       <div id="gw-hint" hidden></div>
+      <!-- 버그 신고·개선 메모 — 화면 상태를 자동으로 같이 남긴다 -->
+      <button id="fb-btn" type="button">📝 피드백<span class="n zero">0</span></button>
       <!-- 환자용 패널(도트 그래픽) 진입 — 별 앱이라 새 탭으로 -->
       <a id="patient-btn" href="#" target="_blank" rel="noopener">🎮 환자용 패널</a>
       <!-- 관리자(관제) 모드 진입 — 서버가 서빙하는 /monitor 로 이동, back 파라미터로 복귀 경로 전달 -->

@@ -98,6 +98,21 @@ export const SERVER_CONFIG = {
    */
   abMacReverse: process.env.AB_MAC_REVERSE === '1',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-only-change-me',
+  /**
+   * 직원용 패널·관제 진입 핀. **여기가 유일한 출처다** — 코드 어디에도 핀을 박아 두지 않는다.
+   * 배포에서는 `STAFF_PIN` 환경변수로 반드시 덮어쓴다 (기본값은 사내 시연용 임시 값이다).
+   */
+  staffPin: process.env.STAFF_PIN ?? '000111',
+  /**
+   * 핀 없이 토큰을 내주는 개발 편의 (`GET /staff-token`·`GET /dev-token`).
+   *
+   * 기본값이 **NODE_ENV 로 갈린다** — 로컬 개발은 켜져 있어 새로고침마다 핀을 묻지 않고,
+   * 배포 이미지(Dockerfile 이 NODE_ENV=production 을 박는다)는 자동으로 잠긴다.
+   * `DEV_TOKEN=1`/`0` 을 주면 그 값이 이긴다 — 배포에서 1 로 켜면 핀이 무의미해진다.
+   */
+  devTokens: process.env.DEV_TOKEN
+    ? process.env.DEV_TOKEN === '1'
+    : process.env.NODE_ENV !== 'production',
   dbPath: process.env.DB_PATH ?? join(here, '../../data/meditracker.db'),
   /** 자리비움 스윕 주기 */
   absentSweepIntervalMs: 5000,

@@ -16,6 +16,29 @@ export function monitorPageHtml(): string {
     --mono: ui-monospace, "Cascadia Code", "Consolas", monospace;
   }
   * { box-sizing: border-box; }
+  /* 진입 핀 — 소켓에 붙기 전까지 화면을 덮는다 */
+  #gate {
+    position: fixed; inset: 0; z-index: 100; background: rgba(13, 17, 23, 0.94);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #gate[hidden] { display: none; }
+  .gate-box {
+    width: 280px; padding: 22px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; text-align: center;
+  }
+  .gate-box h2 { margin: 0 0 6px; font-size: 15px; }
+  .gate-box p { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  #gate-pin {
+    width: 100%; height: 34px; padding: 0 10px; text-align: center; letter-spacing: 4px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; font-family: var(--mono); font-size: 15px;
+  }
+  #gate-ok {
+    width: 100%; height: 34px; margin-top: 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid #4d5b8a; background: #1b2136; color: #b9c4e6; font-family: var(--mono);
+  }
+  /* 메시지 칸은 높이를 고정한다 — 글이 생겼다 없어질 때 상자가 들썩이면 안 된다 */
+  #gate-msg { height: 18px; margin-top: 10px; font-size: 12px; color: var(--bad); }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 13px; }
   header {
     display: flex; align-items: center; gap: 20px; padding: 10px 16px;
@@ -242,9 +265,37 @@ export function monitorPageHtml(): string {
   </div>
 </div>
 
+<div id="gate" hidden>
+  <div class="gate-box">
+    <h2>실시간 관제</h2>
+    <p>직원 진입 핀을 입력하세요.</p>
+    <input id="gate-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="핀" />
+    <button id="gate-ok" type="button">들어가기</button>
+    <div id="gate-msg"></div>
+  </div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
-  var socket = io('/monitor');
+  // 토큰을 받은 뒤에 붙는다 (autoConnect: false) — 핸들러 등록은 아래에서 그대로 한다
+  var socket = io('/monitor', { autoConnect: false });
+
+  // 진입 핀으로 받은 직원 토큰. 소켓과 아래 REST 호출이 같은 것을 쓴다
+  var authToken = '';
+
+  /**
+   * 직원 전용 REST 는 토큰을 달고 가야 한다 (서버 index.ts 의 STAFF_ONLY).
+   * 이걸 안 쓰고 fetch 를 그대로 부르면 그 기능만 조용히 401 이 된다.
+   */
+  function api(path, init) {
+    init = init || {};
+    init.headers = Object.assign(
+      {},
+      init.headers,
+      authToken ? { Authorization: 'Bearer ' + authToken } : {},
+    );
+    return fetch(path, init);
+  }
   var startedAt = Date.now();
   var scanCounter = 0, rate = 0;
   var gateways = [], zoneName = {};
@@ -384,13 +435,13 @@ export function monitorPageHtml(): string {
       group: elGroup.value
     };
     if (editMode === 'edit') {
-      fetch('/tag-meta', { method: 'POST', body: JSON.stringify(payload) });
+      api('/tag-meta', { method: 'POST', body: JSON.stringify(payload) });
       closeEdit();
       return;
     }
     elSave.disabled = true;
     elSave.textContent = '…';
-    fetch('/register-tag', { method: 'POST', body: JSON.stringify(payload) })
+    api('/register-tag', { method: 'POST', body: JSON.stringify(payload) })
       .then(function(r){ return r.json(); })
       .then(function(d){
         elSave.textContent = '등록';
@@ -488,7 +539,7 @@ export function monitorPageHtml(): string {
     var zoneId = document.getElementById('ugw-zone').value;
     if (!zoneId) { alert('설치한 구역을 먼저 고르세요'); return; }
     btn.disabled = true; btn.textContent = '…';
-    fetch('/register-gateway', { method: 'POST', body: JSON.stringify({
+    api('/register-gateway', { method: 'POST', body: JSON.stringify({
       gatewayId: btn.getAttribute('data-gw'), zoneId: zoneId
     }) })
       .then(function(r){ return r.json(); })
@@ -521,7 +572,7 @@ export function monitorPageHtml(): string {
     var zoneId = save.parentNode.querySelector('.gwzone').value;
     var gatewayId = editingGw;
     save.disabled = true; save.textContent = '…';
-    fetch('/register-gateway', { method: 'POST', body: JSON.stringify({
+    api('/register-gateway', { method: 'POST', body: JSON.stringify({
       gatewayId: gatewayId, zoneId: zoneId
     }) })
       .then(function(r){ return r.json(); })
@@ -538,9 +589,11 @@ export function monitorPageHtml(): string {
   });
 
   // 저빈도 운영 동작이라 소켓에 태우지 않고 폴링한다
-  setInterval(function(){
-    fetch('/unknown-gateways').then(function(r){ return r.json(); }).then(renderUnknownGateways).catch(function(){});
-  }, 2000);
+  function pollUnknownGateways(){
+    if (!authToken) return; // 아직 핀을 안 넣었다 — 던져도 401 만 쌓인다
+    api('/unknown-gateways').then(function(r){ return r.json(); }).then(renderUnknownGateways).catch(function(){});
+  }
+  setInterval(pollUnknownGateways, 2000);
 
   // ── 녹화 정답 마크 ───────────────────────────────────────────────────────
   // 걸으면서 방을 바꿀 때마다 찍는다. 이 마크가 replay 채점의 기준이 된다.
@@ -555,7 +608,7 @@ export function monitorPageHtml(): string {
   }
   var lastMark = '';
   function sendMark(zoneId){
-    fetch('/record/mark', { method: 'POST', body: JSON.stringify({ zoneId: zoneId }) })
+    api('/record/mark', { method: 'POST', body: JSON.stringify({ zoneId: zoneId }) })
       .then(function(r){ return r.json(); })
       .then(function(d){
         lastMark = d.ok
@@ -580,12 +633,15 @@ export function monitorPageHtml(): string {
       ? '끄면 계획 배치 게이트웨이와 목업 비콘이 빠지고 실장비만 돕니다'
       : '실장비만 돌고 있습니다 — 게이트웨이 근처가 아니면 자리비움으로 뜹니다';
   }
-  fetch('/test-gear').then(function(r){ return r.json(); }).then(function(d){
-    tgOn = d.on; tgRender(d.gateways);
-  }).catch(function(){});
+  // 직원 전용 API 라 진입 핀을 받은 뒤에 읽는다 (openSocket 에서 부른다)
+  function loadTestGear(){
+    api('/test-gear').then(function(r){ return r.json(); }).then(function(d){
+      tgOn = d.on; tgRender(d.gateways);
+    }).catch(function(){});
+  }
   tgBtn.addEventListener('click', function(){
     tgBtn.disabled = true;
-    fetch('/test-gear', { method: 'POST', body: JSON.stringify({ on: !tgOn }) })
+    api('/test-gear', { method: 'POST', body: JSON.stringify({ on: !tgOn }) })
       .then(function(r){ return r.json(); })
       .then(function(d){ if (d.ok) location.reload(); else tgBtn.disabled = false; })
       .catch(function(){ tgBtn.disabled = false; });
@@ -702,6 +758,63 @@ export function monitorPageHtml(): string {
     document.getElementById('s-rate').textContent = rate;
     document.getElementById('s-uptime').textContent = ago(Date.now() - startedAt);
   }, 1000);
+
+  // ── 진입 핀 ──
+  // 관제는 태그 위치·RSSI 전부를 노출한다. 이 HTML 은 누구나 받을 수 있어도 소켓은 직원
+  // 토큰이 있어야 붙는다(ws/index.ts) — 그 토큰을 여기서 받는다.
+  // ⚠️ 불변식 B-5: 토큰을 브라우저에 저장하지 않는다. 새로고침하면 다시 묻는다.
+  var gate = document.getElementById('gate');
+  var gatePin = document.getElementById('gate-pin');
+  var gateMsg = document.getElementById('gate-msg');
+  var gateBtn = document.getElementById('gate-ok');
+
+  function openSocket(token) {
+    authToken = token;
+    socket.auth = { token: token };
+    socket.connect();
+    gate.hidden = true;
+    // 토큰이 있어야 답이 오는 것들 — 여기서 처음 읽는다
+    loadTestGear();
+    pollUnknownGateways();
+  }
+
+  function askPin() {
+    gate.hidden = false;
+    gatePin.focus();
+  }
+
+  function submitPin() {
+    var pin = (gatePin.value || '').trim();
+    if (!pin) return;
+    gateBtn.disabled = true;
+    gateMsg.textContent = '확인 중…';
+    fetch('/staff-token', { method: 'POST', body: JSON.stringify({ pin: pin }) })
+      .then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, body: d }; });
+      })
+      .then(function (res) {
+        if (res.ok && res.body.token) { openSocket(res.body.token); return; }
+        gateMsg.textContent = res.body.error || '핀이 맞지 않습니다';
+        gatePin.value = '';
+        gatePin.focus();
+      })
+      .catch(function () { gateMsg.textContent = '서버에 연결할 수 없습니다'; })
+      .then(function () { gateBtn.disabled = false; });
+  }
+
+  gateBtn.addEventListener('click', submitPin);
+  gatePin.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitPin(); });
+
+  var urlToken = new URLSearchParams(location.search).get('token');
+  if (urlToken) {
+    openSocket(urlToken);
+  } else {
+    // 개발 서버는 핀 없이 내준다. 운영은 401 → 핀 입력
+    fetch('/staff-token')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.token) openSocket(d.token); else askPin(); })
+      .catch(askPin);
+  }
 </script>
 </body>
 </html>`;

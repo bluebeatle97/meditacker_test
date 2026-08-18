@@ -45,5 +45,14 @@ export function createWsServer(
   staffNs.use(jwtMiddleware(jwtSecret, 'staff'));
   registerStaffNamespace(staffNs, presence, db, guidanceAll);
 
+  /**
+   * 관제(`/monitor`)도 직원 토큰을 요구한다 — 여기가 태그 위치·RSSI 전부가 나가는 통로다.
+   *
+   * HTML(`GET /monitor`)은 막지 않는다. 화면 파일은 비밀이 아니고, 그 페이지가 진입 핀을 물어
+   * 토큰을 받은 다음 이 소켓에 붙는다. **막아야 하는 건 데이터고, 데이터는 여기로만 나간다.**
+   * namespace 는 MonitorHub 가 만들지만 io.of() 는 같은 것을 돌려주므로 순서와 무관하다.
+   */
+  io.of('/monitor').use(jwtMiddleware(jwtSecret, 'staff'));
+
   return { io, patient };
 }

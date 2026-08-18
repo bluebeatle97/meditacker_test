@@ -4,6 +4,8 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
+  FeedbackKind,
+  FeedbackNote,
   NavigationLog,
   NavigationStatus,
   PatientProfile,
@@ -500,4 +502,76 @@ export function upsertTagMeta(
      ON CONFLICT(tag_id) DO UPDATE SET name = excluded.name, memo = excluded.memo,
        tag_group = excluded.tag_group, updated_at = excluded.updated_at`,
   ).run(tagId, name || null, memo || null, group ?? null, Date.now());
+}
+
+// ── 피드백 메모 (직원이 화면에서 바로 남기는 버그 신고·개선안) ───────────────
+//
+// 원본을 고치지 않는다 — 적힌 그대로가 신고 내용이다. 뒤집는 건 처리 여부(status)뿐.
+
+export function insertFeedback(
+  db: Db,
+  note: {
+    kind: FeedbackKind;
+    body: string;
+    author: string | null;
+    context: string | null;
+    userAgent: string | null;
+    createdAt: number;
+  },
+): number {
+  const info = db
+    .prepare(
+      `INSERT INTO feedback_notes (kind, body, author, context, user_agent, created_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'open')`,
+    )
+    .run(note.kind, note.body, note.author, note.context, note.userAgent, note.createdAt);
+  return Number(info.lastInsertRowid);
+}
+
+/**
+ * 목록. 기본은 **처리 안 된 것 먼저, 그 다음 최신순**.
+ *
+ * 처리된 것을 아예 빼지 않는 이유: 같은 걸 또 신고하는 걸 막으려면 "이미 처리됨" 이
+ * 보여야 한다. 안 보이면 고친 뒤에도 같은 신고가 계속 들어온다.
+ */
+export function listFeedback(db: Db, opts: { limit?: number; status?: 'open' | 'done' } = {}): FeedbackNote[] {
+  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+  const rows = opts.status
+    ? db
+        .prepare(
+          `SELECT id, kind, body, author, context, user_agent AS userAgent,
+                  created_at AS createdAt, status, resolved_at AS resolvedAt
+           FROM feedback_notes WHERE status = ? ORDER BY created_at DESC LIMIT ?`,
+        )
+        .all(opts.status, limit)
+    : db
+        .prepare(
+          `SELECT id, kind, body, author, context, user_agent AS userAgent,
+                  created_at AS createdAt, status, resolved_at AS resolvedAt
+           FROM feedback_notes
+           ORDER BY (status = 'open') DESC, created_at DESC LIMIT ?`,
+        )
+        .all(limit);
+  return rows as FeedbackNote[];
+}
+
+/** 처리함/되돌리기. 없는 id 면 false */
+export function setFeedbackStatus(db: Db, id: number, status: 'open' | 'done', at: number): boolean {
+  const info = db
+    .prepare(`UPDATE feedback_notes SET status = ?, resolved_at = ? WHERE id = ?`)
+    .run(status, status === 'done' ? at : null, id);
+  return info.changes > 0;
+}
+
+/** 잘못 올린 메모 지우기 (오타·중복). 처리 완료와는 다른 동작이다 */
+export function deleteFeedback(db: Db, id: number): boolean {
+  return db.prepare(`DELETE FROM feedback_notes WHERE id = ?`).run(id).changes > 0;
+}
+
+/** 안 읽은(처리 안 된) 건수 — 버튼의 배지에 쓴다 */
+export function countOpenFeedback(db: Db): number {
+  const r = db.prepare(`SELECT COUNT(*) AS c FROM feedback_notes WHERE status = 'open'`).get() as {
+    c: number;
+  };
+  return r.c;
 }

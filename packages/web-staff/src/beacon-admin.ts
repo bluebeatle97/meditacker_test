@@ -1,4 +1,5 @@
 import { GROUPS, groupColor } from './tag-panel';
+import { authFetch } from './api';
 import { escapeHtml } from './format';
 import type { TagGroup, Zone } from '@meditracker/shared';
 
@@ -111,7 +112,7 @@ export class BeaconAdmin {
 
   private async refresh(): Promise<void> {
     try {
-      const res = await fetch(`${this.serverUrl}/beacons`);
+      const res = await authFetch(`${this.serverUrl}/beacons`);
       this.rows = (await res.json()) as BeaconRow[];
       this.render();
     } catch {
@@ -151,7 +152,7 @@ export class BeaconAdmin {
 
   private async post(path: string, body: unknown): Promise<void> {
     try {
-      const res = await fetch(`${this.serverUrl}${path}`, {
+      const res = await authFetch(`${this.serverUrl}${path}`, {
         method: 'POST',
         body: JSON.stringify(body),
       });

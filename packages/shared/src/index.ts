@@ -189,6 +189,28 @@ export interface NavigationLog {
   travelSec: number | null;
 }
 
+/** 피드백 메모의 분류 — 나누기만 하고 우선순위 판단은 사람이 한다 */
+export type FeedbackKind = 'bug' | 'idea' | 'etc';
+
+/**
+ * 직원이 화면에서 바로 남긴 버그 신고·개선 메모.
+ *
+ * `context` 는 **사람이 적지 않은 부분**이다 — 적을 때의 확대 배율·선택 비콘·추적 태그 수
+ * 같은 화면 상태를 프론트가 자동으로 채운다. 구두로 넘어오는 신고에서 늘 빠지는 게
+ * 그 맥락이라, 되묻는 왕복을 없애려고 둔 자리다.
+ */
+export interface FeedbackNote {
+  id: number;
+  kind: FeedbackKind;
+  body: string;
+  author: string | null;
+  context: string | null;
+  userAgent: string | null;
+  createdAt: number;
+  status: 'open' | 'done';
+  resolvedAt: number | null;
+}
+
 /**
  * 도면에만 표시되는 라벨 — 존이 아니다(추적 대상 없음).
  * 도면 PDF 에 이름이 있지만 방이 아닌 것(가구·설비): 대기석, 직원PC, 서브데스크, 실외기실.

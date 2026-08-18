@@ -22,7 +22,12 @@ import { WalkableMap } from './presence/walkable-map.js';
 import {
   assignBeacon,
   claimAssignment,
+  countOpenFeedback,
+  deleteFeedback,
   findBeacon,
+  insertFeedback,
+  listFeedback,
+  setFeedbackStatus,
   findBeaconByPin,
   getOpenAssignment,
   isClaimed,
@@ -39,6 +44,7 @@ import {
 } from './db/index.js';
 import { createWsServer } from './ws/index.js';
 import { signToken, verifyToken } from './auth/jwt.js';
+import { FAIL_DELAY_MS, PinGate } from './auth/staff-pin.js';
 import { MonitorHub } from './monitor/monitor-hub.js';
 import { monitorPageHtml } from './monitor/monitor-page.js';
 import { createStaticHandler } from './web/static-files.js';
@@ -69,6 +75,7 @@ import {
   TAG_GROUP_IDS,
   ZoneDwellFilter,
   ZONE_DWELL_MS,
+  type FeedbackKind,
   type Gateway,
   type TagGroup,
 } from '@meditracker/shared';
@@ -332,6 +339,83 @@ function applyGateways(list: Gateway[]): void {
 
 const CORS_JSON = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
 
+/**
+ * 직원 전용 API — staff 토큰(진입 핀으로 받는다) 없이는 401.
+ *
+ * **왜 목록을 한 곳에 두나.** 엔드포인트마다 검사를 넣으면 새 API 를 추가할 때 빠뜨리고,
+ * 빠뜨린 것은 아무 증상이 없다 — 그냥 열려 있다. 한 곳에서 막으면 새 경로는 **기본이 잠긴
+ * 쪽**이 되고, 공개해야 하는 것만 여기서 빼면 된다.
+ *
+ * 공개로 남긴 것과 이유:
+ * - `/health` — 헬스체크(Caddy·Render)가 토큰을 들고 다닐 수 없다
+ * - `/zones`·`/floorplan`·`/walkable`·`/staff-area`·`/corridor` — 도면 기하. 비밀이 아니고
+ *   환자 화면도 쓴다. 게다가 화면은 이걸로 '서버가 살아 있나' 를 판단한다 (demo-mode.ts)
+ * - `/patient-token`·`/patient-profile` — 환자 자신의 핀·토큰으로 이미 검사한다
+ * - `/monitor` — HTML 은 비밀이 아니다. 데이터는 소켓 토큰이 막는다 (ws/index.ts)
+ */
+const STAFF_ONLY = [
+  '/beacons',
+  '/gateways',
+  '/tag-meta',
+  '/unknown-tags',
+  '/unknown-gateways',
+  '/register-tag',
+  '/register-gateway',
+  '/delete-gateway',
+  '/register-beacon',
+  '/delete-beacon',
+  '/assign',
+  '/release',
+  '/reset-claim',
+  '/guide',
+  '/nav-logs',
+  '/feedback',
+  '/test-gear',
+  '/record/mark',
+];
+
+/** 경로가 직원 전용인지 (쿼리는 떼고 본다) */
+function isStaffOnlyPath(url: string): boolean {
+  const path = url.split('?')[0];
+  return STAFF_ONLY.some((p) => path === p || path.startsWith(`${p}/`));
+}
+
+/**
+ * `Authorization: Bearer <토큰>` 에서 staff 토큰을 읽는다. `?token=` 도 받는다 — 관제 딥링크와
+ * curl 디버깅용이다 (주소창·로그에 남으므로 화면 코드는 헤더 쪽을 쓴다).
+ */
+function isStaffRequest(req: IncomingMessage): boolean {
+  const header = req.headers.authorization ?? '';
+  const fromHeader = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  const fromQuery = new URL(req.url ?? '/', 'http://localhost').searchParams.get('token') ?? '';
+  const claims = verifyToken(fromHeader || fromQuery, SERVER_CONFIG.jwtSecret);
+  return claims?.type === 'staff';
+}
+
+/** 진입 핀으로 내주는 직원 신분 — 개발 토큰과 같은 값이라야 권한 필터 기준이 안 바뀐다 */
+const STAFF_CLAIMS = {
+  personId: 'staff-doc-1',
+  type: 'staff',
+  role: 'doctor',
+  dept: 'derma',
+} as const;
+
+const pinGate = new PinGate(SERVER_CONFIG.staffPin);
+
+/**
+ * 핀 잠금을 묶는 기준.
+ *
+ * 리버스 프록시(Caddy) 뒤에서는 remoteAddress 가 프록시 자신이라 **전원이 한 통에 묶인다** —
+ * 한 명이 틀려서 전 직원이 잠기면 시연이 멈춘다. 그래서 프록시가 붙여 주는 X-Forwarded-For
+ * 를 먼저 본다. 그 헤더는 위조할 수 있어 잠금 회피가 가능하므로, 실패 지연(FAIL_DELAY_MS)이
+ * 따로 있고 근본 대책은 **더 긴 핀**이다.
+ */
+function clientKey(req: IncomingMessage): string {
+  const xff = req.headers['x-forwarded-for'];
+  const first = (Array.isArray(xff) ? xff[0] : (xff ?? '')).split(',')[0];
+  return first.trim() || req.socket.remoteAddress || 'unknown';
+}
+
 /** 본문 수신 + 크기 방어. content-type 을 안 붙여 preflight 없는 simple request 로 받는다. */
 function readBody(req: IncomingMessage, limit: number, done: (body: string) => void): void {
   let body = '';
@@ -343,6 +427,82 @@ function readBody(req: IncomingMessage, limit: number, done: (body: string) => v
 }
 
 const httpServer = createServer((req, res) => {
+  /**
+   * CORS 프리플라이트. 직원 전용 API 는 `Authorization` 헤더를 달고 오는데, 그 헤더가 붙으면
+   * 브라우저가 먼저 OPTIONS 를 던진다. 여기서 답하지 않으면 개발(5173→8080)과 화면 별도
+   * 배포가 **통째로** 막힌다 — 이 파일 곳곳의 "Content-Type 을 붙이지 마라" 주석이 그 사고의
+   * 흔적이다. 이제 핸들러가 있으므로 그 회피는 필수가 아니지만 굳이 되돌릴 이유도 없다.
+   */
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'authorization',
+      'Access-Control-Max-Age': '86400',
+    });
+    res.end();
+    return;
+  }
+  // 직원 전용 관문 — 토큰이 없으면 여기서 끝난다 (화면은 pinRequired 를 보고 핀을 묻는다)
+  if (isStaffOnlyPath(req.url ?? '') && !isStaffRequest(req)) {
+    res.writeHead(401, CORS_JSON);
+    res.end(JSON.stringify({ ok: false, error: '직원 인증이 필요합니다', pinRequired: true }));
+    return;
+  }
+  /**
+   * 직원용·관제 진입 토큰.
+   *
+   * - `GET` — 개발 편의. `devTokens` 가 켜져 있을 때만 핀 없이 내준다. 운영에서는
+   *   401 `{ pinRequired: true }` 로 답하고, 화면이 그걸 보고 핀 입력을 띄운다.
+   * - `POST` — 본문 `{"pin":"..."}`. 맞으면 staff 토큰(12시간).
+   */
+  if (req.url === '/staff-token' || req.url?.startsWith('/staff-token?')) {
+    if (req.method === 'GET') {
+      if (!SERVER_CONFIG.devTokens) {
+        res.writeHead(401, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, pinRequired: true }));
+        return;
+      }
+      res.writeHead(200, CORS_JSON);
+      res.end(JSON.stringify({ token: signToken(STAFF_CLAIMS, SERVER_CONFIG.jwtSecret) }));
+      return;
+    }
+    if (req.method === 'POST') {
+      readBody(req, 200, (body) => {
+        let pin = '';
+        try {
+          pin = String((JSON.parse(body || '{}') as { pin?: unknown }).pin ?? '');
+        } catch {
+          pin = '';
+        }
+        const key = clientKey(req);
+        const verdict = pinGate.attempt(key, pin);
+        if (verdict === 'ok') {
+          res.writeHead(200, CORS_JSON);
+          res.end(JSON.stringify({ token: signToken(STAFF_CLAIMS, SERVER_CONFIG.jwtSecret) }));
+          return;
+        }
+        // 실패는 늦게 답한다 — 초당 수백 번 던지는 것을 막는 값싼 한 겹
+        setTimeout(() => {
+          if (verdict === 'locked') {
+            const ms = pinGate.lockedForMs(key);
+            res.writeHead(429, CORS_JSON);
+            res.end(
+              JSON.stringify({
+                ok: false,
+                error: `시도가 너무 많습니다. ${Math.ceil(ms / 1000)}초 후 다시 하세요`,
+                retryAfterMs: ms,
+              }),
+            );
+            return;
+          }
+          res.writeHead(401, CORS_JSON);
+          res.end(JSON.stringify({ ok: false, error: '핀이 맞지 않습니다' }));
+        }, FAIL_DELAY_MS);
+      });
+      return;
+    }
+  }
   if (req.url === '/health') {
     // ⚠️ CORS 필수: 화면이 서버와 다른 도메인일 때(개발 5173→8080, 프론트만 따로 배포)
     //    이 헤더가 없으면 브라우저가 응답을 막아 **서버가 살아 있는데도 죽은 것으로 보인다**.
@@ -813,6 +973,91 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
+  /**
+   * 피드백 메모 — 직원이 화면에서 바로 남기는 버그 신고·개선안.
+   *
+   * `GET /feedback` 목록 (기본: 미처리 먼저), `POST /feedback` 작성,
+   * `POST /feedback/status` 처리함/되돌리기, `POST /feedback/delete` 삭제.
+   */
+  if (req.url?.startsWith('/feedback') && req.method === 'GET') {
+    const url = new URL(req.url, 'http://localhost');
+    const st = url.searchParams.get('status');
+    const notes = listFeedback(db, {
+      limit: Number(url.searchParams.get('limit') ?? 100),
+      status: st === 'open' || st === 'done' ? st : undefined,
+    });
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify({ notes, open: countOpenFeedback(db) }));
+    return;
+  }
+
+  if (req.url === '/feedback' && req.method === 'POST') {
+    // 본문이 길 수 있다 — 재현 절차를 여러 줄로 적는 게 이 기능의 목적이다
+    readBody(req, 20_000, (raw) => {
+      try {
+        const { kind, body, author, context } = JSON.parse(raw) as {
+          kind?: string;
+          body?: string;
+          author?: string;
+          context?: string;
+        };
+        const text = (body ?? '').trim();
+        if (!text) throw new Error('내용을 입력하세요');
+        const k = (['bug', 'idea', 'etc'].includes(kind ?? '') ? kind : 'etc') as FeedbackKind;
+        const id = insertFeedback(db, {
+          kind: k,
+          body: text,
+          author: (author ?? '').trim() || null,
+          context: (context ?? '').trim() || null,
+          /* 어느 기기·브라우저였는지. 신고자가 적을 수 없는 값이고, 특정 브라우저에서만
+             나는 문제를 가릴 때 이것 하나로 갈린다. */
+          userAgent: (req.headers['user-agent'] ?? '').slice(0, 300) || null,
+          createdAt: Date.now(),
+        });
+        console.log(`[server] 피드백 #${id} (${k}): ${text.slice(0, 60).replace(/\s+/g, ' ')}`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, id, open: countOpenFeedback(db) }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+
+  if (req.url === '/feedback/status' && req.method === 'POST') {
+    readBody(req, 500, (raw) => {
+      try {
+        const { id, status } = JSON.parse(raw) as { id?: number; status?: string };
+        if (!id) throw new Error('id 없음');
+        const st = status === 'done' ? 'done' : 'open';
+        if (!setFeedbackStatus(db, id, st, Date.now())) throw new Error(`없는 메모: ${id}`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, open: countOpenFeedback(db) }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+
+  if (req.url === '/feedback/delete' && req.method === 'POST') {
+    readBody(req, 500, (raw) => {
+      try {
+        const { id } = JSON.parse(raw) as { id?: number };
+        if (!id) throw new Error('id 없음');
+        if (!deleteFeedback(db, id)) throw new Error(`없는 메모: ${id}`);
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ ok: true, open: countOpenFeedback(db) }));
+      } catch (e) {
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+    });
+    return;
+  }
+
   if (req.url === '/register-tag' && req.method === 'POST') {
     readBody(req, 4_000, (body) => {
       try {
@@ -1113,6 +1358,19 @@ const httpServer = createServer((req, res) => {
    * ⚠️ 인증 없음 — /register-gateway 와 같은 수준. staff 토큰 뒤로 같이 옮길 것.
    *    공개 배포에 키를 올리면 아무나 이 경로로 팀챗에 글을 쓸 수 있다.
    */
+  /**
+   * 채널톡 손테스트 창구(`/channeltalk-test` + `/channeltalk/*`)는 **개발 모드에만 있다.**
+   *
+   * 화면 코드는 이걸 쓰지 않는다 — 알림은 서버가 내부에서 직접 보낸다. 사람이 손으로
+   * 확인할 때만 쓰는 창구인데, 열어 두면 아무나 원내 팀챗에 메시지를 밀어 넣을 수 있다.
+   * 그래서 배포에서는 401 이 아니라 **없는 경로**로 만든다 (있다는 사실조차 안 알린다).
+   * 배포에서 손테스트가 필요하면 `DEV_TOKEN=1` 로 잠깐 켠다.
+   */
+  if (req.url?.startsWith('/channeltalk') && !SERVER_CONFIG.devTokens) {
+    res.writeHead(404, CORS_JSON);
+    res.end(JSON.stringify({ ok: false, error: 'not found' }));
+    return;
+  }
   if (req.url === '/channeltalk-test') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(channelTalkTestPageHtml());
@@ -1185,13 +1443,24 @@ const httpServer = createServer((req, res) => {
     res.end(monitorPageHtml());
     return;
   }
-  // ⚠️ 개발 전용 — 토큰 없이 화면 열면 프론트가 자동 호출. 실배포(Phase 2 로그인) 시 제거.
+  /**
+   * ⚠️ 개발 전용 — 핀 없이 토큰을 내준다. `devTokens` 가 꺼지면(배포 이미지의
+   *    NODE_ENV=production) **없는 경로**가 된다.
+   *
+   * 직원용 화면은 이제 `/staff-token` 을 쓴다. 이게 남아 있는 이유는 환자용 QR 손테스트
+   * (`?type=patient&tag=<MAC>`)와 `tools/pos-check.ts` 다.
+   */
   if (req.url?.startsWith('/dev-token')) {
+    if (!SERVER_CONFIG.devTokens) {
+      res.writeHead(404, CORS_JSON);
+      res.end(JSON.stringify({ ok: false, error: 'not found' }));
+      return;
+    }
     const url = new URL(req.url, 'http://localhost');
     const claims =
       url.searchParams.get('type') === 'patient'
         ? ({ personId: patientForToken(url.searchParams.get('tag')), type: 'patient' } as const)
-        : ({ personId: 'staff-doc-1', type: 'staff', role: 'doctor', dept: 'derma' } as const);
+        : STAFF_CLAIMS;
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',

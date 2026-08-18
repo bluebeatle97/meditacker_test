@@ -1,4 +1,5 @@
 import { GROUPS } from './tag-panel';
+import { authFetch } from './api';
 import { agoText, escapeHtml } from './format';
 import type { Gateway, TagGroup, Zone } from '@meditracker/shared';
 
@@ -76,11 +77,6 @@ export class EquipmentAdmin {
   private unknownGw: UnknownGateway[] = [];
   private beacons: EqBeaconRow[] = [];
   private unknownTags: UnknownTag[] = [];
-  /**
-   * 게이트웨이 목록이 바뀌었나. 도면의 커버리지 레이어는 만들 때 목록을 한 번 받고
-   * 교체 API 가 없다 — 반쪽만 갱신된 화면을 만드느니 닫을 때 새로 고친다.
-   */
-  private gatewaysChanged = false;
   private box: HTMLElement;
   private body: HTMLElement;
 
@@ -132,10 +128,16 @@ export class EquipmentAdmin {
     void this.refresh();
   }
 
+  /**
+   * 닫기. **새로고침하지 않는다.**
+   *
+   * 예전엔 게이트웨이를 고치면 닫을 때 페이지를 새로 읽었다 — 도면 레이어에 목록을
+   * 갈아끼울 방법이 없었기 때문이다. 지금은 저장할 때마다 `onGateways` 로 마커가 바로
+   * 따라가므로 새로고침할 이유가 없고, 방을 돌며 한 대씩 실측하는 동안 **매번 화면이
+   * 처음부터 다시 뜨는 것**이 이 화면에서 제일 거슬리는 일이 된다.
+   */
   close(): void {
     this.box.hidden = true;
-    // 게이트웨이가 바뀌었으면 도면의 마커·커버리지가 낡았다 — 조용히 틀린 그림을 두지 않는다
-    if (this.gatewaysChanged) window.location.reload();
   }
 
   private renderTabs(): void {
@@ -148,8 +150,8 @@ export class EquipmentAdmin {
     try {
       if (this.tab === 'gateway') {
         const [list, unknown] = await Promise.all([
-          fetch(`${this.serverUrl}/gateways`).then((r) => r.json() as Promise<Gateway[]>),
-          fetch(`${this.serverUrl}/unknown-gateways`)
+          authFetch(`${this.serverUrl}/gateways`).then((r) => r.json() as Promise<Gateway[]>),
+          authFetch(`${this.serverUrl}/unknown-gateways`)
             .then((r) => r.json() as Promise<{ unknown: UnknownGateway[] }>)
             .then((d) => d.unknown ?? []),
         ]);
@@ -157,8 +159,8 @@ export class EquipmentAdmin {
         this.unknownGw = unknown;
       } else {
         const [rows, unknown] = await Promise.all([
-          fetch(`${this.serverUrl}/beacons`).then((r) => r.json() as Promise<EqBeaconRow[]>),
-          fetch(`${this.serverUrl}/unknown-tags`)
+          authFetch(`${this.serverUrl}/beacons`).then((r) => r.json() as Promise<EqBeaconRow[]>),
+          authFetch(`${this.serverUrl}/unknown-tags`)
             .then((r) => r.json() as Promise<{ sightings: UnknownTag[] }>)
             .then((d) => d.sightings ?? []),
         ]);
@@ -397,7 +399,7 @@ export class EquipmentAdmin {
 
   private async post(path: string, body: unknown): Promise<void> {
     try {
-      const res = await fetch(`${this.serverUrl}${path}`, {
+      const res = await authFetch(`${this.serverUrl}${path}`, {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -407,7 +409,6 @@ export class EquipmentAdmin {
         return;
       }
       const gw = path.includes('gateway');
-      if (gw) this.gatewaysChanged = true;
       await this.refresh();
       // 도면의 마커를 바로 다시 세운다 — 저장했는데 화면이 그대로면 안 된 줄 안다
       if (gw && this.tab === 'gateway') this.hooks.onGateways(this.gateways);
