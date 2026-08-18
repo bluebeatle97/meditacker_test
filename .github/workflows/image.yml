@@ -11,9 +11,9 @@
 #   cd ~/meditracker && git pull
 #   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
 #
-# ⚠️ **처음 한 번만**: 이미지가 처음 올라가면 패키지가 비공개다. 저장소 → Packages →
-#    이 패키지 → Package settings → Change visibility → **Public** 으로 바꾼다. 그러면 EC2 가
-#    자격증명 없이 받는다. 비공개로 두려면 EC2 에서 `docker login ghcr.io` 를 해야 한다.
+# 이미지는 저장소 공개 설정을 물려받아 공개로 올라간다 — EC2 가 자격증명 없이 받는다.
+# 저장소를 비공개로 돌리면 이미지도 비공개가 되므로, 그때는 EC2 에서 `docker login ghcr.io`
+# (read:packages 토큰)가 필요해진다.
 name: Build server image
 
 on:

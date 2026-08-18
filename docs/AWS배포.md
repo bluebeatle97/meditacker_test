@@ -181,9 +181,9 @@ cd ~/meditracker && git pull && docker compose -f docker-compose.prod.yml pull &
 `git pull` 은 compose 파일·Caddyfile 처럼 이미지 밖에 있는 것 때문에 필요하고, `pull` 이
 새 이미지를 받아온다. 10초쯤 걸린다 — 예전(`up -d --build`)은 5~10분이었다.
 
-> ⚠️ **처음 한 번만**: 저장소 → **Packages** → 이 패키지 → Package settings →
-> Change visibility → **Public**. 처음 올라간 패키지는 비공개라서 EC2 가 못 받는다.
-> 비공개로 두려면 서버에서 `docker login ghcr.io` (read:packages 토큰)를 해야 한다.
+> 이미지는 저장소 공개 설정을 물려받아 **공개로 올라간다** — EC2 가 자격증명 없이 받는다
+> (익명 조회로 확인했다). 저장소를 비공개로 돌리면 이미지도 비공개가 되므로, 그때는 서버에서
+> `docker login ghcr.io` (read:packages 토큰)가 필요하다.
 
 **되돌리기**는 태그를 바꿔 다시 켜면 된다. Actions 가 커밋마다 `sha-<해시>` 태그를 남긴다:
 
