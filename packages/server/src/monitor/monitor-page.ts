@@ -767,7 +767,8 @@ export function monitorPageHtml(): string {
   // ── 진입 핀 ──
   // 관제는 태그 위치·RSSI 전부를 노출한다. 이 HTML 은 누구나 받을 수 있어도 소켓은 직원
   // 토큰이 있어야 붙는다(ws/index.ts) — 그 토큰을 여기서 받는다.
-  // ⚠️ 불변식 B-5: 토큰을 브라우저에 저장하지 않는다. 새로고침하면 다시 묻는다.
+  // 핀을 한 번 넣으면 서버가 HttpOnly 세션 쿠키를 발행하므로 2시간은 다시 묻지 않는다.
+  // 토큰 사본은 이 변수(메모리)에만 둔다 — 불변식 B-5.
   var gate = document.getElementById('gate');
   var gatePin = document.getElementById('gate-pin');
   var gateMsg = document.getElementById('gate-msg');

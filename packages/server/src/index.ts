@@ -397,7 +397,9 @@ function isStaffRequest(req: IncomingMessage): boolean {
   const header = req.headers.authorization ?? '';
   const fromHeader = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
   const fromQuery = new URL(req.url ?? '/', 'http://localhost').searchParams.get('token') ?? '';
-  const claims = verifyToken(fromHeader || fromQuery, SERVER_CONFIG.jwtSecret);
+  // 쿠키도 받는다 — 화면이 새로고침된 직후처럼 아직 헤더를 붙일 토큰이 메모리에 없는 순간이 있다
+  const token = fromHeader || fromQuery || cookieToken(req);
+  const claims = verifyToken(token, SERVER_CONFIG.jwtSecret);
   return claims?.type === 'staff';
 }
 
@@ -410,6 +412,46 @@ const STAFF_CLAIMS = {
 } as const;
 
 const pinGate = new PinGate(SERVER_CONFIG.staffPin);
+
+/**
+ * 진입 핀 세션 — 핀을 한 번 넣으면 이 시간만큼은 다시 묻지 않는다.
+ *
+ * **왜 필요했나.** 테스트 장비 토글이 화면을 새로고침하는데(게이트웨이 목록을 갈아끼우므로
+ * 부분 갱신보다 새로 그리는 편이 안전하다), 토큰이 메모리에만 있어서 그때마다 핀을 다시
+ * 물었다. 시연 중에 그건 못 쓴다.
+ *
+ * 쿠키 만료가 곧 세션 만료다 — 토큰 수명도 같은 값으로 맞춰 둘이 어긋나지 않게 한다.
+ */
+const STAFF_SESSION_SECONDS = 2 * 60 * 60;
+const STAFF_SESSION_JWT = '2h';
+const STAFF_COOKIE = 'mt_staff';
+
+/** 요청 쿠키에서 진입 세션 토큰을 꺼낸다 (없으면 빈 문자열) */
+function cookieToken(req: IncomingMessage): string {
+  for (const part of (req.headers.cookie ?? '').split(';')) {
+    const [name, ...rest] = part.trim().split('=');
+    if (name === STAFF_COOKIE) return decodeURIComponent(rest.join('='));
+  }
+  return '';
+}
+
+/**
+ * 세션 쿠키 한 줄.
+ *
+ * `HttpOnly` 라 화면 스크립트는 값을 못 읽는다 — 토큰이 필요한 곳(Authorization 헤더·소켓
+ * handshake)에는 응답 본문으로 같이 준 사본을 메모리에 들고 쓴다. 쿠키는 **새로고침을
+ * 견디는 쪽**만 담당한다.
+ *
+ * `Secure` 는 프록시가 알려주는 프로토콜을 보고 붙인다. 로컬 개발(http)에 무조건 붙이면
+ * 브라우저가 쿠키를 버려서 **개발에서만 조용히 안 되는** 종류의 문제가 된다.
+ */
+function staffCookie(req: IncomingMessage, token: string): string {
+  const proto = String(req.headers['x-forwarded-proto'] ?? '')
+    .split(',')[0]
+    .trim();
+  const secure = proto === 'https' ? '; Secure' : '';
+  return `${STAFF_COOKIE}=${token}; Path=/; Max-Age=${STAFF_SESSION_SECONDS}; HttpOnly; SameSite=Lax${secure}`;
+}
 
 /**
  * 핀 잠금을 묶는 기준.
@@ -467,6 +509,15 @@ const httpServer = createServer((req, res) => {
    */
   if (req.url === '/staff-token' || req.url?.startsWith('/staff-token?')) {
     if (req.method === 'GET') {
+      // ① 살아 있는 세션 쿠키가 있으면 그 토큰을 그대로 돌려준다 — 새로고침·토글에서 핀을
+      //    다시 묻지 않는 길이 여기다
+      const existing = cookieToken(req);
+      if (verifyToken(existing, SERVER_CONFIG.jwtSecret)?.type === 'staff') {
+        res.writeHead(200, CORS_JSON);
+        res.end(JSON.stringify({ token: existing }));
+        return;
+      }
+      // ② 개발 편의 (운영에서는 꺼져 있다)
       if (!SERVER_CONFIG.devTokens) {
         res.writeHead(401, CORS_JSON);
         res.end(JSON.stringify({ ok: false, pinRequired: true }));
@@ -487,8 +538,11 @@ const httpServer = createServer((req, res) => {
         const key = clientKey(req);
         const verdict = pinGate.attempt(key, pin);
         if (verdict === 'ok') {
-          res.writeHead(200, CORS_JSON);
-          res.end(JSON.stringify({ token: signToken(STAFF_CLAIMS, SERVER_CONFIG.jwtSecret) }));
+          // 토큰 수명과 쿠키 수명을 같은 값으로 낸다 — 한쪽만 살아 있으면 "들어가 있는데
+          // 아무것도 안 되는" 상태가 된다
+          const token = signToken(STAFF_CLAIMS, SERVER_CONFIG.jwtSecret, STAFF_SESSION_JWT);
+          res.writeHead(200, { ...CORS_JSON, 'Set-Cookie': staffCookie(req, token) });
+          res.end(JSON.stringify({ token }));
           return;
         }
         // 실패는 늦게 답한다 — 초당 수백 번 던지는 것을 막는 값싼 한 겹
