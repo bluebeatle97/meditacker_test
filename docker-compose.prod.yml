@@ -17,8 +17,8 @@ services:
       #    닫힌다. 여기를 바꾸면 진입 핀이 무의미해진다.
       NODE_ENV: production
       PORT: 8080
-      JWT_SECRET: ${JWT_SECRET:?.env 에 JWT_SECRET 을 넣어라 (openssl rand -hex 32)}
-      STAFF_PIN: ${STAFF_PIN:?.env 에 STAFF_PIN 을 넣어라 (직원용·관제 진입 핀)}
+      JWT_SECRET: '${JWT_SECRET:?.env 에 JWT_SECRET 을 넣어라 — openssl rand -hex 32}'
+      STAFF_PIN: '${STAFF_PIN:?.env 에 STAFF_PIN 을 넣어라 — 직원용·관제 진입 핀}'
       DB_PATH: /data/meditracker.db
       # 가상 인원 이동 속도 (2 = 2배속). 시연에서 답답하면 올린다
       MOCK_SPEED: ${MOCK_SPEED:-1}
@@ -37,7 +37,7 @@ services:
       - '80:80' # 인증서 발급 확인 + https 리다이렉트
       - '443:443'
     environment:
-      SITE_DOMAIN: ${SITE_DOMAIN:?.env 에 SITE_DOMAIN 을 넣어라 (예: rtls.example.com)}
+      SITE_DOMAIN: '${SITE_DOMAIN:?.env 에 SITE_DOMAIN 을 넣어라 — 예 rtls.example.com}'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # 받은 인증서가 여기 있다. 지우면 재발급 → 실패가 쌓이면 발급 한도에 걸린다
