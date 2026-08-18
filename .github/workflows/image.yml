@@ -8,7 +8,9 @@
 #
 # ⚠️ 이 서버는 재기동이 공짜가 아니다 — 붙어 있던 소켓이 전부 끊기고, 존 판정이 처음부터 다시
 #    수렴하고, 테스트 장비 토글이 기본값(실장비)으로 돌아간다. **시연 중에는 push 하지 않는다.**
-#    급하게 고쳐야 하면 커밋 메시지에 `[no deploy]` 를 넣는다 — 이미지는 만들고 배포만 건너뛴다.
+#    급하게 고쳐야 하면 커밋 **제목 줄**에 `[no deploy]` 를 넣는다 — 이미지는 만들고 배포만
+#    건너뛴다. (본문이 아니라 제목이다. 본문까지 보면 이 탈출구를 설명하는 커밋이 스스로
+#    배포를 건너뛴다 — 실제로 그렇게 한 번 당했다.)
 #
 # 이미지는 저장소 공개 설정을 물려받아 공개로 올라간다 — EC2 가 자격증명 없이 받는다.
 # 저장소를 비공개로 돌리면 이미지도 비공개가 되므로, 그때는 EC2 에서 `docker login ghcr.io`
@@ -80,19 +82,30 @@ jobs:
     concurrency:
       group: deploy-prod
       cancel-in-progress: false
-    # 커밋 메시지에 [no deploy] 가 있으면 이미지만 만들고 끝낸다 (시연 중 급한 수정용).
-    # workflow_dispatch 로 돌릴 때는 head_commit 이 없어 이 조건이 항상 참이 된다.
-    if: ${{ !contains(github.event.head_commit.message, '[no deploy]') }}
     env:
       DEPLOY_HOST: 43.200.199.176
       DEPLOY_USER: ubuntu
       HEALTH_URL: https://43-200-199-176.sslip.io/health
     steps:
-      # 시크릿이 아직 없어도 빨간불을 띄우지 않는다 — 이미지는 이미 올라갔고, 배포만 못 한 것이다
+      # 배포할지 여기서 정한다. 둘 중 하나라도 걸리면 건너뛰지만 **초록불로** 끝낸다 —
+      # 이미지는 이미 올라갔으니 실패가 아니다.
+      #
+      # ⚠️ 표식은 커밋 메시지 **제목 줄만** 본다. 예전에는 잡 레벨 `if` 에서 메시지 전체를
+      #    봤는데, 이 탈출구를 설명하는 문장을 커밋 본문에 적었더니 그 커밋이 스스로 배포를
+      #    건너뛰었다. 본문에서 표식을 언급하는 일은 앞으로도 계속 생긴다.
       - id: guard
         env:
           KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          MSG: ${{ github.event.head_commit.message }}
         run: |
+          subject=$(printf '%s' "$MSG" | head -1)
+          case "$subject" in
+            *'[no deploy]'*)
+              echo "::notice::제목에 배포 건너뛰기 표식이 있어 배포하지 않는다 (이미지는 올라갔다)"
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
           if [ -z "$KEY" ]; then
             echo "::notice::DEPLOY_SSH_KEY 시크릿이 없어 배포를 건너뛴다 (이미지는 올라갔다)"
             echo "ready=false" >> "$GITHUB_OUTPUT"
