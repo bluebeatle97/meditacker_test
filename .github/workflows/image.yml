@@ -1,0 +1,72 @@
+# 서버 이미지 빌드 — main 에 push 하면 이미지를 만들어 ghcr.io 에 올린다.
+#
+# **왜 이걸 하나.** 예전에는 EC2 에서 `up -d --build` 로 빌드했다. 2GB 램에서 **서버가 도는
+# 채로** better-sqlite3 컴파일 + Vite 빌드 2개가 돌아가는 상태라, 배포가 5~10분 걸리고 그
+# 동안 CPU·메모리를 서버와 다퉜다. 여기서 빌드하면 서버는 **받아서 켜기만** 한다(10초쯤).
+#
+# 배포까지 자동으로 하지는 않는다 — 이 서버는 재기동이 공짜가 아니다(소켓 전부 끊기고 존
+# 판정이 처음부터 다시 수렴하고 테스트 장비 토글이 초기화된다). **언제 재기동할지는 사람이
+# 정한다.** 서버에서 두 줄이면 된다:
+#
+#   cd ~/meditracker && git pull
+#   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+#
+# ⚠️ **처음 한 번만**: 이미지가 처음 올라가면 패키지가 비공개다. 저장소 → Packages →
+#    이 패키지 → Package settings → Change visibility → **Public** 으로 바꾼다. 그러면 EC2 가
+#    자격증명 없이 받는다. 비공개로 두려면 EC2 에서 `docker login ghcr.io` 를 해야 한다.
+name: Build server image
+
+on:
+  push:
+    branches: [main]
+    # 문서만 고친 push 로는 이미지를 다시 만들지 않는다 (이미지 내용이 안 바뀐다)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch: # Actions 탭에서 손으로 돌릴 수 있게
+
+permissions:
+  contents: read
+  packages: write # ghcr.io 에 올리는 데 필요 (GITHUB_TOKEN 으로 로그인한다)
+
+# 연달아 push 하면 앞의 빌드는 버린다 — 어차피 최신 것만 쓴다
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # latest = 지금 배포할 것, sha-<커밋> = 되돌릴 지점.
+      # 롤백은 서버에서 IMAGE_TAG 만 바꿔 다시 올리면 된다 (docker-compose.prod.yml 주석 참조)
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      # amd64 만 만든다 — 배포 인스턴스가 t3(x86)다. arm64(t4g)로 옮길 일이 생기면
+      # platforms 에 linux/arm64 를 더한다 (빌드 시간이 배로 늘어난다)
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 의존성 층을 캐시해 둔다 — 소스만 바뀐 재빌드가 몇 분 → 1분대로 줄어든다
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

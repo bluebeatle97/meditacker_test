@@ -169,17 +169,40 @@ curl -s -X POST -d '{"pin":"<핀>"}' https://rtls.example.com/staff-token
 
 ---
 
-## 5. 자동 배포 (다음 단계)
+## 5. 배포 (이미지를 받아서 켠다)
 
-지금은 손으로 배포한다:
+`main` 에 push 하면 GitHub Actions 가 이미지를 빌드해 `ghcr.io` 에 올린다
+(`.github/workflows/image.yml`). 서버는 **받아서 켜기만** 한다:
 
 ```bash
-cd ~/meditracker && git pull && docker compose -f docker-compose.prod.yml up -d --build
+cd ~/meditracker && git pull && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
 ```
 
-다음 단계는 medibible 과 같은 형태다 — `main` push → GitHub Actions 에서 이미지 빌드 → ECR →
-EC2 에서 pull & 재기동. **빌드를 Actions 로 옮기는 것이 핵심**이라 EC2 OOM 이 구조적으로
-사라지고, 이미지 태그로 롤백도 된다.
+`git pull` 은 compose 파일·Caddyfile 처럼 이미지 밖에 있는 것 때문에 필요하고, `pull` 이
+새 이미지를 받아온다. 10초쯤 걸린다 — 예전(`up -d --build`)은 5~10분이었다.
+
+> ⚠️ **처음 한 번만**: 저장소 → **Packages** → 이 패키지 → Package settings →
+> Change visibility → **Public**. 처음 올라간 패키지는 비공개라서 EC2 가 못 받는다.
+> 비공개로 두려면 서버에서 `docker login ghcr.io` (read:packages 토큰)를 해야 한다.
+
+**되돌리기**는 태그를 바꿔 다시 켜면 된다. Actions 가 커밋마다 `sha-<해시>` 태그를 남긴다:
+
+```bash
+IMAGE_TAG=sha-<커밋해시> docker compose -f docker-compose.prod.yml up -d
+```
+
+레지스트리를 못 쓰는 상황이면 예전 방식도 그대로 남아 있다:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+### 배포를 자동으로 넘기려면 (아직 안 했다)
+
+Actions 가 서버에 들어가 `pull` + `up -d` 까지 하게 만들 수 있다. 남은 것은 접속 수단 하나 —
+Instance Connect 안에서 새 공개키를 `~/.ssh/authorized_keys` 에 넣고 비밀키를 GitHub Secrets
+에 두면 된다. 처음에는 `workflow_dispatch`(버튼 눌러 배포)로 시작하고, 익숙해지면
+`on: push` 로 바꾸는 순서를 권한다.
 
 > ⚠️ 재기동하면 붙어 있던 소켓이 다 끊기고 존 판정이 처음부터 다시 수렴한다(인메모리 상태).
 > medibible 처럼 "배포 중 잠깐 죽어도 무해" 하지 않다 — 시연 중에는 배포하지 않는다.
