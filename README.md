@@ -151,20 +151,39 @@ python tools/build-characters.py "<Modern tiles_Free 폴더>"  # 캐릭터 스�
 
 ### 도면이 바뀌면 — 다시 만드는 순서
 
-**순서가 중요하다.** 뒤에 오는 것이 앞의 결과를 입력으로 받는다.
+**순서가 중요하다.** 뒤에 오는 것이 앞의 결과를 입력으로 받는다. 그래서 한 곳에 모아 뒀다:
+
+```bash
+python tools/build-maps.py                    # 벽 그림(wall.png)에서 시작
+python tools/build-maps.py --from-mask        # 벽 마스크를 직접 받았을 때
+python tools/build-maps.py --dry-run          # 무엇이 돌지만 확인
+npm run stop && npm run dev:all               # 마지막 — 서버 재시작 (필수)
+```
+
+`build-maps.py` 가 아래를 순서대로 돌리고, 사람이 그려 줘야 하는 입력이 없으면 그 단계를
+건너뛰며 무엇이 빠졌는지 알린다. 마지막에 `check:walls` 까지 자동으로 돈다.
+방법론과 의존 관계는 [docs/도면_자동화_파이프라인.md](docs/도면_자동화_파이프라인.md) 에 있다.
+
+한 단계만 다시 돌릴 때는 직접 부른다:
 
 ```bash
 python tools/build-wall-mask.py                         # 1. 벽 그림 → 벽 마스크
+python tools/normalize-wall-mask.py                     # 1'. (마스크를 받았을 때) 정규화 + 건물 밖
 python tools/build-walkable.py                          # 2. 통행 격자 + 그리기용 바닥
 python tools/build-staff-areas.py                       # 3. 손님 통제구역 마스크
 python tools/build-doors.py                             # 4. 문 위치
 python tools/build-rooms.py                             # 5. 방 분할 + 복도 마스크
-python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"  # 6. 환자용 도트맵
-python tools/build-door-map.py                          # 7. 문 2.5D 레이어
-node tools/copy-demo-config.mjs                         # 8. 시연 배포용 사본
-npm run check:walls                                     # 9. 벽 판정 검사
-npm run stop && npm run dev:all                         # 10. 서버 재시작 (필수)
+python tools/build-tiling-map.py                        # 6. 에셋 배치용 색 지도
+python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"  # 7. 환자용 도트맵
+python tools/build-door-map.py                          # 8. 문 2.5D 레이어
+node tools/copy-demo-config.mjs                         # 9. 시연 배포용 사본
+npm run check:walls                                     # 10. 벽 판정 검사
 ```
+
+⚠️ **마스크를 직접 받았으면 `build-wall-mask.py` 를 돌리면 안 된다.** 그건 `wall.png` 에서
+마스크를 **생성**하는 쪽이라 받은 마스크를 통째로 덮어쓴다. 그때는 `normalize-wall-mask.py`
+(또는 `build-maps.py --from-mask`)를 쓴다 — 마스크를 규격에 맞추고, 짝인 `outside-mask.png`
+를 그 마스크 기준으로 다시 뽑아 준다.
 
 ⚠️ **10번을 빼먹지 말 것.** 서버는 격자를 시작할 때 한 번 읽어 메모리에 들고 있다.
 파일만 바꾸면 화면은 그대로다 — 이걸 몰라서 "안 고쳐졌다" 를 두 번 겪었다.
@@ -188,6 +207,7 @@ npm run stop && npm run dev:all                         # 10. 서버 재시작 (
 | `config/wall.png` | **벽 판정** | 밝기 170↑ = 바닥 · 40~169 = 벽(발이 못 들어감) · 40↓ = 건물 밖 |
 | `config/staff-area.png` | 손님 통제구역 | 자홍색(#FF00FF) = 직원 전용 |
 | `config/floorplan-door.png` | **문 위치** | 도면 위에 문틈마다 빨강(#ED1C24)을 **꽉 채운다** |
+| `config/furniture-mask.png` | 가구 (벽 아님) | 흰색 = 안내데스크처럼 벽이 아닌 낮은 구조물 |
 | `config/wall.png` 안쪽 검정 | 붙박이 물건 | 테두리에서 안 이어지는 검정은 물건(=벽)으로 본다 |
 
 문은 **선으로 긋지 말고 틈을 채운다.** 선으로 그었더니 길이가 곧 판정이 되어, 짧으면
