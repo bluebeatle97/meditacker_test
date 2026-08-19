@@ -1,5 +1,5 @@
 import type { ScanEvent } from '@meditracker/shared';
-import type { GatewayAdapter } from '../adapter.js';
+import type { GatewayAdapter, GatewayHealthSample } from '../adapter.js';
 import { AbGatewayV4Adapter, type AbGatewayV4Options } from './ab-gateway-v4.adapter.js';
 import { GenericJsonAdapter } from './generic-json.adapter.js';
 
@@ -28,8 +28,19 @@ export class AutoAdapter implements GatewayAdapter {
   parse(topic: string, rawPayload: Buffer | string): ScanEvent[] {
     const buf = typeof rawPayload === 'string' ? Buffer.from(rawPayload) : rawPayload;
     if (buf.length === 0) return [];
+    return this.pick(buf).parse(topic, buf);
+  }
+
+  /** 상태 정보는 실장비 페이로드에만 있다 — 목 게이트웨이(JSON)는 null 을 준다 */
+  parseHealth(topic: string, rawPayload: Buffer | string): GatewayHealthSample | null {
+    const buf = typeof rawPayload === 'string' ? Buffer.from(rawPayload) : rawPayload;
+    if (buf.length === 0) return null;
+    const adapter = this.pick(buf);
+    return adapter.parseHealth ? adapter.parseHealth(topic, buf) : null;
+  }
+
+  private pick(buf: Buffer): GatewayAdapter {
     const head = buf[0];
-    const adapter = head === JSON_ARRAY || head === JSON_OBJECT ? this.json : this.abGateway;
-    return adapter.parse(topic, buf);
+    return head === JSON_ARRAY || head === JSON_OBJECT ? this.json : this.abGateway;
   }
 }

@@ -1,6 +1,6 @@
 import { decode } from '@msgpack/msgpack';
 import type { ScanEvent } from '@meditracker/shared';
-import type { GatewayAdapter } from '../adapter.js';
+import type { GatewayAdapter, GatewayHealthSample } from '../adapter.js';
 
 /**
  * April Brother **AB BLE Gateway V4** (설계서 2.1 의 "gateway4") 실장비 어댑터.
@@ -72,6 +72,34 @@ export class AbGatewayV4Adapter implements GatewayAdapter {
 
   constructor(options: AbGatewayV4Options = {}) {
     this.reverseMac = options.reverseMac ?? false;
+  }
+
+  /**
+   * 페이로드에 실려 오는 `mid`(일련번호)·`time`(부팅 후 경과 초)를 꺼낸다.
+   *
+   * **비콘을 하나도 못 들어도 이 값은 온다.** 그래서 "근처에 사람이 없어 조용한 것"과
+   * "게이트웨이가 죽은 것"을 가르는 근거가 된다 — 스캔만 세면 둘이 구분되지 않는다.
+   * 실측으로 초 단위임을 확인했다 (45초 관찰에 +44).
+   */
+  parseHealth(_topic: string, rawPayload: Buffer | string): GatewayHealthSample | null {
+    let root: unknown;
+    try {
+      root = decode(typeof rawPayload === 'string' ? Buffer.from(rawPayload) : rawPayload);
+    } catch {
+      return null;
+    }
+    if (typeof root !== 'object' || root === null) return null;
+    const { mac, devices, mid, time } = root as Record<string, unknown>;
+    if (typeof mac !== 'string') return null;
+    const gatewayId = normalizeGatewayMac(mac);
+    if (!gatewayId) return null;
+    return {
+      gatewayId,
+      uptimeSec: typeof time === 'number' ? time : null,
+      mid: typeof mid === 'number' ? mid : null,
+      devices: Array.isArray(devices) ? devices.length : 0,
+      at: Date.now(),
+    };
   }
 
   parse(_topic: string, rawPayload: Buffer | string): ScanEvent[] {

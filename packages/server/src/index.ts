@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +67,7 @@ import {
 import { channelTalkTestPageHtml } from './notifications/channel-talk/test-page.js';
 import { UnknownTagBuffer } from './ingestion/unknown-tag-buffer.js';
 import { ScanRouter } from './ingestion/scan-router.js';
+import { GatewayHealthMonitor } from './ingestion/gateway-health.js';
 import { ScanRecorder } from './recording/scan-recorder.js';
 import {
   isGuidableZone,
@@ -240,13 +241,25 @@ const scanRouter = new ScanRouter(
 // 테스트 장비는 기본으로 안 태운다(실장비만). TEST_GEAR=1 로 띄우면 켠 상태로 시작한다
 scanRouter.setTestGear(SERVER_CONFIG.testGear);
 
+/**
+ * 게이트웨이 생사·재부팅 기록.
+ *
+ * 스캔 수로는 판별할 수 없다 — 근처에 비콘이 없으면 멀쩡한 게이트웨이도 조용하다.
+ * 상태 메시지(`mid`·`time`)는 들은 게 없어도 오므로 그쪽을 근거로 삼는다.
+ */
+const gwHealth = new GatewayHealthMonitor(() => gateways.map((g) => g.gatewayId));
+
 const ingestion = new MqttIngestion(
   SERVER_CONFIG.mqttUrl,
   SERVER_CONFIG.mqttScanTopics,
   new AutoAdapter({ reverseMac: SERVER_CONFIG.abMacReverse }),
   (scan) => scanRouter.route(scan),
+  (health) => gwHealth.note(health),
 );
 ingestion.start();
+
+// 무신호 감시 — 죽는 순간을 로그에 남긴다 (아무도 화면을 안 보고 있어도)
+setInterval(() => gwHealth.sweep(), 5_000);
 
 setInterval(() => {
   if (dirtyTags.size === 0) return;
@@ -346,7 +359,22 @@ function applyGateways(list: Gateway[]): void {
   monitor?.setGateways(gateways);
 }
 
-const CORS_JSON = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+/**
+ * JSON 응답 헤더의 **단일 출처**.
+ *
+ * `charset=utf-8` 을 명시한다. `application/json` 은 규격상 UTF-8 이라 브라우저는 알아서
+ * 읽지만, 규격을 안 읽는 클라이언트(구형 웹뷰·일부 HTTP 라이브러리)는 시스템 코드페이지로
+ * 해석해 한글을 깨뜨린다. 이 병원 단말이 어떤 웹뷰인지 우리가 다 알 수 없다.
+ *
+ * 헤더 객체를 곳곳에 복붙하지 말 것 — 예전에 열 군데가 각자 들고 있어서 charset 을
+ * 한 번에 못 붙였다.
+ */
+const CORS_JSON = {
+  'Content-Type': 'application/json; charset=utf-8',
+  'Access-Control-Allow-Origin': '*',
+};
+/** 위와 같되 캐시를 막는 것 (도면 마스크처럼 현장에서 바뀌는 파일) */
+const CORS_JSON_NOSTORE = { ...CORS_JSON, 'Cache-Control': 'no-store' };
 
 /**
  * 직원 전용 API — staff 토큰(진입 핀으로 받는다) 없이는 401.
@@ -467,14 +495,80 @@ function clientKey(req: IncomingMessage): string {
   return first.trim() || req.socket.remoteAddress || 'unknown';
 }
 
-/** 본문 수신 + 크기 방어. content-type 을 안 붙여 preflight 없는 simple request 로 받는다. */
-function readBody(req: IncomingMessage, limit: number, done: (body: string) => void): void {
-  let body = '';
-  req.on('data', (c) => {
-    body += c;
-    if (body.length > limit) req.destroy();
+/**
+ * 본문 수신 + 크기 방어. **모든 POST 본문은 여기 하나만 지난다.**
+ *
+ * ⚠️ **청크를 문자열에 이어 붙이면 한글이 깨진다.** `body += chunk` 는 Buffer 를 그때그때
+ *    UTF-8 로 디코드하는데, TCP 는 3바이트짜리 한 글자를 청크 경계에서 얼마든지 쪼갠다.
+ *    쪼개진 조각은 각각 따로 디코드돼 U+FFFD 세 개가 된다 — 실제로 비콘 이름이
+ *    `김사과` → `김���과` 로 저장됐다. 본문이 길거나(메모·재현 절차)
+ *    회선이 느릴수록 잘 터진다.
+ *
+ *    그래서 **버퍼로 모아 두었다가 끝난 뒤 한 번만** 디코드한다. 이 함수를 거치지 않는
+ *    본문 읽기를 새로 만들지 말 것 — 예전에 세 군데가 각자 읽고 있었고 셋 다 깨졌다.
+ *
+ * 크기 제한은 **바이트**로 센다. 문자열 길이로 세면 한글이 글자당 3바이트라 제한이
+ * 사실상 3배로 헐거워진다.
+ */
+function readBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+  limit: number,
+  done: (body: string) => void,
+): void {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let refused = false;
+
+  /**
+   * 거절할 때는 **반드시 답을 준다.**
+   *
+   * 예전에는 `req.destroy()` 로 소켓만 끊었는데, 클라이언트는 응답도 끊김도 못 받고
+   * 타임아웃까지 매달렸다(실측 10초 이상). 무엇이 잘못됐는지도 알 수 없다.
+   */
+  const refuse = (why: string): void => {
+    if (refused) return;
+    refused = true;
+    res.writeHead(413, CORS_JSON);
+    res.end(JSON.stringify({ ok: false, error: why }));
+    req.resume(); // 남은 본문은 흘려보낸다 (안 그러면 소켓이 안 닫힌다)
+  };
+
+  req.on('data', (c: Buffer) => {
+    if (refused) return;
+    size += c.length;
+    if (size > limit) {
+      refuse(`본문이 너무 큽니다 (${limit}바이트 초과)`);
+      return;
+    }
+    chunks.push(c);
   });
-  req.on('end', () => done(body));
+  req.on('end', () => {
+    if (refused) return;
+    const raw = Buffer.concat(chunks);
+    const text = raw.toString('utf8');
+    /**
+     * **UTF-8 이 아닌 본문은 받지 않는다.**
+     *
+     * `toString('utf8')` 은 잘못된 바이트를 U+FFFD 로 바꿔 놓고 조용히 성공한다 — 그대로
+     * 저장하면 되돌릴 수 없는 쓰레기가 DB 에 남는다. 실제로 비콘 이름 4개가 `����2` 꼴로
+     * 굳었다: CP949 콘솔에서 curl 로 찌른 값이었다(한글 한 자 2바이트가 UTF-8 로 전부 무효).
+     *
+     * 다시 인코딩해 원본 바이트와 같은지 보면 손실이 있었는지 정확히 알 수 있다.
+     * 브라우저는 항상 UTF-8 로 보내므로 화면 사용에는 영향이 없고, 잘못된 인코딩으로
+     * 찌르는 도구만 걸린다 — 조용히 망가뜨리느니 거부하는 편이 낫다.
+     */
+    if (!raw.equals(Buffer.from(text, 'utf8'))) {
+      console.warn('[server] ⚠️ UTF-8 아닌 본문을 거부했습니다 (클라이언트 인코딩 확인 필요)');
+      if (!refused) {
+        refused = true;
+        res.writeHead(400, CORS_JSON);
+        res.end(JSON.stringify({ ok: false, error: '본문이 UTF-8 이 아닙니다' }));
+      }
+      return;
+    }
+    done(text);
+  });
 }
 
 const httpServer = createServer((req, res) => {
@@ -528,7 +622,7 @@ const httpServer = createServer((req, res) => {
       return;
     }
     if (req.method === 'POST') {
-      readBody(req, 200, (body) => {
+      readBody(req, res, 200, (body) => {
         let pin = '';
         try {
           pin = String((JSON.parse(body || '{}') as { pin?: unknown }).pin ?? '');
@@ -569,7 +663,7 @@ const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     // ⚠️ CORS 필수: 화면이 서버와 다른 도메인일 때(개발 5173→8080, 프론트만 따로 배포)
     //    이 헤더가 없으면 브라우저가 응답을 막아 **서버가 살아 있는데도 죽은 것으로 보인다**.
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, CORS_JSON);
     res.end(
       JSON.stringify({ ok: true, tags: engine.getAllStates().length, scans: scanRouter.stats() }),
     );
@@ -577,7 +671,7 @@ const httpServer = createServer((req, res) => {
   }
   // 도면 배경 이미지 메타 (프론트가 이미지 위에 존/아바타 매핑)
   if (req.url === '/floorplan') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, CORS_JSON);
     res.end(JSON.stringify(loadFloorplan()));
     return;
   }
@@ -585,11 +679,7 @@ const httpServer = createServer((req, res) => {
   // 통행 격자와 **따로** 두는 이유: 여기도 사람이 다닐 수는 있다(직원). 통행 격자에
   // 섞으면 직원 좌표가 벽으로 밀려나고, 격자를 읽는 여섯 군데를 다 고쳐야 한다
   if (req.url === '/staff-area') {
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'no-store',
-    });
+    res.writeHead(200, CORS_JSON_NOSTORE);
     res.end(readFileSync(join(configDir, 'staff-area.json'), 'utf-8'));
     return;
   }
@@ -599,11 +689,7 @@ const httpServer = createServer((req, res) => {
    * 여기 없는 칸은 방이고, 목적지가 아닌 방은 지나가면 비싸다 (tools/build-rooms.py).
    */
   if (req.url === '/corridor') {
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'no-store',
-    });
+    res.writeHead(200, CORS_JSON_NOSTORE);
     res.end(readFileSync(join(configDir, 'corridor.json'), 'utf-8'));
     return;
   }
@@ -611,20 +697,13 @@ const httpServer = createServer((req, res) => {
   // 통제구역(벽/샤프트) 그리드 — 프론트의 경로탐색·오버레이 표시용
   // ⚠️ 캐시 금지: 그리드 갱신 후에도 브라우저가 구버전을 쓰면 화면과 서버 판정이 어긋난다
   if (req.url === '/walkable') {
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'no-store',
-    });
+    res.writeHead(200, CORS_JSON_NOSTORE);
     res.end(readFileSync(join(configDir, 'walkable.json'), 'utf-8'));
     return;
   }
   // 존 레이아웃 (프론트 맵 렌더링용 — 위치 정보 아님, 정적 마스터)
   if (req.url === '/zones') {
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    });
+    res.writeHead(200, CORS_JSON);
     res.end(JSON.stringify(loadZones()));
     return;
   }
@@ -676,18 +755,12 @@ const httpServer = createServer((req, res) => {
   // 태그 이름/메모 — 관제·직원 화면 공용
   if (req.url === '/tag-meta') {
     if (req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, CORS_JSON);
       res.end(JSON.stringify(tagMeta.all()));
       return;
     }
     if (req.method === 'POST') {
-      // content-type 을 명시 안 해 preflight 없는 simple request 로 받음
-      let body = '';
-      req.on('data', (c) => {
-        body += c;
-        if (body.length > 10_000) req.destroy(); // 방어
-      });
-      req.on('end', () => {
+      readBody(req, res, 10_000, (body) => {
         try {
           const { tagId, name, memo, group } = JSON.parse(body) as {
             tagId: string;
@@ -706,7 +779,7 @@ const httpServer = createServer((req, res) => {
           tagMeta.set(tagId, who, (memo ?? '').trim(), group);
           // 이름은 한 값이다 — 사람 쪽도 같이 바꿔야 환자 등록/반납과 어긋나지 않는다
           renameHolder(db, tagId, who);
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.writeHead(200, CORS_JSON);
           res.end(JSON.stringify({ ok: true }));
         } catch {
           res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
@@ -719,7 +792,7 @@ const httpServer = createServer((req, res) => {
   // 환자용 캐릭터 커스터마이징 — 첫 진입 시 GET 이 비면 선택 화면을 띄운다.
   // 브라우저 스토리지 금지(불변식 B-5)라 서버가 personId 기준으로 보관한다.
   if (req.url?.startsWith('/patient-profile')) {
-    const cors = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const cors = CORS_JSON;
     if (req.method === 'GET') {
       const token = new URL(req.url, 'http://localhost').searchParams.get('token') ?? '';
       const claims = verifyToken(token, SERVER_CONFIG.jwtSecret);
@@ -733,12 +806,7 @@ const httpServer = createServer((req, res) => {
       return;
     }
     if (req.method === 'POST') {
-      let body = '';
-      req.on('data', (c) => {
-        body += c;
-        if (body.length > 4_000) req.destroy();
-      });
-      req.on('end', () => {
+      readBody(req, res, 4_000, (body) => {
         try {
           const { token, charId, nickname } = JSON.parse(body) as {
             token: string;
@@ -794,7 +862,7 @@ const httpServer = createServer((req, res) => {
    * 이길 틈이 없다.
    */
   if (req.url === '/patient-token' && req.method === 'POST') {
-    readBody(req, 1_000, (body) => {
+    readBody(req, res, 1_000, (body) => {
       try {
         const { pin } = JSON.parse(body) as { pin?: string };
         const found = findBeaconByPin(db, pin ?? '');
@@ -843,7 +911,7 @@ const httpServer = createServer((req, res) => {
       return;
     }
     if (req.method === 'POST') {
-      readBody(req, 200, (body) => {
+      readBody(req, res, 200, (body) => {
         try {
           const { on } = JSON.parse(body) as { on?: boolean };
           const want = on !== false;
@@ -889,7 +957,7 @@ const httpServer = createServer((req, res) => {
 
   /** 데스크용 — 환자가 폰을 바꾸거나 기록을 지웠을 때 다시 찍게 풀어준다 */
   if (req.url === '/reset-claim' && req.method === 'POST') {
-    readBody(req, 1_000, (body) => {
+    readBody(req, res, 1_000, (body) => {
       try {
         const { tagId } = JSON.parse(body) as { tagId?: string };
         if (!tagId) throw new Error('tagId 없음');
@@ -915,7 +983,7 @@ const httpServer = createServer((req, res) => {
    * 하드웨어 등록 때 정해진다. 등록할 때마다 다시 고르게 하면 실수만 는다.
    */
   if (req.url === '/assign' && req.method === 'POST') {
-    readBody(req, 2_000, (body) => {
+    readBody(req, res, 2_000, (body) => {
       try {
         const { tagId, name } = JSON.parse(body) as { tagId?: string; name?: string };
         if (!tagId) throw new Error('tagId 없음');
@@ -953,7 +1021,7 @@ const httpServer = createServer((req, res) => {
    * 표시 이름도 지운다: 다음 사람이 올 때까지 앞 환자 이름이 목록에 남아 있으면 안 된다.
    */
   if (req.url === '/release' && req.method === 'POST') {
-    readBody(req, 2_000, (body) => {
+    readBody(req, res, 2_000, (body) => {
       try {
         const { tagId } = JSON.parse(body) as { tagId?: string };
         if (!tagId) throw new Error('tagId 없음');
@@ -983,7 +1051,7 @@ const httpServer = createServer((req, res) => {
    * `zoneId` 를 비우면 해제. 도착하면 서버가 알아서 푼다(아래 좌표 방송 참고).
    */
   if (req.url === '/guide' && req.method === 'POST') {
-    readBody(req, 2_000, (body) => {
+    readBody(req, res, 2_000, (body) => {
       try {
         const { tagId, zoneId } = JSON.parse(body) as { tagId?: string; zoneId?: string | null };
         if (!tagId) throw new Error('tagId 없음');
@@ -1024,6 +1092,18 @@ const httpServer = createServer((req, res) => {
    * 알림톡 연동이 읽어 갈 자리이자, 지금은 "안내가 제대로 닫히고 있나" 를 눈으로 보는 창구다.
    * 진행 중(`moving`)인 줄도 같이 나온다 — 안 나오면 이동 중인 환자를 조회할 수 없다.
    */
+  /**
+   * 게이트웨이 생사 기록 — 반복되는 끊김의 원인을 좁히는 창구.
+   *
+   * `events` 에 끊김(died)·복구(back)·재부팅(reboot)·유실(loss)이 시각과 함께 쌓인다.
+   * 여러 대가 **같은 시각에** 끊혔으면 장비 고장이 아니라 공용 AP·전원 계통이다.
+   */
+  if (req.url?.startsWith('/gateway-health')) {
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify(gwHealth.snapshot()));
+    return;
+  }
+
   if (req.url?.startsWith('/nav-logs')) {
     const url = new URL(req.url, 'http://localhost');
     const logs = navLog.list({
@@ -1056,7 +1136,7 @@ const httpServer = createServer((req, res) => {
 
   if (req.url === '/feedback' && req.method === 'POST') {
     // 본문이 길 수 있다 — 재현 절차를 여러 줄로 적는 게 이 기능의 목적이다
-    readBody(req, 20_000, (raw) => {
+    readBody(req, res, 20_000, (raw) => {
       try {
         const { kind, body, author, context } = JSON.parse(raw) as {
           kind?: string;
@@ -1089,7 +1169,7 @@ const httpServer = createServer((req, res) => {
   }
 
   if (req.url === '/feedback/status' && req.method === 'POST') {
-    readBody(req, 500, (raw) => {
+    readBody(req, res, 500, (raw) => {
       try {
         const { id, status } = JSON.parse(raw) as { id?: number; status?: string };
         if (!id) throw new Error('id 없음');
@@ -1106,7 +1186,7 @@ const httpServer = createServer((req, res) => {
   }
 
   if (req.url === '/feedback/delete' && req.method === 'POST') {
-    readBody(req, 500, (raw) => {
+    readBody(req, res, 500, (raw) => {
       try {
         const { id } = JSON.parse(raw) as { id?: number };
         if (!id) throw new Error('id 없음');
@@ -1122,7 +1202,7 @@ const httpServer = createServer((req, res) => {
   }
 
   if (req.url === '/register-tag' && req.method === 'POST') {
-    readBody(req, 4_000, (body) => {
+    readBody(req, res, 4_000, (body) => {
       try {
         const { tagId, name, group, memo } = JSON.parse(body) as {
           tagId: string;
@@ -1168,7 +1248,7 @@ const httpServer = createServer((req, res) => {
    * 이게 없으면 재생은 되는데 채점을 못 한다 (판정이 바뀐 건 보여도 좋아졌는지 모름).
    */
   if (req.url === '/record/mark' && req.method === 'POST') {
-    readBody(req, 1_000, (body) => {
+    readBody(req, res, 1_000, (body) => {
       if (!recorder) {
         res.writeHead(409, CORS_JSON);
         res.end(JSON.stringify({ ok: false, error: '녹화 중이 아님 (RECORD_SCANS 미설정)' }));
@@ -1211,7 +1291,7 @@ const httpServer = createServer((req, res) => {
    * ⚠️ 인증 없음 — /tag-meta·/register-tag 와 같은 수준. 한 번에 staff 토큰 뒤로 옮길 것.
    */
   if (req.url === '/register-gateway' && req.method === 'POST') {
-    readBody(req, 2_000, (body) => {
+    readBody(req, res, 2_000, (body) => {
       try {
         const raw = JSON.parse(body) as {
           gatewayId: string;
@@ -1305,7 +1385,7 @@ const httpServer = createServer((req, res) => {
    * 그게 맞다 — 목록에서 뺐다고 전파가 멈추지는 않으니, 화면은 그 사실을 보여줘야 한다.
    */
   if (req.url === '/delete-gateway' && req.method === 'POST') {
-    readBody(req, 1_000, (body) => {
+    readBody(req, res, 1_000, (body) => {
       try {
         const { gatewayId } = JSON.parse(body) as { gatewayId?: string };
         const id = normalizeMac(gatewayId ?? '');
@@ -1337,7 +1417,7 @@ const httpServer = createServer((req, res) => {
    * 정상이고, 환자에게 넘기는 건 인포의 '환자 등록' 이 따로 한다.
    */
   if (req.url === '/register-beacon' && req.method === 'POST') {
-    readBody(req, 4_000, (body) => {
+    readBody(req, res, 4_000, (body) => {
       try {
         const { tagId, group, memo } = JSON.parse(body) as {
           tagId?: string;
@@ -1380,7 +1460,7 @@ const httpServer = createServer((req, res) => {
    * 화면에서는 사라지고 화이트리스트에서도 빠지므로 운영상으로는 삭제와 같다.
    */
   if (req.url === '/delete-beacon' && req.method === 'POST') {
-    readBody(req, 1_000, (body) => {
+    readBody(req, res, 1_000, (body) => {
       try {
         const { tagId } = JSON.parse(body) as { tagId?: string };
         const id = normalizeMac(tagId ?? '');
@@ -1461,7 +1541,7 @@ const httpServer = createServer((req, res) => {
     return;
   }
   if (req.url === '/channeltalk/send' && req.method === 'POST') {
-    readBody(req, 4_000, (body) => {
+    readBody(req, res, 4_000, (body) => {
       void (async () => {
         try {
           const { kind, managerId, managerName, text, group } = JSON.parse(body) as {
@@ -1524,10 +1604,7 @@ const httpServer = createServer((req, res) => {
       url.searchParams.get('type') === 'patient'
         ? ({ personId: patientForToken(url.searchParams.get('tag')), type: 'patient' } as const)
         : STAFF_CLAIMS;
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    });
+    res.writeHead(200, CORS_JSON);
     res.end(JSON.stringify({ token: signToken(claims, SERVER_CONFIG.jwtSecret) }));
     return;
   }
