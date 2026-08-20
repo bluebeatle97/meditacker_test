@@ -174,15 +174,21 @@ python tools/build-walkable.py                          # 2. 통행 격자 + 그
 python tools/build-staff-areas.py                       # 3. 손님 통제구역 마스크
 python tools/build-doors.py                             # 4. 문 위치
 python tools/build-rooms.py                             # 5. 방 분할 + 복도 마스크
-python tools/build-tiling-map.py --desk-face 38        # 6. 에셋 배치용 색 지도
+python tools/plan-to-tiling.py                         # 6. 에셋 배치용 색 지도 (2D 도면 기준)
+python tools/build-tiling-map.py --desk-face 38        # 6'. (구) 손그림 2.5D 기준
 python tools/build-pixel-map.py "<Modern tiles_Free 폴더>"  # 7. 환자용 도트맵
 python tools/build-door-map.py                          # 8. 문 2.5D 레이어
 node tools/copy-demo-config.mjs                         # 9. 시연 배포용 사본
 npm run check:walls                                     # 10. 벽 판정 검사
 ```
 
-⚠️ **6번의 `--desk-face 38` 은 빼면 안 된다.** 기본값 8 로 돌리면 곡선 데스크의 상판이
-사라지고 커밋된 지도와 8,354px 어긋난다 (`build-maps.py` 는 이 값을 넘겨 준다).
+⚠️ **6번과 6'번은 입력이 다르다.** `plan-to-tiling.py` 는 **2D 도면**(`floorplan-door.png`)
+에서 골조를 읽고 높이×투영계수로 정면을 밀어낸다 — `blueprint-extract.py` 와 같은 모델이다.
+`build-tiling-map.py` 는 **손그림 2.5D**(`wall-mask.png`, 벽이 40px = 648mm 로 두껍다)에서
+그 두께를 윗면/정면으로 갈라 쓴다. 지금 커밋된 지도는 6번 산출물이다.
+
+⚠️ **6'번의 `--desk-face 38` 은 빼면 안 된다.** 기본값 8 로 돌리면 곡선 데스크의 상판이
+사라진다 (`build-maps.py` 는 이 값을 넘겨 준다).
 
 ⚠️ **마스크를 직접 받았으면 `build-wall-mask.py` 를 돌리면 안 된다.** 그건 `wall.png` 에서
 마스크를 **생성**하는 쪽이라 받은 마스크를 통째로 덮어쓴다. 그때는 `normalize-wall-mask.py`
