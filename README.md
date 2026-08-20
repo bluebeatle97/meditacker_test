@@ -154,6 +154,7 @@ python tools/build-characters.py "<Modern tiles_Free 폴더>"  # 캐릭터 스�
 **순서가 중요하다.** 뒤에 오는 것이 앞의 결과를 입력으로 받는다. 그래서 한 곳에 모아 뒀다:
 
 ```bash
+python tools/blueprint-extract.py <도면.pdf> --out <폴더> --mm-per-px <값>  # 설계도면에서 시작
 python tools/build-maps.py                    # 벽 그림(wall.png)에서 시작
 python tools/build-maps.py --from-mask        # 벽 마스크를 직접 받았을 때
 python tools/build-maps.py --dry-run          # 무엇이 돌지만 확인
@@ -208,6 +209,7 @@ npm run check:walls                                     # 10. 벽 판정 검사
 | `config/staff-area.png` | 손님 통제구역 | 자홍색(#FF00FF) = 직원 전용 |
 | `config/floorplan-door.png` | **문 위치** | 도면 위에 문틈마다 빨강(#ED1C24)을 **꽉 채운다** |
 | `config/furniture-mask.png` | 가구 (벽 아님) | 흰색 = 안내데스크처럼 벽이 아닌 낮은 구조물 |
+| `config/shaft-mask.png` | 계단·엘리베이터 코어 | 흰색 = 벽보다 두꺼운 구조 코어 (자동 분리됨) |
 | `config/wall.png` 안쪽 검정 | 붙박이 물건 | 테두리에서 안 이어지는 검정은 물건(=벽)으로 본다 |
 
 문은 **선으로 긋지 말고 틈을 채운다.** 선으로 그었더니 길이가 곧 판정이 되어, 짧으면
