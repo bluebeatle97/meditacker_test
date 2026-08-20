@@ -88,6 +88,9 @@ def main() -> None:
                          "보고 두께를 갈라 쓴다 (손으로 그린 wall.png 계열)")
     ap.add_argument("--face-ratio", type=float, default=None,
                     help="정면 깊이 / 벽 두께. 기본은 wall-standards.json 의 faceRatio")
+    ap.add_argument("--close-slits", type=int, default=12,
+                    help="벽 사이 이 폭 이하의 세로 틈을 메운다 (메모리 안에서만 — "
+                         "wall-mask.png 은 건드리지 않는다). 0 이면 끄기")
     ap.add_argument("--config-dir", default=CFG,
                     help="입력·출력을 둘 폴더. 다른 건물 도면을 시험할 때 쓴다")
     ap.add_argument("--out", default=None)
@@ -121,6 +124,38 @@ def main() -> None:
             sys.exit(f"가구 마스크 크기가 다르다: {fur.size} vs {(W, H)}")
 
     wp, op = wall.load(), outside.load()
+
+    # ── 곡선 골조의 빗살 메우기 ──────────────────────────────────────────────
+    #
+    # 손그림 wall.png 은 곡선 골조(안내데스크 아치)의 정면을 **세로 획 여러 개**로
+    # 그렸다. 획 사이 밝은 틈까지 마스크가 그대로 받아서, 아래 규칙을 태우면 획마다
+    # 빨강 이빨이 서고 틈으로 바닥이 새어 톱니가 된다 — 곡선이 곡선으로 안 읽힌다.
+    #
+    # 그래서 **양쪽이 벽인 좁은 세로 틈만** 메운다. 실측 분포가 갈라 준다: 2px 1,628줄
+    # (빗살) / 12px 이하 전부 5,389px = 벽의 0.9%. 문 구멍은 41~80px 이라 안 걸린다.
+    #
+    # 한 축(행)만 훑는다. 빗살이 세로 획이므로 틈은 행 방향이고, 열 방향까지 메우면
+    # 문틀 위아래가 붙는다. 예전에 틈을 다 메웠다가 벽이 9.7%->13.5% 로 불어난 적이
+    # 있다 — 폭 상한과 축 하나가 그 실패와 이 처리를 가르는 선이다.
+    #
+    # ⚠️ 메모리 안에서만 메운다. wall-mask.png 을 고치면 walkable/rooms/private-area 가
+    #    같이 움직이고, 그건 이 색 지도와 무관한 판단이다.
+    if args.close_slits > 0:
+        slits = []
+        for y in range(H):
+            x = 0
+            while x < W:
+                if wp[x, y] >= 128:
+                    x += 1
+                    continue
+                s0 = x
+                while x < W and wp[x, y] < 128:
+                    x += 1
+                if s0 > 0 and x < W and x - s0 <= args.close_slits:
+                    slits += [(i, y) for i in range(s0, x)]
+        for x, y in slits:
+            wp[x, y] = 255
+        print(f"  곡선 빗살 메움 {len(slits):,}px (세로 틈 {args.close_slits}px 이하)")
     fp = fur.load() if fur else None
     img = Image.new("RGB", (W, H))
     px = img.load()
