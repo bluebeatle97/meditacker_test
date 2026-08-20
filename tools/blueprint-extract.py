@@ -19,7 +19,7 @@
     ④ 창문 봉함        창은 외벽에 난 구멍이다. 안 막으면 건물 경계가 열린다
     ⑤ 문 잇기          문 위치는 **탐색 힌트로만** 쓰고 양쪽 벽 끝점을 잇는다
     ⑥ 방 판정 (게이트)  방이 갈라지지 않으면 앞 단계가 실패한 것이다 → 0 이 아닌 코드로 종료
-    ⑦ 2.5D 색 지도     윗면/정면 + 문 + 샤프트
+    ⑦ 2.5D 색 지도     세 부류(벽·문·샤프트)가 각각 윗면/정면 두 색을 갖는다
 
 ## 두 가지 핵심 결정 (둘 다 실패를 거쳐 나왔다)
 
@@ -62,7 +62,8 @@ TEXT_RE = re.compile(r"TEXT|문자", re.I)
 RED = (237, 28, 36)          # build-doors.py 가 읽는 문 색
 FLOOR, TOP, FACE = (0, 255, 0), (0, 0, 255), (255, 0, 0)
 DTOP, DFACE = (255, 165, 0), (255, 105, 180)
-SHAFT_C, OUT_C = (150, 70, 200), (0, 0, 0)
+STOP, SFACE = (150, 70, 200), (90, 30, 140)
+OUT_C = (0, 0, 0)
 
 
 def pick_layers(doc):
@@ -192,6 +193,7 @@ def main():
     std = json.load(open(args.standards, encoding="utf-8"))
     h = std["heights"]
     proj, ceil_mm, door_mm = h["projectionFactor"], h["ceilingMm"], h["doorMm"]
+    shaft_mm = h.get("shaftMm", h["ceilingMm"])
     tbl_max = max(w["mm"] for w in std["walls"])
 
     doc = fitz.open(args.pdf)
@@ -382,14 +384,13 @@ def main():
     solid = bytearray(W * H)
     for i in range(W * H):
         solid[i] = 1 if (wall[i] or shaft[i] or doorm[i]) else 0
-    _, vr2 = runs(solid, W, H)
     tile = Image.new("RGB", (W, H), OUT_C)
     tp = tile.load()
     for y in range(H):
         for x in range(W):
             i = y * W + x
             if shaft[i]:
-                tp[x, y] = SHAFT_C
+                tp[x, y] = STOP
             elif doorm[i]:
                 tp[x, y] = DTOP
             elif wall[i]:
@@ -398,8 +399,13 @@ def main():
                 tp[x, y] = OUT_C
             else:
                 tp[x, y] = FLOOR
-    wall_depth = max(1, int(round(ceil_mm * proj / mmpx)))
-    door_depth = max(1, int(round(door_mm * proj / mmpx)))
+    depth_of = lambda mm: max(1, int(round(mm * proj / mmpx)))
+    wall_depth, door_depth, shaft_depth = (
+        depth_of(ceil_mm), depth_of(door_mm), depth_of(shaft_mm))
+    # 윗면 색 → (정면 색, 정면 깊이). 샤프트도 천장까지 올라가므로 벽과 같은 높이다 —
+    # 색을 벽 정면(빨강)과 나눠 두면 아트가 벽면과 코어(엘리베이터 문·계단)를 갈라 깐다.
+    KIND = {"door": (DFACE, door_depth), "shaft": (SFACE, shaft_depth),
+            "wall": (FACE, wall_depth)}
     for y in range(H):
         x = 0
         while x < W:
@@ -411,18 +417,19 @@ def main():
             while x < W and solid[y * W + x] and (y + 1 >= H or not solid[(y + 1) * W + x]):
                 x += 1
             run = list(range(s0, x))
-            if sum(1 for i in run if shaft[y * W + i]) * 2 >= len(run):
-                continue
-            is_door = sum(1 for i in run if doorm[y * W + i]) * 2 >= len(run)
-            depth = door_depth if is_door else wall_depth
-            col = DFACE if is_door else FACE
+            # 조각 하나에 색 하나 — 픽셀별로 고르면 접합부에서 정면이 톱니가 된다
+            n = {k: 0 for k in KIND}
+            for i in run:
+                j = y * W + i
+                n["door" if doorm[j] else "shaft" if shaft[j] else "wall"] += 1
+            col, depth = KIND[max(n, key=lambda k: n[k])]
             for i in run:
                 for k in range(y + 1, min(H, y + 1 + depth)):
                     if not solid[k * W + i] and lab2[k * W + i] != 1:
                         tp[i, k] = col
     tile.save(os.path.join(args.out, "tiling-map.png"))
     print(f"[7] 2.5D 저장 · 벽 정면 {wall_depth}px({ceil_mm}mm x {proj}) · "
-          f"문 정면 {door_depth}px")
+          f"문 {door_depth}px · 샤프트 {shaft_depth}px")
 
     json.dump({
         "pdf": os.path.basename(args.pdf), "dpi": args.dpi, "mmPerPx": mmpx,
