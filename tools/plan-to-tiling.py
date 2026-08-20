@@ -250,27 +250,29 @@ def main():
             k = cls[i]
             tp[x, y] = KIND[k][0] if k else OUT_C if op[x, y] >= 128 else FLOOR
 
-    # 남쪽 경계의 연속 구간을 **한 조각**으로 보고 조각마다 색·깊이를 하나 정한다.
-    # 픽셀별로 고르면 접합부에서 정면이 톱니가 된다.
+    # 남쪽 경계를 훑어 **부류가 바뀌는 지점에서** 조각을 자르고, 조각마다 색·깊이를
+    # 하나 정해 아래로 밀어낸다.
+    #
+    # 처음엔 이어진 구간 전체를 다수결 하나로 칠했다. 문과 양옆 벽이 남쪽 경계에서 한 줄로
+    # 이어지면 조각이 하나가 되고, 문이 과반이면 **벽까지 통째로 분홍**이 됐다 (실측: 네 곳,
+    # 최대 61:49 표결로 794mm 어치. 기둥 502px 은 반대로 벽 색이 됐다). 부류별로 자르는
+    # 것은 픽셀별로 자르는 것이 아니다 — 조각은 여전히 조각이라 다수결을 넣은 이유(접합부
+    # 톱니)가 생기지 않는다.
     for y in range(H):
         x = 0
         while x < W:
             if not (bar[y * W + x] and (y + 1 >= H or not bar[(y + 1) * W + x])):
                 x += 1
                 continue
+            k = cls[y * W + x]
             s0 = x
-            while x < W and bar[y * W + x] and (y + 1 >= H or not bar[(y + 1) * W + x]):
+            while (x < W and bar[y * W + x] and cls[y * W + x] == k
+                   and (y + 1 >= H or not bar[(y + 1) * W + x])):
                 x += 1
-            run = range(s0, x)
-            n = {}
-            for i in run:
-                k = cls[y * W + i]
-                n[k] = n.get(k, 0) + 1
-            _, col, depth = KIND[max(n, key=lambda k: n[k])]
-            for i in run:
+            _, col, depth = KIND[k]
+            for i in range(s0, x):
                 for yy in range(y + 1, min(H, y + 1 + depth)):
-                    j = yy * W + i
-                    if not bar[j] and op[i, yy] < 128:
+                    if not bar[yy * W + i] and op[i, yy] < 128:
                         tp[i, yy] = col
     lines = [f"[7] 2.5D · " + " · ".join(
         f"{k} {KIND[k][2]}px" for k in ("wall", "door", "shaft", "desk"))]

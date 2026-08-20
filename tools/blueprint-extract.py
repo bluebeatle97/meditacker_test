@@ -416,17 +416,29 @@ def main():
             s0 = x
             while x < W and solid[y * W + x] and (y + 1 >= H or not solid[(y + 1) * W + x]):
                 x += 1
-            run = list(range(s0, x))
-            # 조각 하나에 색 하나 — 픽셀별로 고르면 접합부에서 정면이 톱니가 된다
-            n = {k: 0 for k in KIND}
-            for i in run:
+            # 조각을 **부류가 바뀌는 지점에서** 자른다. 깊이는 조각마다 하나이므로
+            # 톱니는 안 생기고, 색은 각자 제 부류를 입는다.
+            #
+            # 처음엔 조각 전체를 다수결 하나로 칠했다. 문과 양옆 벽이 남쪽 경계에서 한 줄로
+            # 이어지면 조각이 하나가 되고, 문이 과반이면 **벽까지 통째로 분홍**이 됐다
+            # (원내 지도 실측: 61:49 표결로 794mm 어치 벽이 문 색을 입었다. 기둥 502px 도
+            # 벽 색이 됐다). 부류별로 자르는 것은 픽셀별로 자르는 것이 아니다 — 조각은
+            # 여전히 조각이라 애초에 다수결을 넣은 이유(톱니)가 생기지 않는다.
+            i = s0
+            while i < x:
                 j = y * W + i
-                n["door" if doorm[j] else "shaft" if shaft[j] else "wall"] += 1
-            col, depth = KIND[max(n, key=lambda k: n[k])]
-            for i in run:
-                for k in range(y + 1, min(H, y + 1 + depth)):
-                    if not solid[k * W + i] and lab2[k * W + i] != 1:
-                        tp[i, k] = col
+                k = "door" if doorm[j] else "shaft" if shaft[j] else "wall"
+                a = i
+                while i < x:
+                    jj = y * W + i
+                    if ("door" if doorm[jj] else "shaft" if shaft[jj] else "wall") != k:
+                        break
+                    i += 1
+                col, depth = KIND[k]
+                for px in range(a, i):
+                    for py in range(y + 1, min(H, y + 1 + depth)):
+                        if not solid[py * W + px] and lab2[py * W + px] != 1:
+                            tp[px, py] = col
     tile.save(os.path.join(args.out, "tiling-map.png"))
     print(f"[7] 2.5D 저장 · 벽 정면 {wall_depth}px({ceil_mm}mm x {proj}) · "
           f"문 {door_depth}px · 샤프트 {shaft_depth}px")
